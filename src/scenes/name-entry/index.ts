@@ -180,7 +180,14 @@ export function createNameEntryScene(services: AppServices, options: { renamePro
   }
   const go = createButton({ x: 0, y: 0, radius: 52, fill: '#2ec27e', icon: GO, onPress: commit });
   const back = createButton({ x: 0, y: 0, radius: 48, fill: '#ff9f43', icon: BACK, onPress: backspace });
-  const guest = createButton({ x: 0, y: 0, radius: 48, fill: '#ffe08a', icon: renaming ? 'buttons/home' : GUEST, iconScale: 0.84, onPress: () => { if (!leaving) { if (renaming) { leaving = true; services.nav.toHub(); } else { const reuse = unplayedGuest(services.save.data.profiles); if (reuse) services.save.selectProfile(reuse.id); else services.save.createGuestProfile(); depart(); } } } });
+  function playAsGuest(): void {
+    // Decide from the stored progress: another tab may have played as this guest since this one loaded.
+    services.save.refreshProfiles();
+    const reuse = unplayedGuest(services.save.data.profiles);
+    if (reuse) services.save.selectProfile(reuse.id); else services.save.createGuestProfile();
+    depart();
+  }
+  const guest = createButton({ x: 0, y: 0, radius: 48, fill: '#ffe08a', icon: renaming ? 'buttons/home' : GUEST, iconScale: 0.84, onPress: () => { if (!leaving) { if (renaming) { leaving = true; services.nav.toHub(); } else playAsGuest(); } } });
   const profileNext = createButton({ x: 0, y: 0, radius: 48, fill: '#a78bfa', onPress: () => { profilePage = (profilePage + 1) % profilePages; buildProfiles(); layout(); keyboard.focus(profileNext); } });
   const keyNext = createButton({ x: 0, y: 0, radius: 48, fill: '#a78bfa', onPress: () => { keyPage = (keyPage + 1) % keyPages; layout(); keyboard.focus(keyNext); } });
   const keys = ALPHABET.split('').map((_, i) => createButton({ x: 0, y: 0, radius: 48, fill: COLORS[i % COLORS.length]!, squareHit: true, onPress: () => typeLetter(i) }));
