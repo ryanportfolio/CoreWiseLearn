@@ -37,6 +37,12 @@ const CARD_FILL = '#fff4dc', CARD_LINE = '#6b4a33', DOT_EMPTY = '#ece0c4', DOT_R
 const POOL = 32, PARTICLES = 220, MAX_FRUIT = 10;
 const SETTLE_SECONDS = 0.8, EAT_GAP = 0.3, DANCE_SECONDS = 1.3, CELEBRATION_SECONDS = 4.6, STAR_START = 0.5;
 const CHOICE_GUARD_MS = 1200, REST_GUARD_MS = 350, KEY_GAP_MS = 120, PRESS_GAP_MS = 150, IDLE_SECONDS = 6, IDLE_REPEAT = 7;
+/** Comparison hint: the hand points at the bigger pile after 6 idle seconds, again every 8 s, for 3 s each time. */
+const HINT_REPEAT = 8, HINT_SECONDS = 3;
+/** Introduction: the hand reaches the card, then taps each dot in turn before it fetches a fruit. */
+const POINT_REACH = 0.8, POINT_GAP = 0.6, POINT_TAP = 0.25, POINT_AFTER = 0.4;
+/** Plate fruit size as a fraction of the plate width, and the slack kept between neighbouring rows of five. */
+const FRUIT_OF_PLATE = 0.31, ROW_ROOM = 0.94;
 
 type Phase = 'play' | 'celebration' | 'choice' | 'sticker' | 'rest';
 type SlotState = 'off' | 'waiting' | 'asking' | 'settling' | 'eating' | 'dancing' | 'done' | 'compare';
@@ -46,8 +52,8 @@ interface Slot {
   kind: number; x: number; state: SlotState; t: number;
   target: number; count: number; incoming: number; eaten: number; swallowed: number;
   overshoot: boolean; assisted: boolean; compare: boolean;
-  fruit: Uint8Array; scatterX: Float32Array; scatterY: Float32Array; dotPulse: Float32Array;
-  chompT: number; happyT: number; wiggleT: number; giggleT: number; giggleN: number; cardT: number; lastPress: number;
+  fruit: Uint8Array; scatterX: Float32Array; scatterY: Float32Array; tilt: Float32Array; dotPulse: Float32Array;
+  chompT: number; happyT: number; wiggleT: number; giggleT: number; giggleN: number; cardT: number; lastPress: number; hopT: number;
   cardW: number; cardH: number;
 }
 interface Flight { active: boolean; mode: number; kind: number; slot: number; index: number; x0: number; y0: number; x1: number; y1: number; t: number; dur: number; arc: number }
@@ -67,8 +73,12 @@ export interface DinoPicnicScene extends Scene { readonly stats: DinoPicnicStats
 
 const toTier = (n: unknown): Tier => (n === 1 ? 1 : n === 2 ? 2 : 0);
 const spriteName = (path: string): string => path.replace(/\.\w+$/, '');
-const dinoName = (kind: number, pose: number): string => `${ART}dino-${DINO_KINDS[kind % 3]}-${POSES[pose]}`;
-const fruitName = (kind: number): string => `${ART}fruit-${FRUITS[kind % FRUITS.length]}`;
+// Sprite and clip names are built once here; draw code only indexes these tables.
+const DINO_NAMES = DINO_KINDS.map(k => POSES.map(p => `${ART}dino-${k}-${p}`));
+const FRUIT_NAMES = FRUITS.map(f => `${ART}fruit-${f}`);
+const NUMBER_CLIPS = Array.from({ length: MAX_FRUIT + 1 }, (_, n) => `number-${n}` as const);
+const dinoName = (kind: number, pose: number): string => DINO_NAMES[kind % 3]![pose]!;
+const fruitName = (kind: number): string => FRUIT_NAMES[kind % FRUITS.length]!;
 
 function artList(): { name: string; path: string }[] {
   const paths = [`${BG}.webp`, `${PLATE}.webp`, `${BASKET}.webp`, `${HAND}.webp`, `${BUTTON_PLAY}.png`, `${BUTTON_HOME}.png`];
@@ -104,6 +114,19 @@ function bakeHat(size: number): HTMLCanvasElement {
   return c;
 }
 
+/** A soft warm halo behind demonstration fruit, baked once per layout so a hint never reads as a real fruit. */
+function bakeGlow(size: number): HTMLCanvasElement {
+  const c = document.createElement('canvas'); c.width = c.height = Math.max(2, size);
+  const g = c.getContext('2d'); if (!g) return c;
+  const r = c.width / 2, grad = g.createRadialGradient(r, r, 0, r, r, r);
+  grad.addColorStop(0, 'rgba(255, 253, 225, 1)'); grad.addColorStop(0.6, 'rgba(255, 240, 150, 0.9)'); grad.addColorStop(1, 'rgba(255, 238, 140, 0)');
+  g.fillStyle = grad; g.fillRect(0, 0, c.width, c.height);
+  // A bright rim marks it as a hint, unlike any fruit on a plate.
+  g.beginPath(); g.arc(r, r, r * 0.66, 0, Math.PI * 2);
+  g.lineWidth = Math.max(3, r * 0.07); g.strokeStyle = 'rgba(255, 255, 255, 0.95)'; g.stroke();
+  return c;
+}
+
 export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
   const { sprites, audio, input } = services;
   const random = (): number => services.random();
@@ -112,19 +135,21 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
   const slots: Slot[] = Array.from({ length: 3 }, () => ({
     kind: 0, x: 0, state: 'off' as SlotState, t: 0, target: 0, count: 0, incoming: 0, eaten: 0, swallowed: 0,
     overshoot: false, assisted: false, compare: false,
-    fruit: new Uint8Array(MAX_FRUIT), scatterX: new Float32Array(MAX_FRUIT), scatterY: new Float32Array(MAX_FRUIT), dotPulse: new Float32Array(MAX_FRUIT).fill(9),
-    chompT: 0, happyT: 0, wiggleT: 9, giggleT: 9, giggleN: 0, cardT: 0, lastPress: -9, cardW: 0, cardH: 0,
+    fruit: new Uint8Array(MAX_FRUIT), scatterX: new Float32Array(MAX_FRUIT), scatterY: new Float32Array(MAX_FRUIT), tilt: new Float32Array(MAX_FRUIT), dotPulse: new Float32Array(MAX_FRUIT).fill(9),
+    chompT: 0, happyT: 0, wiggleT: 9, giggleT: 9, giggleN: 0, cardT: 0, lastPress: -9, hopT: 9, cardW: 0, cardH: 0,
   }));
   const flights: Flight[] = Array.from({ length: POOL }, () => ({ active: false, mode: 0, kind: 0, slot: 0, index: 0, x0: 0, y0: 0, x1: 0, y1: 0, t: 0, dur: 1, arc: 0 }));
   const work = new Float32Array(240);
   const sfx: SfxOptions = { index: 0, volume: 1, variant: 'A' };
   const pos = { x: 0, y: 0 };
   const carry = { active: false, sticky: false, kind: 0, downAt: 0, downX: 0, downY: 0 };
-  const hand = { mode: 0, t: 0, slot: 0, kind: 0, released: false };
-  const cmp = { active: false, sub: 'fill' as 'fill' | 'ask' | 'reveal', t: 0, values: [0, 0], bigger: 0, choice: -1, demo: false, focusShown: false, focusAt: 0, askAt: 0, dropped: 0, eatStarted: false };
+  // Hand modes: 1 introduction (points at the dots, then feeds one fruit), 2 idle see-through fruit, 3 taps the basket,
+  // 4 first comparison (presses the bigger pile), 5 comparison hint (points at the bigger pile, chooses nothing).
+  const hand = { mode: 0, t: 0, slot: 0, kind: 0, released: false, tapped: 0 };
+  const cmp = { active: false, sub: 'fill' as 'fill' | 'ask' | 'reveal', t: 0, values: [0, 0], bigger: 0, choice: -1, demo: false, hinted: false, focusShown: false, focusAt: 0, askAt: 0, dropped: 0, eatStarted: false };
   let data: PicnicData = defaultData();
   let W = 1366, H = 768, u = 1, s = 1;
-  let bgCanvas: HTMLCanvasElement | undefined, bgX = 0, bgY = 0, hatCanvas: HTMLCanvasElement | undefined;
+  let bgCanvas: HTMLCanvasElement | undefined, bgX = 0, bgY = 0, hatCanvas: HTMLCanvasElement | undefined, glowCanvas: HTMLCanvasElement | undefined;
   let phase: Phase = 'play', tier: Tier = 0, intro = false, dinoOffset = 0;
   let time = 0, sceneT = 0, phaseT = 0, idleT = 0;
   let ordersTotal = 0, ordersStarted = 0, ordersDone = 0, happy = 0, compTotal = 0, compDone = 0, lastTarget = 0;
@@ -133,7 +158,7 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
   let menuSelected = -1, inputAfter = 0, keyAfter = 0;
   let workHead = 0, workCount = 0, updateMs = 0;
   // Layout, all in logical px.
-  let feetY = 0, dinoH = 0, plateW = 0, plateY = 0, fruitSize = 0, fruitStep = 0, dotR = 0, dotStep = 0, cardPad = 0, numW = 0, numSize = 0;
+  let feetY = 0, dinoH = 0, plateW = 0, plateY = 0, fruitSize = 0, fruitStep = 0, rowGap = 0, dotR = 0, dotStep = 0, cardPad = 0, numW = 0, numSize = 0;
   let zoneW = 0, zoneTop = 0, zoneBottom = 0, basketX = 0, basketY = 0, basketSize = 0, basketR = 0, hatSize = 0;
   let starY = 0, starR = 0, pipY = 0, pipSize = 0;
   let cornerRadius = 48, cornerY = 60, homeX = 60, soundX = 1306, cornerFocus = -1;
@@ -163,7 +188,13 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     const t = TIERS[intro ? 0 : tier];
     s = u * (cmp.active ? 1 : t.scale);
     feetY = H * 0.62; dinoH = 250 * s; plateW = 236 * s; plateY = feetY + plateW * 0.28;
-    fruitSize = Math.round(plateW * 0.2); fruitStep = plateW * 0.16;
+    fruitSize = Math.round(plateW * FRUIT_OF_PLATE);
+    // Rows of five sit nearly edge to edge, closing up only where neighbouring dinos would touch.
+    let gap = W;
+    for (let i = 1; i < activeSlots(); i++) gap = Math.min(gap, Math.abs(slotX(i) - slotX(i - 1)));
+    fruitStep = Math.max(fruitSize * 0.55, Math.min(fruitSize * 0.92, (gap * ROW_ROOM - fruitSize) / 4));
+    rowGap = fruitSize * 0.92;
+    glowCanvas = bakeGlow(Math.round(fruitSize * 1.9));
     dotR = 17 * s; dotStep = 44 * s; cardPad = 14 * s; numSize = Math.round(62 * s); numW = 60 * s;
     const maxCard = cardPad * 2 + 5 * dotStep + numberWidth(10);
     zoneW = Math.max(96, plateW * 1.05, maxCard);
@@ -198,7 +229,7 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
   function fruitSpot(sl: Slot, k: number, arranged: number): void {
     const n = Math.max(1, sl.target), rows = n > 5 ? 2 : 1, row = k < 5 ? 0 : 1, inRow = row === 0 ? Math.min(5, n) : n - 5;
     const fx = sl.x + ((k % 5) - (inRow - 1) / 2) * fruitStep;
-    const fy = plateY - plateW * 0.06 + (rows === 2 ? (row - 0.5) * fruitStep * 0.95 : 0);
+    const fy = plateY - plateW * 0.06 + (rows === 2 ? (row - 0.5) * rowGap : 0);
     pos.x = lerp(sl.x + sl.scatterX[k]! * plateW, fx, arranged); pos.y = lerp(plateY + sl.scatterY[k]! * plateW, fy, arranged);
   }
   function mouth(sl: Slot): void {
@@ -270,7 +301,7 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     } else if (mode === EAT) {
       sl.swallowed++; sl.chompT = 0.25; sl.dotPulse[index] = 0;
       play('pop', 'D', index, 0.9);
-      playVoice(audio, `number-${index + 1}`);
+      playVoice(audio, NUMBER_CLIPS[index + 1]!);
       mouth(sl); crumbs(pos.x, pos.y, FRUIT_HUE[kind] ?? 0, 4, 90);
     } else if (mode === DROP) {
       sl.count = Math.max(sl.count, index + 1);
@@ -285,11 +316,11 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     else target = pickTarget(data.stage, random, n => n === lastTarget || slots.some((o, j) => j !== i && feeding(o) && o.target === n));
     lastTarget = target;
     Object.assign(sl, { state: 'asking', t: 0, target, count: 0, incoming: 0, eaten: 0, swallowed: 0, overshoot: false, assisted: intro, compare: false, cardT: 0 });
-    sl.scatterX.fill(0); sl.scatterY.fill(0); sl.dotPulse.fill(9);
+    sl.scatterX.fill(0); sl.scatterY.fill(0); sl.tilt.fill(0); sl.dotPulse.fill(9);
     cardSize(sl); ordersStarted++;
     play('pop-big', 'D', 2, 0.55);
-    playVoice(audio, `number-${target}`);
-    if (intro && ordersStarted === 1) { hand.mode = 1; hand.t = 0; hand.slot = i; hand.kind = nextFruit; hand.released = false; }
+    playVoice(audio, NUMBER_CLIPS[target]!);
+    if (intro && ordersStarted === 1) { hand.mode = 1; hand.t = 0; hand.slot = i; hand.kind = nextFruit; hand.released = false; hand.tapped = 0; }
     ensureFocus();
   }
   function startEating(sl: Slot): void { sl.state = 'eating'; sl.t = 0; sl.eaten = 0; sl.swallowed = 0; }
@@ -322,23 +353,40 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
       const sl = slots[i]!;
       if (i > 1) { sl.state = 'off'; continue; }
       const value = cmp.values[i]!;
-      Object.assign(sl, { state: 'compare', t: 0, target: value, count: 0, incoming: 0, eaten: 0, swallowed: 0, compare: true, overshoot: false, chompT: 0, happyT: 0, giggleT: 9, kind: (dinoOffset + i) % 3 });
-      for (let k = 0; k < MAX_FRUIT; k++) {
-        // Loose piles, so the child compares amounts rather than reading rows.
-        const a2 = random() * Math.PI * 2, r = Math.sqrt(random());
-        sl.scatterX[k] = Math.cos(a2) * r * 0.27; sl.scatterY[k] = -0.06 + Math.sin(a2) * r * 0.11;
+      Object.assign(sl, { state: 'compare', t: 0, target: value, count: 0, incoming: 0, eaten: 0, swallowed: 0, compare: true, overshoot: false, chompT: 0, happyT: 0, giggleT: 9, hopT: 9, kind: (dinoOffset + i) % 3 });
+      pile(sl, value);
+    }
+    cmp.hinted = false; focus = 0; layout(W, H); carry.active = false;
+  }
+  /**
+   * A loose heap on the plate: a bottom layer, each layer above one fruit narrower and nestled
+   * between the ones below, slightly jittered and tilted. Fruits barely touch, so every one stays
+   * visible and the bigger amount makes the bigger heap, without forming rows to read.
+   */
+  function pile(sl: Slot, n: number): void {
+    let base = 1;
+    while ((base * (base + 1)) / 2 < n) base++;
+    const step = FRUIT_OF_PLATE * 1.02, lean = random() < 0.5 ? -1 : 1;
+    let k = 0;
+    for (let layer = 0; k < n; layer++) {
+      const full = base - layer, w = Math.min(full, n - k);
+      const shift = lean * (full - w) * step * 0.25;
+      for (let j = 0; j < w; j++, k++) {
+        sl.scatterX[k] = (j - (w - 1) / 2) * step + shift + (random() - 0.5) * FRUIT_OF_PLATE * 0.14;
+        sl.scatterY[k] = -0.06 - layer * FRUIT_OF_PLATE * 0.8 + (random() - 0.5) * FRUIT_OF_PLATE * 0.1;
+        sl.tilt[k] = (random() - 0.5) * 0.7;
         sl.fruit[k] = Math.floor(random() * FRUITS.length);
       }
     }
-    focus = 0; layout(W, H); carry.active = false;
   }
 
   function chooseCompare(i: number, deliberate: boolean): void {
     if (!cmp.active || cmp.sub !== 'ask' || i < 0 || i > 1) return;
     cmp.choice = i; cmp.sub = 'reveal'; cmp.t = 0;
-    if (deliberate && !cmp.demo) recordComparison(data, i === cmp.bigger);
+    // Once the hand has shown the answer, the pick is the hand's, not evidence of comparing.
+    if (deliberate && !cmp.demo && !cmp.hinted) recordComparison(data, i === cmp.bigger);
     data.comparisons++;
-    if (hand.mode === 4) hand.mode = 0;
+    if (hand.mode === 4 || hand.mode === 5) hand.mode = 0;
     play('whoosh', 'B', 0, 0.7);
   }
 
@@ -418,7 +466,7 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
   // ---------------------------------------------------------------- update
   function updateSlot(i: number, dt: number): void {
     const sl = slots[i]!;
-    sl.t += dt; sl.cardT += dt; sl.chompT -= dt; sl.happyT -= dt; sl.wiggleT += dt;
+    sl.t += dt; sl.cardT += dt; sl.chompT -= dt; sl.happyT -= dt; sl.wiggleT += dt; sl.hopT += dt;
     for (let k = 0; k < MAX_FRUIT; k++) sl.dotPulse[k]! += dt;
     if (sl.giggleT < 1) {
       sl.giggleT += dt;
@@ -471,7 +519,7 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
         cmp.dropped++;
       }
       if (cmp.dropped >= total && cmp.t >= total * 0.13 + 0.7) {
-        cmp.sub = 'ask'; cmp.t = 0; cmp.askAt = time;
+        cmp.sub = 'ask'; cmp.t = 0; cmp.askAt = time; idleT = 0;
         play('pop-big', 'B', 4, 0.6); playVoice(audio, 'more');
         if (cmp.demo) { hand.mode = 4; hand.t = 0; hand.slot = cmp.bigger; }
       }
@@ -504,35 +552,85 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     pos.x = lerp(cx, pos.x, e); pos.y = lerp(cy, pos.y, e) - Math.sin(e * Math.PI) * 90 * s;
   }
 
+  /** Seconds the introduction hand spends pointing at the card's dots before it fetches a fruit. */
+  const handLead = (): number => (hand.mode === 1 ? POINT_REACH + slots[hand.slot]!.target * POINT_GAP + POINT_AFTER : 0);
+  /** Hand time after the pointing lead: the basket-to-plate carry runs on this clock. */
+  const carryT = (): number => hand.t - handLead();
   function updateHand(dt: number): void {
     if (!hand.mode) return;
     hand.t += dt;
     if (hand.mode === 1 || hand.mode === 2) {
-      if (!hand.released && hand.t >= 1.9) {
+      if (hand.mode === 1) {
+        // Each dot pulses with a soft tick as the fingertip taps it, counting the wish out loud in motion.
+        const sl = slots[hand.slot]!;
+        while (hand.tapped < sl.target && hand.t >= POINT_REACH + hand.tapped * POINT_GAP + POINT_TAP) {
+          sl.dotPulse[hand.tapped] = 0; play('tick', 'C', hand.tapped, 0.7); playVoice(audio, NUMBER_CLIPS[hand.tapped + 1]!);
+          hand.tapped++;
+        }
+      }
+      const t = carryT();
+      if (!hand.released && t >= 1.9) {
         hand.released = true;
         handTip();
         if (hand.mode === 1) feed(hand.slot, pos.x, pos.y, false, hand.kind);
       }
-      if (hand.t >= 2.5) { hand.mode = hand.mode === 1 ? 3 : 0; hand.t = 0; idleT = 0; }
+      if (t >= 2.5) { hand.mode = hand.mode === 1 ? 3 : 0; hand.t = 0; idleT = 0; }
     } else if (hand.mode === 4 && hand.t >= 1.3 && cmp.sub === 'ask') chooseCompare(hand.slot, false);
+    else if (hand.mode === 5 && (hand.t >= HINT_SECONDS || cmp.sub !== 'ask')) hand.mode = 0;
+  }
+  /** Fingertip just below dot k of a slot's card, so the dot stays visible while it is tapped. */
+  function dotSpot(sl: Slot, k: number): void {
+    const rows = sl.target > 5 ? 2 : 1;
+    pos.x = sl.x - sl.cardW / 2 + cardPad + ((k % 5) + 0.5) * dotStep;
+    pos.y = cardY(sl) + (rows === 2 ? ((k < 5 ? 0 : 1) - 0.5) * dotStep : 0) + dotR * 0.8;
   }
   /** Fingertip position for the current hand demonstration. */
   function handTip(): void {
-    const sl = slots[hand.slot]!, startX = basketX + 140 * s, startY = H + 40;
+    const sl = slots[hand.slot]!;
+    let startX = basketX + 140 * s, startY = H + 40;
     const bxm = basketX, bym = basketMouthY() - 10 * s;
     if (hand.mode === 3) { pos.x = bxm; pos.y = bym - Math.abs(Math.sin(hand.t * 3.2)) * 26 * s; return; }
-    if (hand.mode === 4) {
-      fruitSpot(sl, 0, 0); const tx = sl.x, ty = plateY - plateW * 0.05, e = easeOutCubic(clamp01(hand.t / 0.9));
+    if (hand.mode === 4 || hand.mode === 5) {
+      const tx = sl.x, ty = plateY - plateW * 0.05, e = easeOutCubic(clamp01(hand.t / 0.9));
       pos.x = lerp(W / 2, tx, e); pos.y = lerp(H + 40, ty, e) - (hand.t > 0.9 ? Math.abs(Math.sin((hand.t - 0.9) * 6)) * 14 * s : 0);
       return;
     }
+    if (hand.mode === 1) {
+      const last = Math.max(0, sl.target - 1);
+      if (hand.t < handLead()) {
+        if (hand.t < POINT_REACH) {
+          dotSpot(sl, 0); const e = easeOutCubic(hand.t / POINT_REACH);
+          pos.x = lerp(startX, pos.x, e); pos.y = lerp(startY, pos.y, e);
+          return;
+        }
+        const local = hand.t - POINT_REACH, k = Math.min(last, Math.floor(local / POINT_GAP)), within = local - k * POINT_GAP;
+        dotSpot(sl, k);
+        if (k > 0 && within < POINT_TAP) {
+          // Hop from the previous dot to this one.
+          const tx = pos.x, ty = pos.y, e = easeInOutSine(within / POINT_TAP);
+          dotSpot(sl, k - 1); pos.x = lerp(pos.x, tx, e); pos.y = lerp(pos.y, ty, e) - Math.sin(e * Math.PI) * 16 * s;
+        }
+        return;
+      }
+      // The carry starts from the last dot instead of below the screen.
+      dotSpot(sl, last); startX = pos.x; startY = pos.y;
+    }
+    const t = carryT();
     fruitSpot(sl, Math.min(sl.target - 1, sl.count + sl.incoming), 1);
     const px = pos.x, py = pos.y;
-    if (hand.t < 0.5) { const e = easeOutCubic(hand.t / 0.5); pos.x = lerp(startX, bxm, e); pos.y = lerp(startY, bym, e); }
-    else if (hand.t < 0.8) { pos.x = bxm; pos.y = bym; }
-    else if (hand.t < 1.9) { const e = easeInOutSine((hand.t - 0.8) / 1.1); pos.x = lerp(bxm, px, e); pos.y = lerp(bym, py, e) - Math.sin(e * Math.PI) * 80 * s; }
+    if (t < 0.5) { const e = easeOutCubic(t / 0.5); pos.x = lerp(startX, bxm, e); pos.y = lerp(startY, bym, e); }
+    else if (t < 0.8) { pos.x = bxm; pos.y = bym; }
+    else if (t < 1.9) { const e = easeInOutSine((t - 0.8) / 1.1); pos.x = lerp(bxm, px, e); pos.y = lerp(bym, py, e) - Math.sin(e * Math.PI) * 80 * s; }
     else { pos.x = px; pos.y = py; }
   }
+  /** True while the introduction hand presses a dot (a short squash on each tap). */
+  const handTapping = (): boolean => {
+    if (hand.mode !== 1 || hand.t < POINT_REACH) return false;
+    const local = hand.t - POINT_REACH;
+    if (local >= slots[hand.slot]!.target * POINT_GAP) return false;
+    const within = local % POINT_GAP;
+    return within >= POINT_TAP && within < POINT_TAP + 0.14;
+  };
 
   function updatePlay(dt: number): void {
     time += dt; idleT += dt;
@@ -545,6 +643,11 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     const target = slots[focus];
     if (!cmp.active && !hand.mode && !carry.active && idleT >= IDLE_SECONDS && target && feeding(target)) {
       hand.mode = 2; hand.t = 0; hand.slot = focus; hand.kind = nextFruit; hand.released = false; idleT = IDLE_SECONDS - IDLE_REPEAT;
+    }
+    // Idle in a comparison: the hand points at the bigger pile again (it chooses nothing), every few seconds.
+    if (cmp.active && cmp.sub === 'ask' && !cmp.demo && !hand.mode && idleT >= IDLE_SECONDS) {
+      hand.mode = 5; hand.t = 0; hand.slot = cmp.bigger; cmp.hinted = true; idleT = IDLE_SECONDS - HINT_REPEAT;
+      play('pop', 'A', 4, 0.4);
     }
     let busy = false;
     for (const f of flights) if (f.active) { busy = true; break; }
@@ -585,6 +688,11 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
         if (k < 0.12 || k > 0.9) { sx += 0.08; sy -= 0.08; }
       } else if (sl.happyT > 0 && sl.giggleT < 1) rot = Math.sin(sl.giggleT * 30) * 0.05;
       if (sl.state === 'settling') lift = Math.abs(Math.sin(sl.t * 9)) * 6 * s;
+      // An inviting hop when a press lands somewhere that does nothing yet.
+      if (sl.hopT >= 0 && sl.hopT < 0.42) {
+        const k = sl.hopT / 0.42; lift += Math.sin(k * Math.PI) * 26 * s;
+        if (k < 0.15 || k > 0.88) { sx += 0.06; sy -= 0.06; }
+      }
       if (phase === 'celebration') { pose = 2; const k = (phaseT * 2.4 + sl.kind * 0.33) % 1; lift = Math.sin(k * Math.PI) * 40 * s; rot = Math.sin(phaseT * 5 + sl.kind) * 0.12; }
     }
     // Feet stay planted: scale about the feet by shifting the centre.
@@ -601,7 +709,7 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
         const b = Math.abs(Math.sin(time * 5 + k)) * 6 * s;
         chunkyCircle(ctx, pos.x, pos.y - b, fruitSize * 0.62, HIGHLIGHT, '#f3c84b', 3);
         drawSprite(ctx, sprites, fruitName(sl.fruit[k] ?? 0), pos.x, pos.y - b, fruitSize);
-      } else drawSprite(ctx, sprites, fruitName(sl.fruit[k] ?? 0), pos.x, pos.y, fruitSize);
+      } else drawSprite(ctx, sprites, fruitName(sl.fruit[k] ?? 0), pos.x, pos.y, fruitSize, sl.tilt[k]! * (1 - arranged));
     }
   }
   function card(ctx: CanvasRenderingContext2D, sl: Slot): void {
@@ -610,7 +718,6 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     let scale = arriveScale(Math.min(1, sl.cardT / 0.35));
     if (sl.state === 'dancing') scale = 1 - easeOutCubic(sl.t / 0.3);
     if (sl.state === 'settling') scale *= 1 + Math.sin(Math.min(1, sl.t / 0.3) * Math.PI) * 0.08;
-    if (hand.mode === 1 && hand.slot === slots.indexOf(sl)) scale *= 1 + Math.abs(Math.sin(hand.t * 4)) * 0.06;
     ctx.save(); ctx.translate(sl.x, cy); ctx.scale(scale, scale); ctx.translate(-sl.x, -cy);
     // Thought-bubble tail toward the dino's head.
     chunkyCircle(ctx, sl.x - 8 * s, cy + sl.cardH / 2 + 10 * s, 8 * s, CARD_FILL, CARD_LINE, 3 * s);
@@ -663,22 +770,34 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
       else drawSprite(ctx, sprites, fruitName(f.kind), x, y, fruitSize, f.mode === BOUNCE || f.mode === RETURN ? k * 4 : 0, sq, 2 - sq);
     }
   }
+  /** The idle demonstration's fruit: a warm halo behind a slightly see-through fruit, so it reads as a hint, not a plate fruit. */
+  function ghostFruit(ctx: CanvasRenderingContext2D, x: number, y: number, a: number): void {
+    if (glowCanvas) {
+      const g = glowCanvas.width;
+      ctx.globalAlpha = a * (0.85 + Math.sin(time * 7) * 0.15); ctx.drawImage(glowCanvas, x - g / 2, y - g / 2, g, g);
+    }
+    ctx.globalAlpha = a * 0.8; drawSprite(ctx, sprites, fruitName(hand.kind), x, y, fruitSize);
+    ctx.globalAlpha = 1;
+  }
   function renderHand(ctx: CanvasRenderingContext2D): void {
     if (!hand.mode) return;
     handTip();
     const img = sprites.get(HAND); if (!img) return;
     const hs = Math.round(110 * s), hw = hs * img.naturalWidth / img.naturalHeight;
+    const feedHand = hand.mode === 1 || hand.mode === 2, t = carryT();
     let alpha = 1;
-    if (hand.mode === 2) alpha = 0.85;
-    if ((hand.mode === 1 || hand.mode === 2) && hand.t > 2.0) alpha = 1 - clamp01((hand.t - 2.0) / 0.5);
-    const carrying = (hand.mode === 1 || hand.mode === 2) && hand.t >= 0.5 && hand.t < 1.9;
+    if (hand.mode === 2 || hand.mode === 5) alpha = 0.85;
+    if (feedHand && t > 2.0) alpha = 1 - clamp01((t - 2.0) / 0.5);
+    if (hand.mode === 5) alpha *= 1 - clamp01((hand.t - (HINT_SECONDS - 0.4)) / 0.4);
+    const carrying = feedHand && t >= 0.5 && t < 1.9;
     if (carrying) {
-      ctx.globalAlpha = hand.mode === 2 ? 0.55 : 1;
-      drawSprite(ctx, sprites, fruitName(hand.kind), pos.x - fruitSize * 0.3, pos.y - fruitSize * 0.3, fruitSize);
+      const fx = pos.x - fruitSize * 0.3, fy = pos.y - fruitSize * 0.3;
+      if (hand.mode === 2) ghostFruit(ctx, fx, fy, 1);
+      else drawSprite(ctx, sprites, fruitName(hand.kind), fx, fy, fruitSize);
     }
-    if (hand.mode === 2 && hand.released) { ctx.globalAlpha = 0.5 * alpha; drawSprite(ctx, sprites, fruitName(hand.kind), pos.x, pos.y, fruitSize); }
+    if (hand.mode === 2 && hand.released) ghostFruit(ctx, pos.x, pos.y, alpha);
     ctx.globalAlpha = alpha;
-    const press = (hand.mode === 1 || hand.mode === 2) && hand.t >= 0.5 && hand.t < 0.8 ? 0.9 : 1;
+    const press = (feedHand && t >= 0.5 && t < 0.8) || handTapping() ? 0.9 : 1;
     // The art points up and left: put its fingertip on the target.
     drawSprite(ctx, sprites, HAND, pos.x + hw * 0.38, pos.y + hs * 0.42, hs, 0, press, press);
     ctx.globalAlpha = 1;
@@ -775,13 +894,20 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
   }
 
   // ---------------------------------------------------------------- input
+  /** Comparison dinos hop (one dino if i names it, else both, a beat apart) with a soft pop. */
+  function invite(i: number): void {
+    for (let j = 0; j < 2; j++) if (i < 0 || i === j) { const sl = slots[j]!; if (sl.hopT >= 0.42 || sl.hopT < 0) sl.hopT = i < 0 ? -0.1 * j : 0; }
+    play('pop', 'A', 3, 0.35);
+  }
   function pointerDown(x: number, y: number): void {
     idleT = 0;
     if (hand.mode === 3) hand.mode = 0;
     const now = performance.now();
     if (cmp.active) {
       const i = slotAt(x, y);
-      if (i >= 0 && i <= 1) { hits++; focus = i; chooseCompare(i, time - cmp.askAt >= 0.6); }
+      // Only a press that chooses counts as a motor attempt; any other press makes the dinos hop invitingly.
+      if (cmp.sub === 'ask' && i >= 0 && i <= 1) { hits++; focus = i; chooseCompare(i, time - cmp.askAt >= 0.6); }
+      else if (cmp.sub !== 'reveal' && !onCorner(x, y)) invite(i);
       return;
     }
     const i = slotAt(x, y);
@@ -822,7 +948,7 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     if (hand.mode === 3) hand.mode = 0;
     const left = code === 'ArrowLeft' || code === 'ArrowUp', right = code === 'ArrowRight' || code === 'ArrowDown';
     if (cmp.active) {
-      if (cmp.sub !== 'ask') return;
+      if (cmp.sub !== 'ask') { if (cmp.sub === 'fill') invite(-1); return; }
       if (left || right) { if (cmp.focusShown) focus = 1 - focus; cmp.focusShown = true; cmp.focusAt = time; return; }
       if (!cmp.focusShown) { cmp.focusShown = true; cmp.focusAt = time; focus = 0; return; }
       chooseCompare(focus, time - cmp.focusAt >= 0.5);

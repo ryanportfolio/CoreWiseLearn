@@ -8,15 +8,17 @@ A round game in the Dinosaur Playground world. Baby clay dinosaurs sit at a picn
 - **Each fruit lands** with a squash, a small crumb burst and a pop whose pitch rises with the count on that plate. One hollow dot on the card fills with a picture of that fruit, and the dino opens its mouth in a happy "aaah" and wiggles.
 - **When the plate matches the card,** the dino bobs for 0.8 s. If nothing more arrives, it eats the fruits one by one (each chomp is a rising note and a counted dot), then dances with confetti. The card shrinks away and a new wish appears after a short pause.
 - **Too many:** a spare fruit touches the full plate and bounces back to the basket while the dino giggles (three soft quick notes) in its delighted pose. Nothing is scolded and nothing is taken away.
-- **Which dino has more?** From counting stage 2, each round ends with two comparisons. Fruit drops onto two plates in loose piles and a clay party hat floats between the dinos. The child presses the dino with more. The hat lands on the chosen dino; the piles then slide into rows of five, and the extra fruits on the bigger plate glow and bounce. If the child picked the smaller pile, that dino giggles with the hat for a moment, then the hat hops over to the bigger pile. Both dinos eat and dance either way.
+- **Which dino has more?** From counting stage 2, each round ends with two comparisons. Fruit drops onto two plates in loose heaps (each layer one fruit narrower and nestled between the fruits below, jittered and tilted, with every fruit visible) and a clay party hat floats between the dinos. The child presses the dino with more. The hat lands on the chosen dino; the piles then slide into rows of five, and the extra fruits on the bigger plate glow and bounce. If the child picked the smaller pile, that dino giggles with the hat for a moment, then the hat hops over to the bigger pile. Both dinos eat and dance either way.
 
 The dinos are content, curious or delighted. They are never shown hungry, sad or waiting impatiently.
 
 ## Discovery without words
 
-The first round ever is an introduction: one dino, cards of 2, 1 and 3. A clay helper hand comes up from below, presses the basket, carries a fruit to the plate and lets go while the card bounces, so the first dot fills in front of the child. The hand then taps the basket in a loop until the child does anything. That round always earns three stars and records no evidence.
+The first round ever is an introduction: one dino, cards of 2, 1 and 3. A clay helper hand comes up from below and points at the first card's dots, tapping each in turn; every tapped dot pulses with a soft tick. The hand then presses the basket, carries a fruit to the plate and lets go, so the first dot fills in front of the child. The hand then taps the basket in a loop until the child does anything. That round always earns three stars and records no evidence.
 
-After six quiet seconds in any round, the hand carries a see-through fruit from the basket to the highlighted plate and lets it fade. It never changes a plate and repeats at most every seven seconds while the child stays idle. The first comparison ever is demonstrated the same way: the hand moves to the dino with more fruit and presses it.
+After six quiet seconds in any round, the hand carries a hint fruit from the basket to the highlighted plate and lets it fade. The hint fruit sits in a pulsing warm halo with a white rim and is slightly see-through, so it is easy to see but does not look like a fruit on the plate; it never changes a plate or a card. It repeats at most every seven seconds while the child stays idle. The first comparison ever is demonstrated the same way: the hand moves to the dino with more fruit and presses it.
+
+In every later comparison, after six quiet seconds the hand rises again and points at the dino with more fruit for three seconds without choosing, and repeats every eight seconds while the child stays idle. A press anywhere that is not on a dino (and any press or key while the fruit is still dropping) makes both dinos hop with a soft pop.
 
 ## Round flow
 
@@ -38,7 +40,7 @@ Awards persist once: the round count, stars and the offered pair are written to 
 | 1 | 2 | 1.0 | bottom centre, between plates |
 | 2 | 3 | 0.9 | bottom-left corner, farthest |
 
-Every dino target (card, body and plate) is at least 96 CSS px in both directions, as is the basket (radius at least 48 px). Attempts: a pointer press on a dino, the basket or empty play space, and a drag released over a plate or over nothing. Key presses, demonstrations and the introduction never count. At the end of a round: 8 or more attempts with under 70 percent on target moves down a tier; 12 or more at 90 percent or better counts as a qualifying round, and two in a row move up a tier.
+Every dino target (card, body and plate) is at least 96 CSS px in both directions, as is the basket (radius at least 48 px). Attempts: a pointer press on a dino, the basket or empty play space, and a drag released over a plate or over nothing. In a comparison only a press that chooses a dino counts; other presses there only make the dinos hop. Key presses, demonstrations and the introduction never count. At the end of a round: 8 or more attempts with under 70 percent on target moves down a tier; 12 or more at 90 percent or better counts as a qualifying round, and two in a row move up a tier.
 
 ## Counting progression (separate from motor)
 
@@ -50,7 +52,7 @@ Every dino target (card, body and plate) is at least 96 CSS px in both direction
 
 Evidence is one result per plate that the child filled: exact (no spare fruit sent to it while it was being filled or settling) or not. Plates in the introduction are excluded. A press on the same dino within 150 ms of the previous one is treated as the same press, so a bounce or double-click does not send a spare. Between rounds, 6 or more exact plates in the last 8 move up a stage; 2 or fewer in the last 6 move down one.
 
-Comparisons record whether the child chose the plate with more, only for deliberate choices: a pointer press at least 0.6 s after the hat appears, or a key press at least 0.5 s after the keyboard focus was shown. The demonstrated comparison is excluded. Level 0 compares 1 to 5 (difference at least 2); 4 of the last 5 correct moves to level 1 (1 to 10); 1 or fewer moves back.
+Comparisons record whether the child chose the plate with more, only for deliberate choices: a pointer press at least 0.6 s after the hat appears, or a key press at least 0.5 s after the keyboard focus was shown. The demonstrated comparison is excluded, as is any comparison in which the hand has already pointed at the answer. Level 0 compares 1 to 5 (difference at least 2); 4 of the last 5 correct moves to level 1 (1 to 10); 1 or fewer moves back.
 
 ## Keyboard-only play
 
@@ -103,7 +105,7 @@ Optional clips live in `public/voice/dino-picnic/` (see the README there): `numb
 
 ## Performance
 
-No allocation in update or render: dinos, flights (32) and particles (220) are pooled; fruit positions are computed into one shared point. Every sprite is drawn at a fixed size per layout and animated with transforms, so the scaled-sprite cache does not grow. Card numerals come from cached glyph canvases; the hat is baked once per layout. No gradients, `shadowBlur` or `fillText` per frame.
+No allocation in update or render: dinos, flights (32) and particles (220) are pooled; fruit positions are computed into one shared point; sprite and voice clip names are built once into lookup tables at load. Plate fruit is 31 percent of the plate width (73 px at 1366x768 with two dinos, 84 px with one, 66 px with three), and rows of five close up only where neighbouring dinos would touch. Every sprite is drawn at a fixed size per layout and animated with transforms, so the scaled-sprite cache does not grow. Card numerals come from cached glyph canvases; the hat and the hint fruit's halo are baked once per layout. No gradients, `shadowBlur` or `fillText` per frame.
 
 ## Files
 
