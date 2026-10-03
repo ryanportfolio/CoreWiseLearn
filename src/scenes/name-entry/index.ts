@@ -26,9 +26,14 @@ const SPARKLE_HUES = [0, 35, 55, 130, 200, 280, 320];
 /** Label centre below a profile bubble's edge, and the name field's distance below the top buttons, both in px. */
 const LABEL_DROP = 22;
 const NAME_DROP = 106;
-/** Gap between letter keys in key diameters; a tight window may close it to MIN_KEY_GAP to keep 96 px keys. */
+/**
+ * Gap between letter keys in key diameters at uiScale 1. It is divided by uiScale (between MIN_KEY_GAP
+ * and MAX_KEY_GAP), so a larger uiScale grows the keys into the gaps. A tight window may close it
+ * to MIN_KEY_GAP to keep 96 px keys, or further to keep the keys as large as they were before gaps.
+ */
 const KEY_GAP = 0.2;
 const MIN_KEY_GAP = 0.08;
+const MAX_KEY_GAP = 0.25;
 /** Largest letter key at uiScale 1, in CSS px. */
 const MAX_KEY = 200;
 /** Letter glyph size as a fraction of the key diameter. */
@@ -38,9 +43,8 @@ const ARROW_LANE = 104;
 /** Mascot's drawn extent as fractions of its sprite size: width, and height from the feet up (measured from the idle and cheer art). */
 const MASCOT_W = 0.8;
 const MASCOT_H = 0.66;
-/** Mascot sprite sizes: hidden below MIN_MASCOT, and the size the keys shrink a little to make room for. */
+/** Mascot sprite sizes: it shrinks to the room the keys leave and hides below MIN_MASCOT. */
 const MIN_MASCOT = 80;
-const MASCOT_ROOM = 140;
 const MAX_MASCOT = 300;
 
 /** Largest diameter for n keys with n - 1 gaps of `gap` diameters in `span` px. */
@@ -281,13 +285,18 @@ export function createNameEntryScene(services: AppServices, options: { renamePro
   }
   /**
    * Letter keys fill the free area below the name field: as large as fits, up
-   * to MAX_KEY times uiScale, with KEY_GAP diameters between keys, never under
-   * 96 px. The block is centred, and the mascot takes the bottom-right corner
-   * the keys leave free.
+   * to MAX_KEY times uiScale, with the uiScale-adjusted KEY_GAP between keys,
+   * never under 96 px and never smaller than the touching keys of the layout
+   * before gaps. The block is centred, and the mascot takes whatever room the
+   * keys leave in the bottom-right corner, or hides.
    */
   function layoutKeys(scale: number): void {
     const availH = Math.max(96, height - keyTop - 12);
     const maxKey = Math.max(96, MAX_KEY * scale);
+    const gap = Math.min(MAX_KEY_GAP, Math.max(MIN_KEY_GAP, KEY_GAP / scale));
+    // The key size of the touching-keys layout this replaced, for the same window and uiScale.
+    const oldRows = Math.max(1, Math.min(3, Math.floor(availH / 100)));
+    const oldKey = Math.max(96, Math.min(128, 100 * scale, availH / oldRows - 4));
     const qwerty = services.config.keyboardLayout === 'qwerty';
     const order = qwerty ? 'QWERTYUIOPASDFGHJKLZXCVBNM' : ALPHABET;
     const rowSizes = qwerty ? [10, 9, 7] : [9, 9, 8];
@@ -303,7 +312,7 @@ export function createNameEntryScene(services: AppServices, options: { renamePro
       let best = -1;
       for (let r = 1; r <= maxRows; r++) for (let c = 1; c <= maxCols; c++) {
         if (Math.ceil(26 / (c * r)) !== pages) continue;
-        const d = Math.min(maxKey, fitKeys(areaW, c, KEY_GAP), fitKeys(availH, r, KEY_GAP));
+        const d = Math.min(maxKey, fitKeys(areaW, c, gap), fitKeys(availH, r, gap));
         if (d > best + 0.01 || (d > best - 0.01 && c * r > cols * rows)) { best = d; cols = c; rows = r; }
       }
       perPage = cols * rows;
@@ -313,7 +322,7 @@ export function createNameEntryScene(services: AppServices, options: { renamePro
     keyNext.x = width - 60; keyNext.y = keyTop + availH / 2;
     const place = (size: number): void => {
       keySize = size;
-      keyGap = Math.max(0, Math.min(size * KEY_GAP, cols > 1 ? (areaW - cols * size) / (cols - 1) : Infinity, rows > 1 ? (availH - rows * size) / (rows - 1) : Infinity));
+      keyGap = Math.max(0, Math.min(size * gap, cols > 1 ? (areaW - cols * size) / (cols - 1) : Infinity, rows > 1 ? (availH - rows * size) / (rows - 1) : Infinity));
       const pitch = size + keyGap;
       const top = keyTop + (availH - rows * size - (rows - 1) * keyGap) / 2;
       // Largest mascot whose box, grown from the bottom-right corner, stays below keyTop and clear of every key.
@@ -334,16 +343,9 @@ export function createNameEntryScene(services: AppServices, options: { renamePro
       if (keyNext.visible) avoid(keyNext.x + keyNext.radius, keyNext.y + keyNext.radius);
       mascotSize = Math.min(MAX_MASCOT, fit);
     };
-    const largest = Math.max(96, Math.min(maxKey, fitKeys(areaW, cols, KEY_GAP), fitKeys(availH, rows, KEY_GAP)));
-    let size = largest;
+    // Where the gap would make keys smaller than the old touching keys, the gap closes instead (as far as the grid fits).
+    const size = Math.max(96, Math.min(maxKey, fitKeys(areaW, cols, gap), fitKeys(availH, rows, gap)), Math.min(oldKey, areaW / cols, availH / rows));
     place(size);
-    // A small mascot corner: give up to a tenth of the key size (never under 96 px) to fit a mascot of
-    // MASCOT_ROOM; when that is not enough, the keys keep their largest size.
-    if (mascotSize < MASCOT_ROOM) {
-      const floor = Math.max(96, largest * 0.9);
-      while (mascotSize < MASCOT_ROOM && size > floor) { size = Math.max(floor, size * 0.98); place(size); }
-      if (mascotSize < MASCOT_ROOM) { size = largest; place(size); }
-    }
     if (mascotSize < MIN_MASCOT) mascotSize = 0;
     const px = Math.round(size * GLYPH_RATIO);
     if (px !== glyphPx) { glyphPx = px; for (let i = 0; i < 26; i++) glyphs[i] = makeTextSprite(ALPHABET[i]!, px, services.canvas.dpr); }
