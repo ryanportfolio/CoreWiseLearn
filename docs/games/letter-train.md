@@ -17,9 +17,9 @@ Game id `letter-train`, `mode: 'round'`, `learning: ['letters']`.
 
 ## Discovery without words
 
-The first train of the first round runs a demonstration once the train stops, unless the child has already started on their own while it pulled in. A carved wooden helper hand with a striped cuff glides in, presses the first block, carries it to its car and drops it in; the car's passenger cheers. Then the hand leaves and the child carries on with the remaining blocks.
+The first train of the first round runs a demonstration once the train stops, unless the child has already started on their own while it pulled in (is dragging a block or has placed one; a block only clicked during the arrival does not count, and if it is the block the hand needs, the hand picks it up). A carved wooden helper hand with a striped cuff glides in, presses the first block, carries it to its car and drops it in; the car's passenger cheers. Then the hand leaves and the child carries on with the remaining blocks.
 
-Idle help: after 6 seconds without a placement, the hand comes back and shows the next move with a see-through copy of a block gliding to its car, and the target car wiggles. It repeats every 8 seconds of idleness and stops the moment the child touches anything. The hand never places a block after the first demonstration.
+Idle help: after 6 seconds without a placement, the hand comes back and shows the next move with a see-through copy of a block gliding to its car, and the target car wiggles. It repeats every 8 seconds of idleness and stops the moment the child touches anything. A block the child clicked and left selected does not stop the clock: the hand then shows that block going to its car, or the usual next move when its car is not open yet. Only holding a block (dragging) pauses it. The hand never places a block after the first demonstration.
 
 ## Learning progression (separate from motor tiers)
 

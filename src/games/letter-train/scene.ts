@@ -87,7 +87,7 @@ export interface LetterTrainStats {
   readonly starsEarned: number; readonly learnWindow: readonly number[]; readonly motorHits: number; readonly motorMisses: number;
   readonly hits: number; readonly misses: number; readonly demo: boolean; readonly hint: boolean; readonly blockSize: number;
   readonly choiceIds: readonly string[]; readonly selected: number; readonly stickerId: string; readonly particles: number;
-  readonly workMean: number; readonly workMax: number; readonly kbBlock: number; readonly kbCar: number;
+  readonly workMean: number; readonly workMax: number; readonly kbBlock: number; readonly kbCar: number; readonly hintBlock: number; readonly hintCar: number;
   blocks(): { letter: string; x: number; y: number; state: BlockState; size: number }[];
   /** `plate`: the car shows its case-pair plate. */
   cars(): { letter: string; x: number; y: number; filled: boolean; open: boolean; size: number; plate: boolean }[];
@@ -473,8 +473,9 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     for (let i = 0; i < nCars; i++) { const b = blocks[i]!; if (b.state === 'hidden') { b.state = 'idle'; b.x = b.homeX; b.y = b.homeY; } }
     ensureKb();
     if (allFilled()) { toot(); return; }
-    // The demonstration runs on the very first train, unless the child already started on their own while it pulled in.
-    let touched = held >= 0 || selectedBlock >= 0;
+    // The demonstration runs on the very first train, unless the child already started on their own while it pulled in
+    // (is dragging a block or has placed one). A block only selected (clicked) during the arrival does not stop it.
+    let touched = held >= 0;
     for (let i = 0; i < nCars; i++) if (cars[i]!.filled) touched = true;
     if (touched || data.rounds !== 0 || trainIndex !== 0) return;
     if (!services.debug.enabled || new URLSearchParams(location.search).has('demo')) startDemo();
@@ -862,7 +863,8 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     if (demoT < 0) return;
     demoT += dt;
     const b = blocks[demoBlock]!;
-    if (demoT >= 0.9 && demoT < 2.2 && b.state === 'idle') { b.state = 'held'; held = demoBlock; keyOpt.index = Math.max(0, letterIndex(b.letter)); playSfx(audio, 'key', keyOpt); }
+    // A block the child selected during the arrival is still a platform block: the hand takes it like an idle one.
+    if (demoT >= 0.9 && demoT < 2.2 && (b.state === 'idle' || b.state === 'selected')) { if (selectedBlock === demoBlock) selectedBlock = -1; b.state = 'held'; held = demoBlock; keyOpt.index = Math.max(0, letterIndex(b.letter)); playSfx(audio, 'key', keyOpt); }
     if (b.state === 'held' && demoT < 2.2) {
       const k = easeInOutSine((demoT - 1.1) / 1.0);
       b.x = lerp(b.homeX, slotX(demoCar), k); b.y = lerp(b.homeY, slotY(), k) - Math.sin(clamp01((demoT - 1.1) / 1.0) * Math.PI) * B * 0.4;
@@ -870,7 +872,12 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     if (demoT >= 2.2 && b.state === 'held') { held = -1; attempt(demoBlock, demoCar, 'demo'); }
     if (demoT >= DEMO_SECONDS) demoT = -1;
   }
+  /** The selected block and its open car; with no block selected, or none of its cars open yet, the next open car and its block. */
   function hintTarget(): void {
+    if (selectedBlock >= 0) {
+      const s = blocks[selectedBlock]!;
+      for (let c = 0; c < nCars; c++) if (isOpen(c) && matches(s.letter, cars[c]!.letter)) { hintBlock = selectedBlock; hintCar = c; return; }
+    }
     hintCar = nextOpen(); hintBlock = -1;
     if (hintCar < 0) return;
     for (let i = 0; i < nCars; i++) if (onPlatform(blocks[i]!) && matches(blocks[i]!.letter, cars[hintCar]!.letter)) { hintBlock = i; break; }
@@ -889,7 +896,8 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
       if (chuffT <= 0 && k < 0.97) { chuffT = 0.3 + k * 0.25; chuffOpt.volume = 0.3 * (1 - k * 0.6); playSfx(audio, 'tick', chuffOpt); puff(1); }
       if (phaseT >= ARRIVE_SECONDS) beginPlay();
     } else if (phase === 'play') {
-      if (held < 0 && selectedBlock < 0 && demoT < 0) idleT += dt;
+      // Idle time runs while a block is only selected (a click without a drag), and pauses while one is held.
+      if (held < 0 && demoT < 0) idleT += dt;
       if (hintT < 0 && idleT >= nextHintAt) { hintTarget(); if (hintBlock >= 0) { hintT = 0; nextHintAt = idleT + IDLE_REPEAT; } }
       if (hintT >= 0) {
         hintT += dt;
@@ -1046,12 +1054,14 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     }
     if (hintT >= 0 && hintBlock >= 0 && hintCar >= 0) {
       const b = blocks[hintBlock]!;
+      // A selected block draws lifted (renderPlatform), so the hand starts where it shows.
+      const sel = b.state === 'selected', bx = sel ? b.x : b.homeX, by = sel ? b.y - B * 0.22 : b.homeY;
       let tx: number, ty: number, alpha = 1;
-      if (hintT < 0.55) { const k = easeOutCubic(hintT / 0.55); tx = lerp(b.homeX + W * 0.12, b.homeX, k); ty = lerp(H + 40, b.homeY, k); alpha = clamp01(hintT / 0.25); }
-      else if (hintT < 0.9) { tx = b.homeX; ty = b.homeY; }
+      if (hintT < 0.55) { const k = easeOutCubic(hintT / 0.55); tx = lerp(bx + W * 0.12, bx, k); ty = lerp(H + 40, by, k); alpha = clamp01(hintT / 0.25); }
+      else if (hintT < 0.9) { tx = bx; ty = by; }
       else if (hintT < 1.8) {
         const k = easeInOutSine((hintT - 0.9) / 0.9);
-        tx = lerp(b.homeX, slotX(hintCar), k); ty = lerp(b.homeY, slotY(), k) - Math.sin(k * Math.PI) * B * 0.35;
+        tx = lerp(bx, slotX(hintCar), k); ty = lerp(by, slotY(), k) - Math.sin(k * Math.PI) * B * 0.35;
         drawBlock(ctx, b, tx, ty, 0.95, 0.45);
       } else { tx = slotX(hintCar); ty = slotY(); alpha = 1 - clamp01((hintT - 1.8) / 0.6); }
       drawHand(ctx, tx, ty, 0, alpha);
@@ -1170,7 +1180,7 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     get starsEarned() { return starsEarned; }, get learnWindow() { return data?.learn ?? []; }, get motorHits() { return motorHits; }, get motorMisses() { return motorMisses; },
     get hits() { return hits; }, get misses() { return misses; }, get demo() { return demoT >= 0; }, get hint() { return hintT >= 0; }, get blockSize() { return B; },
     get choiceIds() { return pending?.choices ?? []; }, get selected() { return menuSelected; }, get stickerId() { return pending?.chosen ?? ''; },
-    get particles() { return particles.alive; }, get kbBlock() { return kbBlock; }, get kbCar() { return kbCar; },
+    get particles() { return particles.alive; }, get kbBlock() { return kbBlock; }, get kbCar() { return kbCar; }, get hintBlock() { return hintBlock; }, get hintCar() { return hintCar; },
     get workMean() { let s = 0; for (let i = 0; i < workCount; i++) s += work[i]!; return workCount ? s / workCount : 0; },
     get workMax() { let m = 0; for (let i = 0; i < workCount; i++) m = Math.max(m, work[i]!); return m; },
     blocks() { return blocks.slice(0, nCars).map(b => ({ letter: b.letter, x: b.x, y: b.y, state: b.state, size: B })); },
