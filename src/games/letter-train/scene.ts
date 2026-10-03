@@ -36,6 +36,8 @@ const ARRIVE_SECONDS = 1.6, BLOCK_APPEAR = 0.15, BLOCK_STAGGER = 0.08, TOOT_SECO
 const CELEBRATION_SECONDS = 4, CELEBRATION_LOCK = 1.5, CHOICE_LOCK = 1.2, REST_LOCK = 1.2, FOCUS_HOLD_MS = 250;
 const IDLE_FIRST = 6, IDLE_REPEAT = 8, HINT_SECONDS = 2.4, DEMO_SECONDS = 3.2;
 const CLICK_SLOP = 12;
+/** A key pressed sooner than this after the previous key is mashing: it still plays but is never learning evidence. */
+const KEY_CALM = 0.6;
 const ART = 'letter-train/';
 const WAGONS = ['wagon-red', 'wagon-yellow', 'wagon-green', 'wagon-blue'] as const;
 const BLOCKS = ['block-red', 'block-yellow', 'block-green', 'block-blue'] as const;
@@ -155,6 +157,11 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
   let held = -1, selectedBlock = -1, downX = 0, downY = 0, grabX = 0, grabY = 0, moved = false;
   /** Keyboard highlights show only after keyboard input; pointer input hides them again. */
   let kbActive = false;
+  /**
+   * Scene time of the last key press; whether the arrows moved a highlight since the last placement (a pair the child
+   * chose, not the default); and whether the keyboard attempt keyPress is making may count as learning evidence.
+   */
+  let lastKeyAt = -Infinity, kbChose = false, keyEvidence = false;
   /** Device pixel ratio the dim star and glyph canvases were baked for. */
   let glyphDpr = 1;
   /** Pixel ratio the backdrop and the queued round-end art were scaled at; the canvas lowers or raises it on slow or fast frames. */
@@ -442,7 +449,7 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
       const b = blocks[i]!;
       Object.assign(b, { letter: i < nCars ? plan.blocks[order[i]!]! : '', color: Math.floor(random() * BLOCKS.length), state: 'hidden', car: -1, t: 0, appear: BLOCK_APPEAR + i * BLOCK_STAGGER, squash: 9, canvas: undefined, canvasDpr: 0 });
     }
-    held = selectedBlock = -1; kbBlock = kbCar = -1; hintT = -1; demoT = -1;
+    held = selectedBlock = -1; kbBlock = kbCar = -1; kbChose = false; hintT = -1; demoT = -1;
     phase = 'arrive'; phaseT = 0; chuffT = 0;
     fitTrain(); trainOff = -trainL - 60;
     if (trainIndex === plans.length - 1) planRoundEndArt();
@@ -588,6 +595,7 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
   }
   function wiggleHome(b: Block): void {
     // Where this block belongs: in ordered trains the next car, otherwise any empty car with its letter.
+    kbChose = false;
     for (let i = 0; i < nCars; i++) if (isOpen(i) && matches(b.letter, cars[i]!.letter)) { cars[i]!.wiggle = 0; kbCar = i; kbBlock = blocks.indexOf(b); playSfx(audio, 'hover', hoverOpt); return; }
     const next = nextOpen();
     if (next >= 0) {
@@ -596,11 +604,16 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     }
   }
   /**
-   * Learning evidence comes only from pointer attempts, which ask the child to match a block to a car.
-   * Keyboard placements (typed letters, arrows, any key) never count, so they can neither raise nor lower the stage.
+   * Learning evidence comes from pointer attempts (a block put on an open car: the right car is a hit, another a miss)
+   * and from calm keyboard play (owner decision, 2026-10-03). A typed letter that is on a platform block is a hit (the
+   * child found it on the keyboard); a typed letter on no block is a miss. Any other key places the highlighted pair
+   * and counts only when the child moved a highlight with the arrows since the last placement; the default pair the
+   * game chose never counts. keyPress sets keyEvidence, false for a key pressed under KEY_CALM after the previous key.
+   * The demonstration and placements with no choice left never count.
    */
   function record(hit: boolean, source: Source): void {
-    if (source !== 'pointer' || !choiceLeft()) return;
+    if (source === 'demo' || !choiceLeft()) return;
+    if (source !== 'pointer' && !keyEvidence) return;
     if (hit) hits++; else misses++;
     data.learn.push(hit ? 1 : 0);
     if (data.learn.length > LEARN_WINDOW) data.learn.splice(0, data.learn.length - LEARN_WINDOW);
@@ -623,6 +636,7 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     if (held === index) held = -1;
     if (selectedBlock === index) selectedBlock = -1;
     if (car < 0 || cars[car]!.filled) { sendHome(b); return; }
+    kbChose = false;
     if (!isOpen(car)) { sendHome(b); wiggleHome(b); playSfx(audio, 'miss', missOpt); return; }
     const c = cars[car]!;
     if (!matches(b.letter, c.letter)) {
@@ -669,7 +683,7 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
   const pullRadius = () => Math.max(B * 0.7, TIERS[tier].magnet * B);
   /** Default keyboard target: the first open car and the platform block that belongs on it, so any key places it correctly. */
   function pairKb(): void {
-    kbBlock = kbCar = -1;
+    kbBlock = kbCar = -1; kbChose = false;
     for (let c = 0; c < nCars; c++) {
       if (!isOpen(c)) continue;
       for (let i = 0; i < nCars; i++) if (onPlatform(blocks[i]!) && matches(blocks[i]!.letter, cars[c]!.letter)) { kbBlock = i; kbCar = c; return; }
@@ -677,7 +691,7 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
   }
   /** Point the keyboard target at this block and the open car where it belongs (or at a fresh matching pair). */
   function pairWith(index: number): void {
-    const b = blocks[index]!;
+    const b = blocks[index]!; kbChose = false;
     for (let c = 0; c < nCars; c++) if (isOpen(c) && matches(b.letter, cars[c]!.letter)) { kbBlock = index; kbCar = c; return; }
     pairKb();
   }
@@ -743,6 +757,8 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
   function keyPress(key: string, code: string): void {
     // The highlights are hidden until a key arrives (and again after any pointer press).
     const first = !kbActive;
+    // Mashing still plays, but a key that comes too soon after the previous one is never learning evidence.
+    const calm = time - lastKeyAt >= KEY_CALM; lastKeyAt = time;
     idleT = 0; nextHintAt = IDLE_FIRST; hintT = -1; kbActive = true;
     if (demoT >= 0) endDemo();
     // Between trains a key gets a puff from the chimney.
@@ -756,7 +772,7 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
       const step = code === 'ArrowLeft' ? -1 : 1;
       for (let k = 1; k <= nCars; k++) {
         const i = (kbBlock + step * k + nCars * 2) % nCars;
-        if (onPlatform(blocks[i]!)) { kbBlock = i; keyOpt.index = Math.max(0, letterIndex(blocks[i]!.letter)); playSfx(audio, 'key', keyOpt); break; }
+        if (onPlatform(blocks[i]!)) { if (i !== kbBlock) kbChose = true; kbBlock = i; keyOpt.index = Math.max(0, letterIndex(blocks[i]!.letter)); playSfx(audio, 'key', keyOpt); break; }
       }
       return;
     }
@@ -764,20 +780,31 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
       const step = code === 'ArrowUp' ? -1 : 1;
       for (let k = 1; k <= nCars; k++) {
         const i = (kbCar + step * k + nCars * 2) % nCars;
-        if (isOpen(i)) { kbCar = i; cars[i]!.wiggle = 0.6; playSfx(audio, 'hover', hoverOpt); break; }
+        if (isOpen(i)) { if (i !== kbCar) kbChose = true; kbCar = i; cars[i]!.wiggle = 0.6; playSfx(audio, 'hover', hoverOpt); break; }
       }
       return;
     }
+    // A letter key asks the child to find a platform letter on the keyboard: on a block it is a hit, on none a miss.
+    // Any other key places the highlighted pair, which counts only when the child chose it with the arrows.
+    keyEvidence = calm && kbChose;
     if (key.length === 1 && /\p{L}/u.test(key)) {
-      let typed = -1;
-      for (let i = 0; i < nCars; i++) if (onPlatform(blocks[i]!) && blocks[i]!.letter.toLowerCase() === key.toLowerCase()) { typed = i; break; }
+      let typed = -1, shown = false;
+      for (let i = 0; i < nCars; i++) {
+        if (!onPlatform(blocks[i]!)) continue;
+        shown = true;
+        if (blocks[i]!.letter.toLowerCase() === key.toLowerCase()) { typed = i; break; }
+      }
+      keyEvidence = calm;
       if (typed >= 0) {
         const b = blocks[typed]!; let car = -1;
         for (let i = 0; i < nCars; i++) if (isOpen(i) && matches(b.letter, cars[i]!.letter)) { car = i; break; }
-        if (car < 0) { b.squash = 0; wiggleHome(b); return; }
+        if (car < 0) { record(true, 'typed'); b.squash = 0; wiggleHome(b); return; }
         if (selectedBlock >= 0 && selectedBlock !== typed) { sendHome(blocks[selectedBlock]!); selectedBlock = -1; }
         attempt(typed, car, 'typed'); return;
       }
+      // Only with letters on the platform to look for; the key then places the highlighted pair as before, uncounted.
+      if (shown) record(false, 'typed');
+      keyEvidence = false;
     }
     if (kbBlock < 0 || kbCar < 0) { keyBurst(); return; }
     if (selectedBlock >= 0 && selectedBlock !== kbBlock) { sendHome(blocks[selectedBlock]!); selectedBlock = -1; }
