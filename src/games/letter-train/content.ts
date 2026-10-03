@@ -4,12 +4,15 @@ export const STAGE_SAME_UPPER = 0, STAGE_SAME_LOWER = 1, STAGE_PAIRS = 2, STAGE_
 export type Stage = 0 | 1 | 2 | 3 | 4;
 export const TOP_STAGE: Stage = 4;
 
-export const WORDS = ['cat', 'dog', 'sun', 'bus', 'hat', 'cup', 'pig', 'bed'] as const;
+export const WORDS = ['cat', 'dog', 'sun', 'bus', 'hat', 'cup', 'pig', 'fox'] as const;
 export type Word = (typeof WORDS)[number];
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 /** Letters that look alike in some case never share a train. */
 const LOOKALIKES = ['BDPQ', 'MW', 'NU', 'IL'];
+/** Letters whose capital and small forms have the same shape; the capital-to-small stage leaves them out. */
+const SAME_SHAPE = 'CKOPSUVWXZ';
+const PAIR_ALPHABET = ALPHABET.split('').filter(l => !SAME_SHAPE.includes(l)).join('');
 
 export interface TrainPlan {
   stage: Stage;
@@ -44,10 +47,10 @@ export function stageDown(stage: Stage, hasName: boolean): Stage {
   return next;
 }
 
-function pickLetters(count: number, random: () => number): string[] {
+function pickLetters(count: number, random: () => number, alphabet = ALPHABET): string[] {
   const picked: string[] = [];
   for (let guard = 0; picked.length < count && guard < 400; guard++) {
-    const letter = ALPHABET[Math.floor(random() * ALPHABET.length)]!;
+    const letter = alphabet[Math.floor(random() * alphabet.length)]!;
     if (picked.includes(letter)) continue;
     if (LOOKALIKES.some(group => group.includes(letter) && picked.some(p => group.includes(p)))) continue;
     picked.push(letter);
@@ -57,7 +60,8 @@ function pickLetters(count: number, random: () => number): string[] {
 
 /** One train of single letters for stages 0 to 2. */
 export function letterTrain(stage: Stage, count: number, random: () => number): TrainPlan {
-  const letters = pickLetters(count, random);
+  // Capital to small only asks for the pairing when the two forms look different.
+  const letters = pickLetters(count, random, stage === STAGE_PAIRS ? PAIR_ALPHABET : ALPHABET);
   const lower = letters.map(l => l.toLowerCase());
   if (stage === STAGE_SAME_LOWER) return { stage, cars: lower, blocks: lower.slice(), ordered: false };
   if (stage === STAGE_PAIRS) return { stage, cars: lower, blocks: letters, ordered: false };

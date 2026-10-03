@@ -11,11 +11,12 @@ Game id `letter-train`, `mode: 'round'`, `learning: ['letters']`.
 - Right car: the block clicks into the slot with a wooden knock, squashes and settles. The car's animal passenger hops and cheers; each cheer climbs one note higher along the train. Wood-coloured sparkles burst from the slot. If the car showed a different case (`a` for `A`), its letter moves onto a small plate on the car's side, so the pair stays visible.
 - Other car: the block slides back to its place on the platform along a soft arc, with the soft "miss" sound. The car where it belongs wiggles, so the child sees where it goes. Nothing is marked wrong.
 - Released anywhere else: it slides back to the platform.
-- Last car filled: the train toots (smoke puffs, a deep "go"), rolls out to the right, and a wooden star flies from the engine into the next empty socket at the top. The next train pulls in from the left while its blocks pop up onto the platform.
+- Last car filled: the train toots (smoke puffs, a deep "go", 0.5 s), rolls out to the right (1.1 s), and a wooden star flies from the engine into the next empty socket at the top. The next train pulls in from the left (1.6 s) while its blocks pop up onto the platform. Blocks respond the moment they appear, so the child can carry a block onto a car that is still rolling in. From the last block clicking in to the next block responding takes about 1.8 s.
+- A tap while nothing can be moved (the train tooting or leaving, or before the blocks pop up) throws a small burst of gold wood chips where the finger landed; a key at that moment puffs smoke from the chimney (or throws the chips on the platform when the engine is off screen).
 
 ## Discovery without words
 
-The first train of the first round runs a demonstration. A white glove hand glides in, presses the first block, carries it to its car and drops it in; the car's passenger cheers. Then the hand leaves and the child carries on with the remaining blocks.
+The first train of the first round runs a demonstration once the train stops, unless the child has already started on their own while it pulled in. A carved wooden helper hand with a striped cuff glides in, presses the first block, carries it to its car and drops it in; the car's passenger cheers. Then the hand leaves and the child carries on with the remaining blocks.
 
 Idle help: after 6 seconds without a placement, the hand comes back and shows the next move with a see-through copy of a block gliding to its car, and the target car wiggles. It repeats every 8 seconds of idleness and stops the moment the child touches anything. The hand never places a block after the first demonstration.
 
@@ -32,11 +33,12 @@ Five stages, saved per profile:
 | 4 Three-letter words | the word's letters, filled left to right | the word, with a picture riding above the engine |
 
 - Stages 0 to 2 pick distinct letters for each train and never put look-alikes on the same train (b d p q, m w, n u, i l, M W).
+- Stage 2 (and the capital-to-small trains that fill stage 3) leaves out the ten letters whose capital and small forms have the same shape (C K O P S U V W X Z), so every pair asks the child to connect two different shapes.
 - Stage 3 uses the active profile's name, followed by capital-to-small trains to make three. A name longer than fits on one train (5 letters at 1366 px wide) continues on the next train. A profile without a name skips this stage.
-- Stage 4 words: cat, dog, sun, bus, hat, cup, pig, bed, never repeating the last four words used. The picture is generated art and contains no letters; it rides on a wooden sign above the engine. From stage 4 on, the last train (or trains) of every round spells the child's name when there is one; words fill the rest of the three trains.
+- Stage 4 words: cat, dog, sun, bus, hat, cup, pig, fox, never repeating the last four words used. The picture is generated art and contains no letters; it rides on a wooden sign above the engine. From stage 4 on, the last train (or trains) of every round spells the child's name when there is one; words fill the rest of the three trains.
 - In stages 3 and 4 only the next car to fill is open; it glows. Other cars wait.
 
-Learning evidence: an attempt is a block released on an open car by pointer, or a letter typed on the keyboard that matches a block on the platform. A pointer attempt on the right car is a hit, on another open car a miss. A typed letter that matches a block counts as a hit (the child found the key with that letter); a typed letter with no block is not an attempt. The demonstration, keyboard placements with arrows or any other key, and drops onto a car that is not yet open are not attempts.
+Learning evidence: an attempt is a block the child puts on an open car with the mouse or trackpad, by dragging it there or by clicking the block and then the car. The right car is a hit, another open car a miss. Only these pointer attempts ask the child to match a block to a car, so only they count, hits and misses alike. Nothing done on the keyboard counts: a typed letter only asks the child to find a key, and at stage 2 typing `x` would place the `X` block without the child ever pairing `X` with `x`; any other key places the highlighted pair, which is always right. Keyboard play therefore neither raises nor lowers the stage. The demonstration and drops onto a car that is not yet open are not attempts either.
 
 Change rule, applied between rounds only: the last 12 attempts of the current stage are kept. At least 10 attempts with 85 percent or more hits moves up one stage; at least 8 attempts with 50 percent or fewer hits moves down one stage. The window clears on every change.
 
@@ -56,10 +58,11 @@ Motor attempt: a pointer drag released above the platform. A hit when it lands i
 
 ## Keyboard-only play
 
-- A highlighted block on the platform (gold ring) and a highlighted car (gold arrow above it) are always shown.
-- Typing a letter places the platform block with that letter onto its car.
-- Left and Right arrows move the block highlight; Up and Down move the car highlight between open cars.
-- Any other key places the highlighted block into the highlighted car. After a miss, the car highlight moves to where that block belongs, so pressing any key repeatedly always finishes the train.
+- The keyboard target is a highlighted block on the platform (gold ring) and a highlighted car (gold arrow above it). By default the pair always matches: the first open car and the block that belongs on it. So the first press of any key on every train places a block correctly, and pressing one key over and over finishes every train with no miss.
+- The highlights appear after the first key press and stay while the child uses the keyboard. Any mouse or trackpad press hides them again, so a mouse player never sees an arrow over a car that the block they picked does not belong to. Picking a block with the pointer also moves the keyboard pair to that block and its car.
+- Typing a letter places the platform block with that letter onto its car. A letter that is on no block places the highlighted pair, like any other key.
+- Left and Right arrows move the block highlight; Up and Down move the car highlight between open cars. A pair the child chose with the arrows can miss; after a miss both highlights move to that block and the car where it belongs.
+- Keys work while the train pulls in, as soon as the first block appears.
 - Escape goes home. Tab cycles focus through Home and the sound button, as in Bubble Bay.
 
 ## Round, reward and rest
@@ -99,7 +102,7 @@ Music track `letter-train` (owner supplies `public/music/letter-train.mp3`; sile
 
 ## Voice clip slot
 
-`public/voice/letter-train/<letter>.ogg` or `.mp3` (`a` to `z`, lower case file names). When a block clicks in, the clip for its letter plays if the file exists; otherwise nothing happens. The game finds clips at build time with `import.meta.glob`, so missing clips cause no requests. No clips ship.
+`public/voice/letter-train/<letter>.ogg` or `.mp3` (`a` to `z`, lower case file names). When a block clicks in, the clip for its letter plays if one is listed; otherwise nothing happens. The owner lists the files in `VOICE_CLIPS` in `src/games/letter-train/clips.ts`, a hand-edited list. The game only requests listed clips, so a missing clip causes no request, and the clips ship once from `public/` with no hashed copy in the bundle (checked with a test clip: one `dist/voice/letter-train/a.ogg`, precached once, nothing under `dist/assets`). No clips ship.
 
 ## Art
 
@@ -108,12 +111,14 @@ Medium: painted wooden toys. Everything is a transparent WebP sprite except the 
 | File (under `public/art/letter-train/`) | Use |
 |---|---|
 | `town.webp` 1536x1024 | Background: toy town, track at 54.8 percent height, plank platform |
-| `engine.webp` | Engine with a bear driver; also the hub tile icon |
+| `engine.webp` | Engine with a bear driver, side view |
+| `icon.webp` 624x624 | Hub tile icon: the same engine from the front three-quarter view, square |
 | `wagon-red/yellow/green/blue.webp` | Cars and the sticker-choice wagons |
-| `passengers/*.webp` (6) | Passengers and stickers |
-| `words/*.webp` (8) | Picture cues for cat, dog, sun, bus, hat, cup, pig, bed |
+| `passengers/*.webp` (6) 482x482 | Passengers and stickers; each animal (longest side 360 px) sits centred in a transparent square so it fits inside the sticker book's dashed circle; the game multiplies passenger draw sizes by 482/360 |
+| `words/*.webp` (8) | Picture cues for cat, dog, sun, bus, hat, cup, pig, fox |
 | `block-red/yellow/green/blue.webp` | Blank block faces; letters are baked on top |
-| `star.webp`, `hand.webp` | Round stars; demonstration hand |
+| `star.webp` | Round stars |
+| `hand.webp` 256x256 | Demonstration and hint hand: carved wooden hand with a red and yellow cuff, fingertip at the top-left corner |
 
 Provenance: generated on 2026-10-03 through Codex CLI 0.159.0 (`codex exec`, agent model `gpt-6-astra`, reasoning medium) calling its `image_gen` tool. The tool does not report the image model. Every request attached the Little Train Town quarter of `D:/screenshots/CoreWiseLearn/concepts/four-worlds-v1.1.png` as the style reference. Six requests, each 1536x1024:
 
@@ -122,16 +127,20 @@ Provenance: generated on 2026-10-03 through Codex CLI 0.159.0 (`codex exec`, age
 - Engine: one side-view toy steam engine facing right, bear cub driver in a blue cap leaning out of the cab, blue boiler, red cab, yellow bands, red wheels, transparent background.
 - Wagons: four identical open-top box wagons in red, yellow, green and blue, plain side panels, empty, 2 by 2 grid, transparent.
 - Passengers: six seated peg-toy animals (bunny, duckling, elephant, hippo, mouse, lamb) with both paws raised in a cheer and big smiles, 3 by 2 grid, transparent.
-- Words: cat, dog, sun, bus, hat, cup, pig, bed as wooden toys, no writing anywhere, 4 by 2 grid, transparent.
-- Blocks: four blank alphabet-block faces (red, yellow, green, blue frames, cream centre, no letters), a gold wooden star, a white glove hand pointing up and left, 3 by 2 grid, transparent.
+- Words: cat, dog, sun, bus, hat, cup, pig, bed as wooden toys, no writing anywhere, 4 by 2 grid, transparent. The bed picture was dropped in round G2 (b and d on one train).
+- Blocks: four blank alphabet-block faces (red, yellow, green, blue frames, cream centre, no letters), a gold wooden star, a white glove hand pointing up and left, 3 by 2 grid, transparent. The glove was replaced in round G2.
+
+Round G2, 2026-10-03, same tool chain (Codex CLI 0.159.0, `codex exec -m gpt-6-astra`, reasoning medium, `image_gen`), one 2 by 2 sheet. Style references: the Little Train Town crop, the round G1 engine sheet and the round G1 word sheet. Shared style text and negatives as above, plus "a white cartoon glove" in the negatives. Cells: the same engine and bear driver seen from the front three-quarter view, compact enough to fill a square, with a puff of smoke (hub icon); a chunky carved wooden hand painted warm peach, index finger pointing up and left, a red and yellow striped cuff, explicitly no white glove, stitch lines, seams or buttons (helper hand); a sitting orange wooden toy fox (word picture); a red-brown wooden toy hen (spare, kept outside the checkout as a possible replacement for `sun`, whose n and u are also look-alikes). The tool returned 1254x1254 and Codex resized it to 1536x1536 (bicubic). Processing as above; the icon was then centred on a 624 px transparent square (content about 82 percent of the side, like the other hub icons), and the six passengers were re-cut from the round G1 sheet and centred on 482 px squares. The G2 sheet, prompt and script are with the others in `D:/CoreWise/_artifacts/CoreWiseLearn/letter-train/`.
 
 Processing (`sharp`, script kept outside the build): each sheet is cut into its grid cells; alpha below 24 becomes 0 and alpha of 200 or more becomes 255; edge pixels take their colour from nearby opaque pixels so the generator's coloured glow cannot tint the rim; specks and slivers from neighbouring cells are dropped; each object is trimmed with 4 px padding, resized with Lanczos and written as WebP at quality 90, alpha quality 100. The background is WebP quality 82 at full size. Edges were checked on cream and on the dark outline colour. The raw sheets, the exact prompts, the style reference crop and the processing script are kept outside the checkout in `D:/CoreWise/_artifacts/CoreWiseLearn/letter-train/`.
 
 ## Performance plan
 
 - Sprites draw through the sprite store's scaled cache. Wagon fronts are drawn from the same cached canvas with a source rectangle, so passengers and blocks sit inside the wagons without extra art.
-- Block faces, slots and plates are baked once per train (letter glyph plus face) and drawn with `drawImage`. No `fillText`, gradients or `shadowBlur` per frame.
+- Block faces, slots and plates are baked once per train (letter glyph plus face) at the canvas's device pixel ratio and drawn with `drawImage` at their CSS size, so letters stay crisp at 100 and 150 percent scaling. When the pixel ratio changes (resize, browser zoom, the engine's automatic resolution step), the old canvases keep drawing while one is rebaked per update. No `fillText`, gradients or `shadowBlur` per frame.
+- Sprite names are built once at module load; drawing never builds strings or closures.
+- Everything the round end draws (celebration riders at their size, the sticker-choice and rest wagons and passengers, the rest buttons) is queued when the last train of a round starts and scaled one image per update while that train is played. The sticker flight from choice to rest draws the rest-size art under a canvas transform instead of scaling art to a new size every frame.
 - Blocks, cars, star flights and the hand use fixed pools allocated at scene creation. Sparkles, smoke and confetti share one pooled particle system of 220.
 - Layout and cache rebuilds happen on resize or train arrival. Art is decoded with `img.decode()` and scaled to its display sizes as soon as it loads, outside the frame loop; the background is not drawn until then. Block and slot canvases for a new train are baked one per update while it pulls in.
 
-Measured on the development machine in headed Chrome at 1366x768 (dev page, tier 2, four cars, a full round): loop work mean 0.15 to 0.25 ms; the largest single frame was 5.6 ms, on the first drag of the round; every later frame stayed under 4 ms. The children's laptop remains the final check.
+Measured on the development machine in headed Chrome at 1366x768 (production build, fresh page, mouse round at tier 0, per-frame scene work from the last placement to the rest screen): the first celebration frame took 1.2 to 3.1 ms across four runs, the first sticker-choice frame 0.1 to 0.2 ms, the first rest frame 0.5 to 0.9 ms; every other frame stayed under 1.2 ms (round G1: 8.2 to 10.2 ms at the celebration start and 7.2 ms at the choice). The children's laptop remains the final check.

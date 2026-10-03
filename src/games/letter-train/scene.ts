@@ -27,7 +27,8 @@ export const TIERS: readonly [TierParams, TierParams, TierParams] = [
 const MAX_CARS = 6, TRAINS_PER_ROUND = 3, PARTICLES = 220;
 /** Geometry in block widths. */
 const CAR_W = 2.1, PITCH = 1.89, ENGINE_H = 1.45, FRONT_TOP = 0.135;
-const ARRIVE_SECONDS = 2.2, TOOT_SECONDS = 0.9, DEPART_SECONDS = 1.6, STAR_FLIGHT = 0.8;
+/** Blocks pop up and respond while the train is still pulling in; toot plus departure is about 1.6 s. */
+const ARRIVE_SECONDS = 1.6, BLOCK_APPEAR = 0.15, BLOCK_STAGGER = 0.08, TOOT_SECONDS = 0.5, DEPART_SECONDS = 1.1, STAR_FLIGHT = 0.8;
 const CELEBRATION_SECONDS = 4, CELEBRATION_LOCK = 1.5, CHOICE_LOCK = 1.2, REST_LOCK = 0.6;
 const IDLE_FIRST = 6, IDLE_REPEAT = 8, HINT_SECONDS = 2.4, DEMO_SECONDS = 3.2;
 const LEARN_WINDOW = 12, CLICK_SLOP = 12;
@@ -39,7 +40,19 @@ export const PASSENGERS = ['bunny', 'duckling', 'elephant', 'hippo', 'mouse', 'l
 const BUTTON_PLAY = 'buttons/play-arrow.png', BUTTON_HOME = 'buttons/home.png';
 const sprite = (path: string) => `${GAME_ID}:${path}`;
 const passengerSticker = (i: number) => `${GAME_ID}-${PASSENGERS[i] ?? 'bunny'}`;
-const passengerOf = (id: string) => Math.max(0, PASSENGERS.findIndex((_, i) => passengerSticker(i) === id));
+/** Passenger art sits in a square with transparent padding so it fits the sticker book's slot; draw sizes are multiplied by this to keep the animal's size. */
+const PASSENGER_PAD = 482 / 360;
+// Sprite names built once, so drawing never builds strings.
+const PASSENGER_IDS: readonly string[] = PASSENGERS.map((_, i) => passengerSticker(i));
+const PASSENGER_SPRITES: readonly string[] = PASSENGER_IDS.map(id => stickerSpriteName(id));
+const WAGON_SPRITES: readonly string[] = WAGONS.map(w => sprite(w));
+const BLOCK_SPRITES: readonly string[] = BLOCKS.map(b => sprite(b));
+const WORD_SPRITES: Readonly<Record<string, string>> = Object.fromEntries(WORDS.map(w => [w, sprite(`words/${w}`)]));
+const SPR_TOWN = sprite('town'), SPR_ENGINE = sprite('engine'), SPR_STAR = sprite('star'), SPR_HAND = sprite('hand');
+const SPR_PLAY = sprite('play'), SPR_HOME = sprite('home');
+const CHIP_HUES = [8, 45, 120, 210] as const;
+const passengerOf = (id: string) => Math.max(0, PASSENGER_IDS.indexOf(id));
+const passengerSprite = (i: number) => PASSENGER_SPRITES[i] ?? PASSENGER_SPRITES[0]!;
 
 type Phase = 'arrive' | 'play' | 'toot' | 'depart' | 'celebration' | 'choice' | 'sticker' | 'rest';
 type BlockState = 'hidden' | 'idle' | 'held' | 'selected' | 'return' | 'fly' | 'placed';
@@ -47,10 +60,12 @@ type Source = 'pointer' | 'typed' | 'key' | 'demo';
 interface Car {
   letter: string; wagon: number; passenger: number; filled: boolean; block: number;
   hop: number; wiggle: number; plate: number; slot: HTMLCanvasElement | undefined; plateCanvas: HTMLCanvasElement | undefined;
+  /** Device pixel ratio the slot and plate canvases were baked at. */
+  slotDpr: number; plateDpr: number;
 }
 interface Block {
   letter: string; color: number; state: BlockState; x: number; y: number; homeX: number; homeY: number;
-  fromX: number; fromY: number; t: number; car: number; appear: number; squash: number; canvas: HTMLCanvasElement | undefined;
+  fromX: number; fromY: number; t: number; car: number; appear: number; squash: number; canvas: HTMLCanvasElement | undefined; canvasDpr: number;
 }
 interface Pending {
   stars: number; choices: string[]; chosen: string; rewardEnabled: boolean; restEntered: boolean; passengers: number[]; tier: Tier;
@@ -105,7 +120,7 @@ function artList(): { name: string; path: string }[] {
   const paths = ['town.webp', 'engine.webp', 'star.webp', 'hand.webp', ...WAGONS.map(w => `${w}.webp`), ...BLOCKS.map(b => `${b}.webp`),
     ...WORDS.map(w => `words/${w}.webp`)];
   return [...paths.map(p => ({ name: sprite(p.replace('.webp', '')), path: ART + p })),
-    { name: sprite('play'), path: BUTTON_PLAY }, { name: sprite('home'), path: BUTTON_HOME },
+    { name: SPR_PLAY, path: BUTTON_PLAY }, { name: SPR_HOME, path: BUTTON_HOME },
     ...STICKERS.filter(s => s.game === GAME_ID).map(s => ({ name: stickerSpriteName(s.id), path: s.path }))];
 }
 export async function loadLetterTrainArt(services: AppServices): Promise<string[]> {
@@ -136,21 +151,28 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
   const random = () => services.random();
   const particles = createParticleSystem(PARTICLES);
   const soundButton = createSoundButton(services);
-  const cars: Car[] = Array.from({ length: MAX_CARS }, () => ({ letter: '', wagon: 0, passenger: 0, filled: false, block: -1, hop: 9, wiggle: 9, plate: 9, slot: undefined, plateCanvas: undefined }));
-  const blocks: Block[] = Array.from({ length: MAX_CARS }, () => ({ letter: '', color: 0, state: 'hidden' as BlockState, x: 0, y: 0, homeX: 0, homeY: 0, fromX: 0, fromY: 0, t: 0, car: -1, appear: 0, squash: 9, canvas: undefined }));
+  const cars: Car[] = Array.from({ length: MAX_CARS }, () => ({ letter: '', wagon: 0, passenger: 0, filled: false, block: -1, hop: 9, wiggle: 9, plate: 9, slot: undefined, plateCanvas: undefined, slotDpr: 0, plateDpr: 0 }));
+  const blocks: Block[] = Array.from({ length: MAX_CARS }, () => ({ letter: '', color: 0, state: 'hidden' as BlockState, x: 0, y: 0, homeX: 0, homeY: 0, fromX: 0, fromY: 0, t: 0, car: -1, appear: 0, squash: 9, canvas: undefined, canvasDpr: 0 }));
+  // Round-end art (celebration riders, sticker choice, rest) scaled ahead during the last train, one image per update.
+  const PREP_MAX = 40, prepNames: string[] = new Array<string>(PREP_MAX).fill(''), prepSizes = new Float32Array(PREP_MAX);
+  let prepCount = 0, prepHead = 0;
   const work = new Float32Array(240);
   const keyOpt: SfxOptions = { index: 0, volume: 0.8 }, tokOpt: SfxOptions = { variant: 'B' }, cheerOpt: SfxOptions = { index: 0, volume: 0.8 };
   const missOpt: SfxOptions = { variant: 'D', volume: 0.8 }, chuffOpt: SfxOptions = { variant: 'C', volume: 0.3 }, tootOpt: SfxOptions = { variant: 'B' };
   const starOpt: SfxOptions = { index: 0 }, hoverOpt: SfxOptions = { volume: 0.6 };
   let data: GameData;
   let W = 1366, H = 768, u = 1, B = 150, bgX = 0, bgY = 0, bgS = 1, trackY = 430, platformTop = 460, platformY = 620;
-  let bgCanvas: HTMLCanvasElement | undefined, dimStar: HTMLCanvasElement | undefined, dimStarSize = 0;
+  let bgCanvas: HTMLCanvasElement | undefined, dimStar: HTMLCanvasElement | undefined, dimStarSize = 0, dimStarDpr = 0;
   let phase: Phase = 'arrive', tier: Tier = 0, stage: Stage = 0, sceneT = 0, time = 0, phaseT = 0;
   let plans: TrainPlan[] = [], plan: TrainPlan | undefined, trainIndex = 0, nCars = 0, trainOff = 0, parkX = 0, trainL = 0;
-  let starsEarned = 0, starFlight = -1, chuffT = 0, tootSquash = 9;
+  let starsEarned = 0, starFlight = -1, chuffT = 0, tootSquash = 9, departFrom = 0;
   let hits = 0, misses = 0, motorHits = 0, motorMisses = 0;
   let held = -1, selectedBlock = -1, downX = 0, downY = 0, grabX = 0, grabY = 0, moved = false;
-  let kbBlock = 0, kbCar = 0, idleT = 0, nextHintAt = IDLE_FIRST, hintT = -1, hintBlock = -1, hintCar = -1;
+  /** Keyboard highlights show only after keyboard input; pointer input hides them again. */
+  let kbActive = false;
+  /** Device pixel ratio the dim star and glyph canvases were baked for. */
+  let glyphDpr = 1;
+  let kbBlock = -1, kbCar = -1, idleT = 0, nextHintAt = IDLE_FIRST, hintT = -1, hintBlock = -1, hintCar = -1;
   let demoT = -1, demoBlock = -1, demoCar = -1, demoPlaced = false;
   let pending: Pending | null = null, menuSelected = -1, inputAfter = 0;
   let cornerRadius = 48, cornerY = 60, homeX = 60, soundX = 1306, cornerFocus = -1, starRowY = 60, starSize = 64;
@@ -180,16 +202,15 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
   const onPlatform = (b: Block) => b.state === 'idle' || b.state === 'selected' || b.state === 'return';
 
   function layout(width: number, height: number): void {
-    W = width; H = height;
+    W = width; H = height; glyphDpr = services.canvas.dpr;
     u = Math.min(1.4, Math.max(0.4, Math.min(W / 1366, H / 768))) * services.config.uiScale;
     bgS = Math.max(W / 1536, H / 1024); bgX = (W - 1536 * bgS) / 2; bgY = (H - 1024 * bgS) / 2;
-    sprites.clearScaled(sprite('town')); bgCanvas = undefined;
+    sprites.clearScaled(SPR_TOWN); bgCanvas = undefined;
     trackY = bgY + 0.548 * 1024 * bgS; platformTop = bgY + 0.585 * 1024 * bgS;
     cornerRadius = Math.max(48, Math.min(60 * u, W / 8, H / 6));
     homeX = cornerRadius + 12; soundX = W - cornerRadius - 12; cornerY = cornerRadius + 12;
     soundButton.x = soundX; soundButton.y = cornerY; soundButton.radius = cornerRadius;
     starSize = Math.round(Math.max(44, 64 * u)); starRowY = cornerY;
-    if (dimStarSize !== starSize) dimStar = undefined;
     // A rider (wagon plus passenger) reaches 0.62 widths above its centre and 0.23 below.
     const top = starRowY + starSize / 2 + 14;
     choiceW = Math.max(150, Math.min(440 * u + 60, (W - 72) / 2, (H - 24 - top) / 0.92));
@@ -224,63 +245,103 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
   }
   function ensureBackground(): void {
     if (bgCanvas) return;
-    const name = sprite('town'); if (!sprites.get(name)) return;
-    bgCanvas = sprites.scaled(name, bgS);
+    if (!sprites.get(SPR_TOWN)) return;
+    bgCanvas = sprites.scaled(SPR_TOWN, bgS);
   }
   function ensureDimStar(): void {
-    if (dimStar) return;
-    const img = sprites.get(sprite('star')); if (!img) return;
-    const c = document.createElement('canvas'); c.width = c.height = starSize;
+    if (dimStar && dimStarSize === starSize && dimStarDpr === glyphDpr) return;
+    const img = sprites.get(SPR_STAR); if (!img) return;
+    const px = Math.max(1, Math.round(starSize * glyphDpr));
+    const c = document.createElement('canvas'); c.width = c.height = px;
     const g = c.getContext('2d'); if (!g) return;
-    const s = starSize / Math.max(img.naturalWidth, img.naturalHeight);
+    const s = px / Math.max(img.naturalWidth, img.naturalHeight);
     const w = img.naturalWidth * s, h = img.naturalHeight * s;
-    g.drawImage(img, (starSize - w) / 2, (starSize - h) / 2, w, h);
-    g.globalCompositeOperation = 'source-atop'; g.fillStyle = 'rgba(92, 62, 34, 0.72)'; g.fillRect(0, 0, starSize, starSize);
-    dimStar = c; dimStarSize = starSize;
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(img, (px - w) / 2, (px - h) / 2, w, h);
+    g.globalCompositeOperation = 'source-atop'; g.fillStyle = 'rgba(92, 62, 34, 0.72)'; g.fillRect(0, 0, px, px);
+    dimStar = c; dimStarSize = starSize; dimStarDpr = glyphDpr;
   }
+  /** A square canvas `size` CSS px wide at device resolution; callers draw in device pixels and blit it back at `size`. */
   function makeCanvas(size: number): [HTMLCanvasElement, CanvasRenderingContext2D] | undefined {
-    const c = document.createElement('canvas'); c.width = c.height = Math.max(1, Math.round(size));
+    const c = document.createElement('canvas'); c.width = c.height = Math.max(1, Math.round(size * glyphDpr));
     const g = c.getContext('2d'); return g ? [c, g] : undefined;
   }
-  function blockCanvas(b: Block): HTMLCanvasElement | undefined {
-    if (b.canvas) return b.canvas;
-    const img = sprites.get(sprite(BLOCKS[b.color]!)), made = makeCanvas(B);
-    if (!img || !made) return undefined;
+  function bakeBlock(b: Block): HTMLCanvasElement | undefined {
+    const img = sprites.get(BLOCK_SPRITES[b.color]!), made = makeCanvas(B);
+    if (!img || !made) return b.canvas;
     const [c, g] = made; g.imageSmoothingQuality = 'high';
     g.drawImage(img, 0, 0, c.width, c.height);
     bakeLetter(g, b.letter, c.width / 2, c.height / 2, c.width * 0.56, BLOCK_INK[b.color]!);
-    b.canvas = c; return c;
+    b.canvas = c; b.canvasDpr = glyphDpr; return c;
   }
-  function slotCanvas(car: Car): HTMLCanvasElement | undefined {
-    if (car.slot) return car.slot;
-    const made = makeCanvas(B); if (!made) return undefined;
-    const [c, g] = made, s = c.width, line = Math.max(3, s * 0.035);
+  function bakeSlot(car: Car): HTMLCanvasElement | undefined {
+    const made = makeCanvas(B); if (!made) return car.slot;
+    const [c, g] = made, s = c.width, line = Math.max(3 * glyphDpr, s * 0.035);
     roundedRect(g, line, line, s - line * 2, s - line * 2, s * 0.14); g.fillStyle = '#f7ead0'; g.fill();
     g.setLineDash([s * 0.09, s * 0.06]); g.lineWidth = line; g.strokeStyle = '#8a6440'; g.stroke(); g.setLineDash([]);
     bakeLetter(g, car.letter, s / 2, s / 2, s * 0.58, '#6d4a2b');
-    car.slot = c; return c;
+    car.slot = c; car.slotDpr = glyphDpr; return c;
   }
-  function plateCanvas(car: Car): HTMLCanvasElement | undefined {
-    if (car.plateCanvas) return car.plateCanvas;
-    const made = makeCanvas(B * 0.42); if (!made) return undefined;
-    const [c, g] = made, s = c.width;
-    roundedRect(g, 2, 2, s - 4, s - 4, s * 0.2); g.fillStyle = '#fff6df'; g.fill(); g.lineWidth = 3; g.strokeStyle = '#5a3b22'; g.stroke();
+  function bakePlate(car: Car): HTMLCanvasElement | undefined {
+    const made = makeCanvas(B * 0.42); if (!made) return car.plateCanvas;
+    const [c, g] = made, s = c.width, k = glyphDpr;
+    roundedRect(g, 2 * k, 2 * k, s - 4 * k, s - 4 * k, s * 0.2); g.fillStyle = '#fff6df'; g.fill(); g.lineWidth = 3 * k; g.strokeStyle = '#5a3b22'; g.stroke();
     bakeLetter(g, car.letter, s / 2, s / 2, s * 0.62, '#3d2a1a');
-    car.plateCanvas = c; return c;
+    car.plateCanvas = c; car.plateDpr = glyphDpr; return c;
   }
+  // Drawing uses whatever canvas exists, even one baked for an older pixel ratio; bakeNext replaces stale ones a frame at a time.
+  const blockCanvas = (b: Block) => b.canvas ?? bakeBlock(b);
+  const slotCanvas = (car: Car) => car.slot ?? bakeSlot(car);
+  const plateCanvas = (car: Car) => car.plateCanvas ?? bakePlate(car);
 
-  /** Bake at most one missing slot or block canvas per update, so a new train never bakes them all in one frame. */
-  function bakeNext(): void {
-    for (let i = 0; i < nCars; i++) if (!cars[i]!.slot) { slotCanvas(cars[i]!); return; }
-    for (let i = 0; i < nCars; i++) if (!blocks[i]!.canvas) { blockCanvas(blocks[i]!); return; }
+  /** Bake at most one missing or stale glyph canvas per update, so a new train or a pixel-ratio change never bakes them all in one frame. */
+  function bakeNext(): boolean {
+    for (let i = 0; i < nCars; i++) { const c = cars[i]!; if (!c.filled && (!c.slot || c.slotDpr !== glyphDpr)) { bakeSlot(c); return true; } }
+    for (let i = 0; i < nCars; i++) { const b = blocks[i]!; if (!b.canvas || b.canvasDpr !== glyphDpr) { bakeBlock(b); return true; } }
+    for (let i = 0; i < nCars; i++) { const c = cars[i]!; if (c.plateCanvas && c.plateDpr !== glyphDpr) { bakePlate(c); return true; } }
+    return false;
+  }
+  /** Scale one sprite to the size drawSprite will ask for (`size` is its longest side in CSS px). */
+  function prescale(name: string, size: number): void {
+    const img = sprites.get(name); if (img) sprites.scaled(name, Math.round(size) / Math.max(img.naturalWidth, img.naturalHeight));
   }
   /** Scale the art this view needs once the files are decoded, outside the frame loop. */
   function warm(): void {
     warmed = true; ensureBackground(); ensureDimStar();
-    const scale = (name: string, size: number) => { const img = sprites.get(name); if (img) sprites.scaled(name, Math.round(size) / Math.max(img.naturalWidth, img.naturalHeight)); };
-    scale(sprite('engine'), engineW()); scale(sprite('star'), starSize);
-    for (const w of WAGONS) scale(sprite(w), Math.round(cw()));
-    for (let i = 0; i < PASSENGERS.length; i++) scale(stickerSpriteName(passengerSticker(i)), Math.round(B * 0.98));
+    prescale(SPR_ENGINE, engineW()); prescale(SPR_STAR, starSize);
+    for (const w of WAGON_SPRITES) prescale(w, Math.round(cw()));
+    for (const p of PASSENGER_SPRITES) prescale(p, Math.round(B * 0.98 * PASSENGER_PAD));
+  }
+  function queuePrep(name: string, size: number): void {
+    if (prepCount >= PREP_MAX) return;
+    prepNames[prepCount] = name; prepSizes[prepCount] = Math.round(size); prepCount++;
+  }
+  /** Scale one queued round-end image per update. */
+  function prepNext(): void {
+    if (prepHead >= prepCount) return;
+    prescale(prepNames[prepHead]!, prepSizes[prepHead]!); prepHead++;
+  }
+  /**
+   * Queue every image the celebration, sticker choice and rest will draw, at the sizes they will use,
+   * so none of them is scaled on its first frame. Runs when the last train of the round starts.
+   */
+  function planRoundEndArt(): void {
+    prepCount = prepHead = 0;
+    const riders: number[] = roundPassengers.slice();
+    for (let i = 0; i < nCars; i++) if (!riders.includes(cars[i]!.passenger)) riders.push(cars[i]!.passenger);
+    const n = Math.min(MAX_CARS, riders.length), size = Math.round(Math.min(B * 1.1, (W - 60) / Math.max(1, n) * 0.8));
+    for (let i = 0; i < n; i++) queuePrep(passengerSprite(riders[i]!), Math.round(size * PASSENGER_PAD));
+    const owned = rewards(services).stickers;
+    const offered = PASSENGER_IDS.some(id => !owned.includes(id)) && services.config.rewardsEnabled;
+    for (let w = 1; w <= 2; w++) { queuePrep(WAGON_SPRITES[w]!, Math.round(choiceW)); queuePrep(WAGON_SPRITES[w]!, Math.round(restW)); }
+    for (let i = 0; i < PASSENGERS.length; i++) {
+      const fresh = !owned.includes(PASSENGER_IDS[i]!);
+      if (offered ? fresh : riders.includes(i)) {
+        queuePrep(PASSENGER_SPRITES[i]!, Math.round(Math.round(choiceW) * 0.62 * PASSENGER_PAD));
+        queuePrep(PASSENGER_SPRITES[i]!, Math.round(Math.round(restW) * 0.62 * PASSENGER_PAD));
+      }
+    }
+    queuePrep(SPR_PLAY, Math.round(controlsR * 1.3)); queuePrep(SPR_HOME, Math.round(controlsR * 1.3));
   }
 
   // ---------------------------------------------------------------- round flow
@@ -303,25 +364,30 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     const wagonStart = Math.floor(random() * WAGONS.length);
     for (let i = 0; i < MAX_CARS; i++) {
       const c = cars[i]!;
-      Object.assign(c, { letter: plan.cars[i] ?? '', wagon: (wagonStart + i) % WAGONS.length, passenger: passengers[i % 6]!, filled: false, block: -1, hop: 9, wiggle: 9, plate: 9, slot: undefined, plateCanvas: undefined });
+      Object.assign(c, { letter: plan.cars[i] ?? '', wagon: (wagonStart + i) % WAGONS.length, passenger: passengers[i % 6]!, filled: false, block: -1, hop: 9, wiggle: 9, plate: 9, slot: undefined, plateCanvas: undefined, slotDpr: 0, plateDpr: 0 });
     }
     const order = Array.from({ length: nCars }, (_, i) => i);
     for (let k = 0; k < 6; k++) { order.sort(() => random() - 0.5); if (nCars < 2 || order.some((v, i) => v !== i)) break; }
     for (let i = 0; i < MAX_CARS; i++) {
       const b = blocks[i]!;
-      Object.assign(b, { letter: i < nCars ? plan.blocks[order[i]!]! : '', color: Math.floor(random() * BLOCKS.length), state: 'hidden', car: -1, t: 0, appear: 1.15 + i * 0.13, squash: 9, canvas: undefined });
+      Object.assign(b, { letter: i < nCars ? plan.blocks[order[i]!]! : '', color: Math.floor(random() * BLOCKS.length), state: 'hidden', car: -1, t: 0, appear: BLOCK_APPEAR + i * BLOCK_STAGGER, squash: 9, canvas: undefined, canvasDpr: 0 });
     }
-    held = selectedBlock = -1; kbBlock = 0; kbCar = 0; hintT = -1; demoT = -1;
+    held = selectedBlock = -1; kbBlock = kbCar = -1; hintT = -1; demoT = -1;
     phase = 'arrive'; phaseT = 0; chuffT = 0;
     fitTrain(); trainOff = -trainL - 60;
+    if (trainIndex === plans.length - 1) planRoundEndArt();
     playSfx(audio, 'whoosh');
   }
   function beginPlay(): void {
     phase = 'play'; phaseT = 0; trainOff = parkX; idleT = 0; nextHintAt = IDLE_FIRST;
     for (let i = 0; i < nCars; i++) { const b = blocks[i]!; if (b.state === 'hidden') { b.state = 'idle'; b.x = b.homeX; b.y = b.homeY; } }
     ensureKb();
-    if (data.rounds === 0 && trainIndex === 0 && !services.debug.enabled) startDemo();
-    else if (data.rounds === 0 && trainIndex === 0 && new URLSearchParams(location.search).has('demo')) startDemo();
+    if (allFilled()) { toot(); return; }
+    // The demonstration runs on the very first train, unless the child already started on their own while it pulled in.
+    let touched = held >= 0 || selectedBlock >= 0;
+    for (let i = 0; i < nCars; i++) if (cars[i]!.filled) touched = true;
+    if (touched || data.rounds !== 0 || trainIndex !== 0) return;
+    if (!services.debug.enabled || new URLSearchParams(location.search).has('demo')) startDemo();
   }
   function startDemo(): void {
     const car = nextOpen(); if (car < 0) return;
@@ -341,7 +407,7 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     playSfx(audio, 'go', tootOpt); puff(6);
   }
   function depart(): void {
-    phase = 'depart'; phaseT = 0; chuffT = 0; starFlight = 0; playSfx(audio, 'whoosh');
+    departFrom = trainOff; phase = 'depart'; phaseT = 0; chuffT = 0; starFlight = 0; playSfx(audio, 'whoosh');
   }
   function trainGone(): void {
     for (let i = 0; i < nCars; i++) if (!roundPassengers.includes(cars[i]!.passenger)) roundPassengers.push(cars[i]!.passenger);
@@ -423,6 +489,13 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     p.life = 0.45 + random() * 0.25; p.size = (4 + random() * 4) * u; p.endSize = 1; p.gravity = 420 * u;
     p.hue = i % 3 === 0 ? 48 : fh; p.saturation = 85; p.lightness = i % 3 === 0 ? 62 : 55; p.alpha = 0.95;
   };
+  const fillTap = (p: ParticleSpawn, i: number): void => {
+    const a = (i / 10) * Math.PI * 2 + random() * 0.3, v = (110 + random() * 60) * u;
+    p.x = fx; p.y = fy; p.vx = Math.cos(a) * v; p.vy = Math.sin(a) * v - 40 * u;
+    p.life = 0.6 + random() * 0.2; p.size = (11 + random() * 4) * u; p.endSize = 3; p.gravity = 160 * u;
+    // Painted-wood reds, oranges and golds read on both the sky and the planks.
+    p.hue = i % 3 === 0 ? 8 : i % 3 === 1 ? 28 : 46; p.saturation = 85; p.lightness = 52; p.alpha = 1;
+  };
   const fillPuff = (p: ParticleSpawn, i: number): void => {
     p.x = fx + (random() - 0.5) * 14 * u; p.y = fy; p.vx = (-20 - random() * 40 + (i % 2) * 20) * u; p.vy = (-70 - random() * 50) * u;
     p.life = 0.9 + random() * 0.4; p.size = (9 + random() * 5) * u; p.endSize = (24 + random() * 10) * u; p.gravity = 25 * u; p.drag = 0.5;
@@ -437,21 +510,25 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
   }
   function wiggleHome(b: Block): void {
     // Where this block belongs: in ordered trains the next car, otherwise any empty car with its letter.
-    for (let i = 0; i < nCars; i++) if (isOpen(i) && matches(b.letter, cars[i]!.letter)) { cars[i]!.wiggle = 0; kbCar = i; playSfx(audio, 'hover', hoverOpt); return; }
+    for (let i = 0; i < nCars; i++) if (isOpen(i) && matches(b.letter, cars[i]!.letter)) { cars[i]!.wiggle = 0; kbCar = i; kbBlock = blocks.indexOf(b); playSfx(audio, 'hover', hoverOpt); return; }
     const next = nextOpen();
     if (next >= 0) {
       cars[next]!.wiggle = 0; kbCar = next; playSfx(audio, 'hover', hoverOpt);
       for (let i = 0; i < nCars; i++) if (onPlatform(blocks[i]!) && matches(blocks[i]!.letter, cars[next]!.letter)) { blocks[i]!.squash = 0; kbBlock = i; break; }
     }
   }
+  /**
+   * Learning evidence comes only from pointer attempts, which ask the child to match a block to a car.
+   * Keyboard placements (typed letters, arrows, any key) never count, so they can neither raise nor lower the stage.
+   */
   function record(hit: boolean, source: Source): void {
-    if (source !== 'pointer' && !(source === 'typed' && hit)) return;
+    if (source !== 'pointer') return;
     if (hit) hits++; else misses++;
     data.learn.push(hit ? 1 : 0);
     if (data.learn.length > LEARN_WINDOW) data.learn.splice(0, data.learn.length - LEARN_WINDOW);
   }
   function attempt(index: number, car: number, source: Source): void {
-    const b = blocks[index]; if (!b || phase !== 'play') return;
+    const b = blocks[index]; if (!b || (phase !== 'play' && phase !== 'arrive')) return;
     if (held === index) held = -1;
     if (selectedBlock === index) selectedBlock = -1;
     if (car < 0 || cars[car]!.filled) { sendHome(b); return; }
@@ -472,9 +549,10 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     playSfx(audio, 'button', tokOpt);
     cheerOpt.index = filled - 1; playSfx(audio, 'star', cheerOpt);
     playVoiceClip(audio, b.letter);
-    fx = slotX(b.car); fy = slotY(); fh = [8, 45, 120, 210][b.color] ?? 40; particles.burst(12, fillChip);
+    fx = slotX(b.car); fy = slotY(); fh = CHIP_HUES[b.color] ?? 40; particles.burst(12, fillChip);
     if (demoT >= 0 && b.car === demoCar) demoPlaced = true;
-    if (allFilled()) toot();
+    // A train filled while still pulling in toots once it has stopped (beginPlay).
+    if (allFilled() && phase === 'play') toot();
   }
   function blockAt(x: number, y: number): number {
     let best = -1, distance = Infinity;
@@ -498,24 +576,44 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     return best;
   }
   const pullRadius = () => Math.max(B * 0.7, TIERS[tier].magnet * B);
-  function ensureKb(): void {
-    const kb = blocks[kbBlock];
-    if (!kb || kbBlock >= nCars || !onPlatform(kb)) {
-      kbBlock = -1;
-      for (let i = 0; i < nCars; i++) if (onPlatform(blocks[i]!)) { kbBlock = i; break; }
+  /** Default keyboard target: the first open car and the platform block that belongs on it, so any key places it correctly. */
+  function pairKb(): void {
+    kbBlock = kbCar = -1;
+    for (let c = 0; c < nCars; c++) {
+      if (!isOpen(c)) continue;
+      for (let i = 0; i < nCars; i++) if (onPlatform(blocks[i]!) && matches(blocks[i]!.letter, cars[c]!.letter)) { kbBlock = i; kbCar = c; return; }
     }
-    if (!isOpen(kbCar)) kbCar = nextOpen();
+  }
+  /** Point the keyboard target at this block and the open car where it belongs (or at a fresh matching pair). */
+  function pairWith(index: number): void {
+    const b = blocks[index]!;
+    for (let c = 0; c < nCars; c++) if (isOpen(c) && matches(b.letter, cars[c]!.letter)) { kbBlock = index; kbCar = c; return; }
+    pairKb();
+  }
+  /** Keep a target the child chose with the arrows while both ends are still usable; otherwise fall back to a matching pair. */
+  function ensureKb(): void {
+    const kb = kbBlock >= 0 && kbBlock < nCars ? blocks[kbBlock] : undefined;
+    if (!kb || !onPlatform(kb) || !isOpen(kbCar)) pairKb();
   }
   function select(index: number): void {
     const b = blocks[index]!;
     if (selectedBlock >= 0 && selectedBlock !== index) sendHome(blocks[selectedBlock]!);
-    selectedBlock = index; b.state = 'selected'; b.t = 0; kbBlock = index;
+    selectedBlock = index; b.state = 'selected'; b.t = 0; pairWith(index);
     keyOpt.index = Math.max(0, letterIndex(b.letter)); playSfx(audio, 'key', keyOpt);
   }
+  /** A small wood-chip burst where the child tapped, so a tap while nothing can be moved still answers. */
+  function tapBurst(x: number, y: number): void {
+    fx = x; fy = y; particles.burst(10, fillTap);
+  }
+  /** A key while nothing can be placed: a puff from the chimney, or a burst on the platform when the engine is off screen. */
+  function keyBurst(): void {
+    const ex = engineX();
+    if (ex > 0 && ex < W) puff(2); else tapBurst(W / 2, platformY);
+  }
   function pointerDown(x: number, y: number): void {
-    idleT = 0; nextHintAt = IDLE_FIRST; hintT = -1;
+    idleT = 0; nextHintAt = IDLE_FIRST; hintT = -1; kbActive = false;
     if (demoT >= 0) endDemo();
-    if (phase !== 'play') return;
+    if (phase !== 'play' && phase !== 'arrive') { tapBurst(x, y); return; }
     const hitBlock = blockAt(x, y);
     if (selectedBlock >= 0) {
       const car = carAt(x, y, pullRadius());
@@ -526,12 +624,13 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     if (hitBlock >= 0) {
       const b = blocks[hitBlock]!;
       if (selectedBlock >= 0 && selectedBlock !== hitBlock) { sendHome(blocks[selectedBlock]!); selectedBlock = -1; }
-      held = hitBlock; b.state = 'held'; moved = false; downX = x; downY = y; grabX = b.x - x; grabY = b.y - y; kbBlock = hitBlock;
+      held = hitBlock; b.state = 'held'; moved = false; downX = x; downY = y; grabX = b.x - x; grabY = b.y - y; pairWith(hitBlock);
       keyOpt.index = Math.max(0, letterIndex(b.letter)); playSfx(audio, 'key', keyOpt);
       return;
     }
     // A tap on a car says hello: its passenger hops.
     for (let i = 0; i < nCars; i++) if (Math.abs(x - carX(i)) < cw() / 2 && y > slotY() - B && y < trackY) { cars[i]!.hop = 0; return; }
+    if (phase === 'arrive') tapBurst(x, y);
   }
   function pointerMove(x: number, y: number): void {
     if (held < 0 || demoT >= 0) return;
@@ -551,9 +650,10 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     if (car >= 0) attempt(index, car, 'pointer'); else sendHome(b);
   }
   function keyPress(key: string, code: string): void {
-    idleT = 0; nextHintAt = IDLE_FIRST; hintT = -1;
+    idleT = 0; nextHintAt = IDLE_FIRST; hintT = -1; kbActive = true;
     if (demoT >= 0) endDemo();
-    if (phase !== 'play') return;
+    // Between trains a key gets a puff from the chimney.
+    if (phase !== 'play' && phase !== 'arrive') { if (phase === 'toot' || phase === 'depart') keyBurst(); return; }
     ensureKb();
     if (code === 'ArrowLeft' || code === 'ArrowRight') {
       const step = code === 'ArrowLeft' ? -1 : 1;
@@ -582,7 +682,7 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
         attempt(typed, car, 'typed'); return;
       }
     }
-    if (kbBlock < 0 || kbCar < 0) return;
+    if (kbBlock < 0 || kbCar < 0) { keyBurst(); return; }
     if (selectedBlock >= 0 && selectedBlock !== kbBlock) { sendHome(blocks[selectedBlock]!); selectedBlock = -1; }
     attempt(kbBlock, kbCar, 'key');
   }
@@ -592,7 +692,7 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     for (let i = 0; i < nCars; i++) {
       const b = blocks[i]!;
       b.squash += dt;
-      if (b.state === 'hidden') { if (phase === 'arrive' && phaseT >= b.appear) { b.state = 'idle'; b.x = b.homeX; b.y = b.homeY; b.t = 0; } continue; }
+      if (b.state === 'hidden') { if (phase === 'arrive' && phaseT >= b.appear) { b.state = 'idle'; b.x = b.homeX; b.y = b.homeY; b.t = 0; if (kbBlock < 0) pairKb(); } continue; }
       b.t += dt;
       if (b.state === 'return') {
         const k = easeOutCubic(b.t / 0.45);
@@ -624,7 +724,8 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
   }
   function updatePlay(dt: number): void {
     phaseT += dt;
-    if (phase === 'arrive' || phase === 'play') bakeNext();
+    // One bake or one round-end pre-scale per update, never both.
+    if (!bakeNext()) prepNext();
     if (phase === 'arrive') {
       const k = easeOutCubic(phaseT / ARRIVE_SECONDS);
       trainOff = lerp(-trainL - 60, parkX, k);
@@ -646,7 +747,7 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
       if (phaseT >= TOOT_SECONDS) depart();
     } else if (phase === 'depart') {
       const k = easeInCubic(phaseT / DEPART_SECONDS);
-      trainOff = lerp(parkX, W + 60, k);
+      trainOff = lerp(departFrom, W + 60, k);
       chuffT -= dt;
       if (chuffT <= 0 && k < 0.8) { chuffT = 0.3 - k * 0.15; chuffOpt.volume = 0.3; playSfx(audio, 'tick', chuffOpt); puff(1); }
       if (starFlight >= 0) {
@@ -695,12 +796,12 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
       if (x + width / 2 < -20 || x - width / 2 > W + 20) continue;
       const wig = c.wiggle < 0.6 ? Math.sin(c.wiggle * 30) * (1 - c.wiggle / 0.6) * 0.045 : 0;
       const wx = x + wig * width * 0.4, bottom = trackY + bob * (i % 2 ? 1 : -1);
-      const wagon = sprite(WAGONS[c.wagon]!);
+      const wagon = WAGON_SPRITES[c.wagon]!;
       drawSprite(ctx, sprites, wagon, wx, bottom - wh / 2, Math.round(width));
       // Passenger sits behind the wagon front; a hop on every click-in.
       const hop = c.hop < 0.6 ? Math.sin((c.hop / 0.6) * Math.PI) * B * 0.42 : 0;
       const sway = phase === 'play' ? Math.sin(time * 2.2 + i * 1.7) * 2 * u : 0;
-      drawSprite(ctx, sprites, stickerSpriteName(passengerSticker(c.passenger)), wx + 0.24 * width, bottom - wh * 0.5 - B * 0.42 - hop + sway, Math.round(B * 0.98));
+      drawSprite(ctx, sprites, passengerSprite(c.passenger), wx + 0.24 * width, bottom - wh * 0.5 - B * 0.42 - hop + sway, Math.round(B * 0.98 * PASSENGER_PAD));
       const sx = slotX(i) + wig * width * 0.4, sy = slotY() + bottom - trackY;
       if (!c.filled) {
         const slot = slotCanvas(c);
@@ -731,13 +832,13 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     const ex = engineX();
     if (ex - engineW() / 2 < W + 20 && ex + engineW() / 2 > -20) {
       const sq = phase === 'toot' && tootSquash < 0.5 ? Math.sin((tootSquash / 0.5) * Math.PI * 2) * 0.05 : 0;
-      drawSprite(ctx, sprites, sprite('engine'), ex, trackY - engineH() / 2 * (1 + sq) - bob, Math.round(engineW()), 0, 1 - sq * 0.6, 1 + sq);
+      drawSprite(ctx, sprites, SPR_ENGINE, ex, trackY - engineH() / 2 * (1 + sq) - bob, Math.round(engineW()), 0, 1 - sq * 0.6, 1 + sq);
       if (plan.word) {
         const size = B * 1.05, py = trackY - engineH() - size * 0.56;
         // Keep the picture clear of the sound button on short screens.
         const px = py - size / 2 < cornerY + cornerRadius + 8 ? Math.min(ex, soundX - cornerRadius - size / 2 - 14) : ex;
         chunkyPanel(ctx, px - size / 2, py - size / 2, size, size, '#fff3d6', '#6d4a2b', size * 0.16, 5);
-        drawSprite(ctx, sprites, sprite(`words/${plan.word}`), px, py, Math.round(size * 0.84));
+        drawSprite(ctx, sprites, WORD_SPRITES[plan.word]!, px, py, Math.round(size * 0.84));
       }
     }
   }
@@ -752,21 +853,22 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
       ctx.globalAlpha = 0.22; ctx.fillStyle = '#4a2c12';
       ctx.beginPath(); ctx.ellipse(b.homeX, b.homeY + B * 0.52, B * 0.46, B * 0.09, 0, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
       drawBlock(ctx, b, b.x, y, scale);
-      if (phase === 'play' && i === kbBlock) {
+      if (kbActive && (phase === 'play' || phase === 'arrive') && i === kbBlock) {
         roundedRect(ctx, b.x - B / 2 - 9, y - B / 2 - 9, B + 18, B + 18, B * 0.2);
         ctx.lineWidth = 10; ctx.strokeStyle = OUTLINE; ctx.stroke(); ctx.lineWidth = 5; ctx.strokeStyle = '#ffe066'; ctx.stroke();
       }
     }
-    if (phase === 'play' && kbCar >= 0) {
+    if (kbActive && (phase === 'play' || phase === 'arrive') && kbCar >= 0 && kbBlock >= 0) {
       const x = slotX(kbCar), y = slotY() - B / 2 - 16 - Math.abs(Math.sin(time * 3)) * 6 * u, s = Math.max(14, 20 * u);
       ctx.beginPath(); ctx.moveTo(x - s, y - s * 1.2); ctx.lineTo(x + s, y - s * 1.2); ctx.lineTo(x, y); ctx.closePath();
       ctx.fillStyle = '#ffe066'; ctx.fill(); ctx.lineWidth = 4; ctx.strokeStyle = OUTLINE; ctx.stroke();
     }
   }
   function drawHand(ctx: CanvasRenderingContext2D, tipX: number, tipY: number, press: number, alpha: number): void {
-    const size = Math.max(96, B * 0.95), w = size * 209 / 220;
+    // The hand art is square with the fingertip at its top-left corner (8, 6 of 256 px).
+    const size = Math.round(Math.max(96, B * 0.95));
     if (alpha < 1) ctx.globalAlpha = alpha;
-    drawSprite(ctx, sprites, sprite('hand'), tipX + w * 0.4, tipY + size * 0.42, Math.round(size), 0, 1 + press * 0.08, 1 - press * 0.08);
+    drawSprite(ctx, sprites, SPR_HAND, tipX + size * 0.47, tipY + size * 0.477, size, 0, 1 + press * 0.08, 1 - press * 0.08);
     if (alpha < 1) ctx.globalAlpha = 1;
   }
   function renderHelpers(ctx: CanvasRenderingContext2D): void {
@@ -797,21 +899,28 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     const gap = starSize * 1.25;
     for (let i = 0; i < TRAINS_PER_ROUND; i++) {
       const x = W / 2 + (i - 1) * gap;
-      if (i < starsEarned) drawSprite(ctx, sprites, sprite('star'), x, starRowY, starSize);
+      if (i < starsEarned) drawSprite(ctx, sprites, SPR_STAR, x, starRowY, starSize);
       else if (dimStar) ctx.drawImage(dimStar, x - starSize / 2, starRowY - starSize / 2, starSize, starSize);
     }
     if (starFlight >= 0 && phase === 'depart') {
       const k = clamp01(starFlight / STAR_FLIGHT), e = easeInOutSine(k);
       const sx = Math.min(W - 40, Math.max(40, engineX())), sy = trackY - engineH();
       const x = lerp(sx, W / 2 + (starsEarned - 1) * gap, e), y = lerp(sy, starRowY, e) - Math.sin(k * Math.PI) * 80 * u;
-      drawSprite(ctx, sprites, sprite('star'), x, y, starSize, k * Math.PI * 2, 1 + (1 - k) * 0.4, 1 + (1 - k) * 0.4);
+      drawSprite(ctx, sprites, SPR_STAR, x, y, starSize, k * Math.PI * 2, 1 + (1 - k) * 0.4, 1 + (1 - k) * 0.4);
     }
   }
-  function drawRider(ctx: CanvasRenderingContext2D, passenger: number, wagon: number, x: number, y: number, width: number, hop = 0): void {
-    const name = sprite(WAGONS[wagon % WAGONS.length]!), wh = width * 211 / 480, bottom = y + wh / 2;
-    drawSprite(ctx, sprites, name, x, y, Math.round(width));
-    drawSprite(ctx, sprites, stickerSpriteName(passengerSticker(passenger)), x, bottom - wh * 0.62 - width * 0.24 - hop, Math.round(width * 0.62));
-    drawWagonFront(ctx, name, x, bottom, Math.round(width));
+  /**
+   * A passenger in its wagon, centred on x, y. The art is drawn at `width` (pre-scaled by planRoundEndArt);
+   * `scale` grows or shrinks the whole rider with a transform so a moving size never scales art per frame.
+   */
+  function drawRider(ctx: CanvasRenderingContext2D, passenger: number, wagon: number, x: number, y: number, width: number, scale = 1): void {
+    const name = WAGON_SPRITES[wagon % WAGONS.length]!, rw = Math.round(width), wh = rw * 211 / 480;
+    if (scale !== 1) { ctx.save(); ctx.translate(x, y); ctx.scale(scale, scale); x = 0; y = 0; }
+    const bottom = y + wh / 2;
+    drawSprite(ctx, sprites, name, x, y, rw);
+    drawSprite(ctx, sprites, passengerSprite(passenger), x, bottom - wh * 0.62 - rw * 0.24, Math.round(rw * 0.62 * PASSENGER_PAD));
+    drawWagonFront(ctx, name, x, bottom, rw);
+    if (scale !== 1) ctx.restore();
   }
   function focusRing(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
     ctx.beginPath(); ctx.arc(x, y, r + 8, 0, Math.PI * 2); ctx.strokeStyle = OUTLINE; ctx.lineWidth = 10; ctx.stroke();
@@ -830,14 +939,15 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
       if (phase === 'celebration') {
         const local = phaseT - 0.3 - i * 0.45;
         if (dimStar) ctx.drawImage(dimStar, x - starSize / 2, starRowY - starSize / 2, starSize, starSize);
-        if (local > 0) { const s = slamScale(local / 0.4, 0.8); drawSprite(ctx, sprites, sprite('star'), x, starRowY, starSize, 0, s, s); }
-      } else drawSprite(ctx, sprites, sprite('star'), x, starRowY, starSize);
+        if (local > 0) { const s = slamScale(local / 0.4, 0.8); drawSprite(ctx, sprites, SPR_STAR, x, starRowY, starSize, 0, s, s); }
+      } else drawSprite(ctx, sprites, SPR_STAR, x, starRowY, starSize);
     }
     if (phase === 'celebration' && pending) {
-      const n = pending.passengers.length, size = Math.min(B * 1.1, (W - 60) / Math.max(1, n) * 0.8);
+      // Same size formula as planRoundEndArt, so the first celebration frame finds its art pre-scaled.
+      const n = pending.passengers.length, size = Math.round(Math.min(B * 1.1, (W - 60) / Math.max(1, n) * 0.8)), drawn = Math.round(size * PASSENGER_PAD);
       for (let i = 0; i < n; i++) {
         const jump = Math.abs(Math.sin(phaseT * 5.2 + i * 1.1)) * size * 0.35;
-        drawSprite(ctx, sprites, stickerSpriteName(passengerSticker(pending.passengers[i]!)), W / 2 + (i - (n - 1) / 2) * size * 1.15, platformY - jump, Math.round(size));
+        drawSprite(ctx, sprites, passengerSprite(pending.passengers[i]!), W / 2 + (i - (n - 1) / 2) * size * 1.15, platformY - jump, drawn);
       }
       return;
     }
@@ -858,7 +968,7 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
       const index = Math.max(0, pending!.choices.indexOf(pending!.chosen));
       const e = phase === 'sticker' ? easeOutCubic(clamp01(phaseT / 0.65)) : 1;
       const x = lerp(choiceX(index), W / 2, e), y = lerp(choiceY, restY, e);
-      drawRider(ctx, chosen, index + 1, x, y, lerp(choiceW, restW, e));
+      drawRider(ctx, chosen, index + 1, x, y, restW, lerp(choiceW, restW, e) / restW);
     } else {
       // Rewards off or the set is complete: the round's first passenger rides along, offered nothing.
       drawRider(ctx, pending?.passengers[0] ?? 0, 2, W / 2, restY, restW);
@@ -867,13 +977,13 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     for (let i = 0; i < 2; i++) {
       const x = controlX(i);
       chunkyCircle(ctx, x, controlsY, controlsR, '#a3c9c5', OUTLINE, 5);
-      drawSprite(ctx, sprites, sprite(i === 0 ? 'play' : 'home'), x, controlsY, Math.round(controlsR * 1.3));
+      drawSprite(ctx, sprites, i === 0 ? SPR_PLAY : SPR_HOME, x, controlsY, Math.round(controlsR * 1.3));
       if (menuSelected === i) focusRing(ctx, x, controlsY, controlsR);
     }
   }
   function drawCorners(ctx: CanvasRenderingContext2D): void {
     chunkyCircle(ctx, homeX, cornerY, cornerRadius, '#a3c9c5', OUTLINE, 4);
-    drawSprite(ctx, sprites, sprite('home'), homeX, cornerY, Math.round(cornerRadius * 1.3));
+    drawSprite(ctx, sprites, SPR_HOME, homeX, cornerY, Math.round(cornerRadius * 1.3));
     soundButton.render(ctx, sprites);
     if (cornerFocus >= 0) focusRing(ctx, cornerFocus === 0 ? homeX : soundX, cornerY, cornerRadius);
   }
@@ -917,7 +1027,7 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
       sceneT = 0; startMusic(audio, 'letter-train');
       layout(services.canvas.width, services.canvas.height);
       // A return visit has the art decoded already: scale it now, before the first frame.
-      if (sprites.get(sprite('town'))) warm();
+      if (sprites.get(SPR_TOWN)) warm();
       if (data.pending) {
         pending = data.pending; tier = pending.tier; stage = options.stage ?? toStage(data.stage); starsEarned = 3;
         if (pending.choices.length && !pending.chosen && pending.rewardEnabled && services.config.rewardsEnabled) { phase = 'choice'; menuSelected = -1; guard(CHOICE_LOCK); }
@@ -938,6 +1048,7 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     render(view: SceneContext) {
       const started = performance.now(), ctx = view.ctx;
       if (view.width !== W || view.height !== H) layout(view.width, view.height);
+      if (services.canvas.dpr !== glyphDpr) glyphDpr = services.canvas.dpr;
       if (warmed) ensureBackground();
       if (bgCanvas) ctx.drawImage(bgCanvas, bgX, bgY, bgCanvas.width / sprites.pixelRatio, bgCanvas.height / sprites.pixelRatio);
       else { ctx.fillStyle = '#9fd3f0'; ctx.fillRect(0, 0, W, H); ctx.fillStyle = '#e2b16f'; ctx.fillRect(0, trackY, W, H - trackY); }

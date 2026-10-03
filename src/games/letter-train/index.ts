@@ -5,7 +5,7 @@ import { createLetterTrainScene, GAME_ID } from './scene';
 export const letterTrain: GameDefinition = {
   id: GAME_ID,
   title: 'Letter Train',
-  icon: 'letter-train/engine.webp',
+  icon: 'letter-train/icon.webp',
   themes: ['letters', 'words'],
   mode: 'round',
   learning: ['letters'],
