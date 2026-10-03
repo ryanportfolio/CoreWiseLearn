@@ -45,9 +45,12 @@ export function pickTarget(stage: number, random: () => number, avoid: (n: numbe
   return 1;
 }
 
+/** Largest pile a comparison level shows. */
+export const compareMax = (level: number): number => (level >= 1 ? 10 : 5);
+
 /** Two different quantities for a "which has more" comparison. */
 export function pickComparison(level: number, random: () => number): [number, number] {
-  const max = level >= 1 ? 10 : 5;
+  const max = compareMax(level);
   const a = 1 + Math.floor(random() * max);
   let b = a;
   for (let attempt = 0; attempt < 20 && Math.abs(a - b) < 2; attempt++) b = 1 + Math.floor(random() * max);

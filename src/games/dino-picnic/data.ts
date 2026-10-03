@@ -5,6 +5,8 @@ import type { Tier } from '../../engine/difficulty';
 export const GAME_ID = 'dino-picnic';
 
 export interface PendingRound {
+  /** Names this round across tabs, so two rounds with the same fields stay apart; rounds stored by older builds have none. */
+  id?: string;
   stars: number; happy: number; orders: number; choices: string[]; chosen: string;
   rewardEnabled: boolean; restEntered: boolean; tier: Tier; dinoOffset: number;
 }
@@ -51,7 +53,7 @@ export function sanitizePicnicData(bag: Record<string, unknown>, protect: () => 
   const p = bag.pending;
   if (p === null) return;
   const ids = STICKERS.filter(s => s.game === GAME_ID).map(s => s.id);
-  if (!record(p) || !range(p.stars, 3) || p.stars < 1 || !count(p.happy) || !count(p.orders) || !range(p.tier, 2) || !range(p.dinoOffset, 2) ||
+  if (!record(p) || ('id' in p && typeof p.id !== 'string') || !range(p.stars, 3) || p.stars < 1 || !count(p.happy) || !count(p.orders) || !range(p.tier, 2) || !range(p.dinoOffset, 2) ||
     !Array.isArray(p.choices) || p.choices.length > 2 || !p.choices.every(id => typeof id === 'string' && ids.includes(id)) ||
     new Set(p.choices).size !== p.choices.length || typeof p.chosen !== 'string' || (p.chosen !== '' && !p.choices.includes(p.chosen)) ||
     typeof p.rewardEnabled !== 'boolean' || typeof p.restEntered !== 'boolean') {

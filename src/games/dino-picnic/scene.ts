@@ -17,7 +17,7 @@ import { arriveScale, clamp01, easeInOutSine, easeOutBack, easeOutCubic, lerp } 
 import { createSoundButton, soundArt, syncSoundIcon } from '../../scenes/hub/shared';
 import { defaultData, GAME_ID, sanitizePicnicData, type PendingRound, type PicnicData } from './data';
 import {
-  applyLearning, applyMotor, comparisonsPerRound, INTRO_TARGETS, pickComparison, pickTarget,
+  applyLearning, applyMotor, compareMax, comparisonsPerRound, INTRO_TARGETS, pickComparison, pickTarget,
   recordComparison, recordPlate, ROUND_STARS, TIERS,
 } from './rules';
 import { playVoice, preloadVoice } from './voice';
@@ -66,6 +66,12 @@ const POINT_REACH = 0.8, POINT_GAP = 0.6, POINT_TAP = 0.25, POINT_AFTER = 0.4;
  * most ROW_FIT of the plate (the leaf's visible width is about 0.96 of it); ROW_STEP is the spacing in fruit sizes.
  */
 const FRUIT_OF_PLATE = 0.31, ROW_FIT = 0.86, ROW_STEP = 0.88;
+/**
+ * Comparison heaps: fruit spacing in fruit sizes, and the full spread of the random sideways jitter (in fruit sizes) and
+ * tilt (radians). HEAP_REACH is how far a tilted fruit's box reaches from its centre, in fruit sizes.
+ */
+const HEAP_STEP = 1.02, HEAP_JITTER = 0.14, HEAP_TILT = 0.7;
+const HEAP_REACH = 0.5 * (Math.cos(HEAP_TILT / 2) + Math.sin(HEAP_TILT / 2));
 /** The round-end fanfare variant, rendered ahead during play. */
 const FANFARE: SfxOptions = { variant: 'D' };
 
@@ -88,9 +94,11 @@ export interface DinoPicnicStats {
   readonly ordersTotal: number; readonly ordersDone: number; readonly happy: number; readonly comparisonsTotal: number; readonly comparisonsDone: number;
   readonly hits: number; readonly misses: number; readonly stars: number; readonly stickerId: string; readonly choiceIds: readonly string[];
   readonly selected: number; readonly particles: number; readonly flights: number; readonly carrying: boolean; readonly hand: number;
-  readonly workMean: number; readonly workMax: number; readonly comparing: string; readonly bigger: number;
+  readonly workMean: number; readonly workMax: number; readonly comparing: string; readonly bigger: number; readonly chosen: number;
   slots(): { x: number; y: number; zone: [number, number, number, number]; plateX: number; plateY: number; state: SlotState; target: number; count: number; sent: number; card: [number, number, number, number]; focused: boolean }[];
   basket(): { x: number; y: number; r: number };
+  /** In a comparison, each pile's drawn bounds (plate and every fruit box, tilt and glow included) and its fruit centres. */
+  piles(): { box: [number, number, number, number]; fruit: [number, number][] }[];
   controls(): { x: number; y: number; radius: number; id: string }[];
   corners(): { home: [number, number, number]; sound: [number, number, number] };
   /** Baked canvases: the pixel ratio they were made at, the backdrop's logical rectangle, and the hat and glow canvas widths. */
@@ -100,6 +108,12 @@ export interface DinoPicnicStats {
 export interface DinoPicnicScene extends Scene { readonly stats: DinoPicnicStats }
 
 const toTier = (n: unknown): Tier => (n === 1 ? 1 : n === 2 ? 2 : 0);
+/** Fruits in the bottom layer of a heap of n: the smallest b with 1 + 2 + ... + b at least n. */
+function heapBase(n: number): number {
+  let base = 1;
+  while ((base * (base + 1)) / 2 < n) base++;
+  return base;
+}
 const spriteName = (path: string): string => path.replace(/\.\w+$/, '');
 // Sprite and clip names are built once here; draw code only indexes these tables.
 const DINO_NAMES = DINO_KINDS.map(k => POSES.map(p => `${ART}dino-${k}-${p}`));
@@ -114,6 +128,8 @@ function artList(): { name: string; path: string }[] {
   for (let f = 0; f < FRUITS.length; f++) paths.push(`${fruitName(f)}.webp`);
   return [...paths.map(path => ({ name: spriteName(path), path })), ...STICKERS.filter(s => s.game === GAME_ID).map(s => ({ name: stickerSpriteName(s.id), path: s.path }))];
 }
+/** Sprites whose scaled canvases this game releases on a size change and on leaving; the backdrop is handled on its own. */
+const OWN_ART = artList().map(a => a.name).filter(name => name !== BG);
 export async function loadDinoPicnicArt(services: AppServices): Promise<string[]> {
   const missing: string[] = [];
   await Promise.all(artList().map(({ name, path }) => services.sprites.load(name, services.art(path)).catch(() => { missing.push(path); })));
@@ -161,7 +177,7 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
   const { sprites, audio, input } = services;
   const random = (): number => services.random();
   const particles = createParticleSystem(PARTICLES);
-  const soundButton = createSoundButton(services);
+  const soundButton = createSoundButton(services), soundNames = soundArt(services).map(a => a.name);
   const slots: Slot[] = Array.from({ length: 3 }, () => ({
     kind: 0, x: 0, state: 'off' as SlotState, t: 0, target: 0, count: 0, sent: 0, incoming: 0, eaten: 0, swallowed: 0,
     overshoot: false, assisted: false, compare: false, counted: true,
@@ -199,6 +215,8 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
   // End-of-round sprite sizes made ahead in idle periods during play (see planWarm and prepareIdle).
   const warmNames: string[] = [], warmSizes: number[] = [], warmDone = new Set<string>();
   let warmIndex = 0, madeName = '', madeSize = 0;
+  /** What the current sprite sizes were made for (see layout); a change releases the old scaled canvases. */
+  let sizeKey = '';
   // Layout, all in logical px.
   let feetY = 0, dinoH = 0, plateW = 0, plateY = 0, fruitSize = 0, dotR = 0, dotStep = 0, cardPad = 0, numW = 0, numSize = 0;
   /** Dino centres when the tier's own places leave too little room between the wish cards (narrow screens). */
@@ -296,10 +314,23 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     for (let i = 0; i < activeSlots(); i++) if (zoneNear(slots[i]!.x, basketX, basketY, basketR)) return true;
     return false;
   }
-  /** Whether the placed layout has no overlapping press targets, with the basket at its tier place or (`moved`) on the bottom edge. */
+  /**
+   * How far a comparison pile reaches either side of its dino: the plate, or the widest heap this comparison level
+   * makes (its bottom layer, the outer fruits jittered outward and tilted). Rows of five after the reveal stay on the plate.
+   */
+  function pileReach(): number {
+    const fruit = Math.round(plateW * FRUIT_OF_PLATE);
+    const heap = ((heapBase(compareMax(data.compareLevel)) - 1) / 2 * HEAP_STEP + HEAP_JITTER / 2) * FRUIT_OF_PLATE * plateW + fruit * HEAP_REACH;
+    return Math.max(plateW / 2, heap);
+  }
+  /**
+   * Whether the placed layout has no overlapping press targets, with the basket at its tier place or (`moved`) on the
+   * bottom edge. In a comparison each pile also stays inside its own dino's press zone, so a press on a fruit always
+   * chooses the pile it belongs to.
+   */
   function fits(moved: boolean): boolean {
     if (zonesCrowded()) return false;
-    if (cmp.active) return true;
+    if (cmp.active) return pileReach() <= zoneW / 2;
     for (let k = moved ? 1 : 0; k < (moved ? 4 : 1); k++) { placeBasket(k); if (!basketCrowded()) return true; }
     return false;
   }
@@ -380,8 +411,22 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     restSize = Math.round(Math.max(110, Math.min(300 * Math.min(1.25, H / 768), controlsY - controlsRadius - starY - starR - 40)));
     restY = (starY + starR + controlsY - controlsRadius) / 2;
     planWarm();
+    // Every sprite size follows the canvas size, pixel ratio, tier and the fitted scales. When any of them changes,
+    // the canvases scaled for the old sizes are released (and the round's end is warmed again at the new ones), so
+    // resizing never piles up copies. Within a round at one size nothing changes and nothing is released.
+    const key = `${W}x${H}@${artRatio}/${tier}/${intro}/${dinos}/${playS}/${compareS}`;
+    if (key !== sizeKey) { sizeKey = key; releaseArt(); }
     // Rescaling the full-screen backdrop is costly; only a new canvas size or pixel ratio needs it.
     if (resized || reratio || !bgCanvas) { sprites.clearScaled(BG); bgCanvas = undefined; }
+  }
+  /**
+   * Drop the scaled canvases of every sprite this scene draws (its sound button's icons too) except the backdrop's;
+   * the sizes in use are scaled again when next drawn.
+   */
+  function releaseArt(): void {
+    for (const name of OWN_ART) sprites.clearScaled(name);
+    for (const name of soundNames) sprites.clearScaled(name);
+    warmDone.clear();
   }
   function ensureBackground(): void {
     if (bgCanvas) return;
@@ -608,17 +653,15 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
    * visible and the bigger amount makes the bigger heap, without forming rows to read.
    */
   function pile(sl: Slot, n: number): void {
-    let base = 1;
-    while ((base * (base + 1)) / 2 < n) base++;
-    const step = FRUIT_OF_PLATE * 1.02, lean = random() < 0.5 ? -1 : 1;
+    const base = heapBase(n), step = FRUIT_OF_PLATE * HEAP_STEP, lean = random() < 0.5 ? -1 : 1;
     let k = 0;
     for (let layer = 0; k < n; layer++) {
       const full = base - layer, w = Math.min(full, n - k);
       const shift = lean * (full - w) * step * 0.25;
       for (let j = 0; j < w; j++, k++) {
-        sl.scatterX[k] = (j - (w - 1) / 2) * step + shift + (random() - 0.5) * FRUIT_OF_PLATE * 0.14;
+        sl.scatterX[k] = (j - (w - 1) / 2) * step + shift + (random() - 0.5) * FRUIT_OF_PLATE * HEAP_JITTER;
         sl.scatterY[k] = -0.06 - layer * FRUIT_OF_PLATE * 0.8 + (random() - 0.5) * FRUIT_OF_PLATE * 0.1;
-        sl.tilt[k] = (random() - 0.5) * 0.7;
+        sl.tilt[k] = (random() - 0.5) * HEAP_TILT;
         sl.fruit[k] = Math.floor(random() * FRUITS.length);
       }
     }
@@ -648,7 +691,9 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     if (!intro && services.debug.tier === undefined) applyMotor(data, tier, hits, misses);
     applyLearning(data);
     data.rounds++;
-    pending = { stars, happy, orders: ordersTotal, choices: chooseOffers(), chosen: '', rewardEnabled: services.config.rewardsEnabled, restEntered: false, tier, dinoOffset };
+    // A unique id keeps this round apart from another tab's round with the same fields when the save store merges them.
+    const id = globalThis.crypto?.randomUUID?.() ?? `round-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    pending = { id, stars, happy, orders: ordersTotal, choices: chooseOffers(), chosen: '', rewardEnabled: services.config.rewardsEnabled, restEntered: false, tier, dinoOffset };
     data.pending = pending;
     const bag = rewards(services); bag.rounds[GAME_ID] = (bag.rounds[GAME_ID] ?? 0) + 1;
     if (services.config.rewardsEnabled) bag.stars += stars;
@@ -1247,13 +1292,35 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     get stars() { return stars; }, get stickerId() { return pending?.chosen ?? ''; }, get choiceIds() { return pending?.choices ?? []; },
     get selected() { return menuSelected; }, get particles() { return particles.alive; },
     get flights() { let n = 0; for (const f of flights) if (f.active) n++; return n; }, get carrying() { return carry.active; }, get hand() { return hand.mode; },
-    get comparing() { return cmp.active ? cmp.sub : ''; }, get bigger() { return cmp.bigger; },
+    get comparing() { return cmp.active ? cmp.sub : ''; }, get bigger() { return cmp.bigger; }, get chosen() { return cmp.choice; },
     get workMean() { let sum = 0; for (let i = 0; i < workCount; i++) sum += work[i]!; return workCount ? sum / workCount : 0; },
     get workMax() { let max = 0; for (let i = 0; i < workCount; i++) max = Math.max(max, work[i]!); return max; },
     slots() {
       return slots.slice(0, activeSlots()).map((sl, i) => ({ x: sl.x, y: feetY - dinoH / 2, zone: [sl.x - zoneW / 2, zoneTop, sl.x + zoneW / 2, zoneBottom] as [number, number, number, number], plateX: sl.x, plateY, state: sl.state, target: sl.target, count: sl.count, sent: sl.sent, card: [sl.x - sl.cardW / 2, cardY(sl) - sl.cardH / 2, sl.x + sl.cardW / 2, cardY(sl) + sl.cardH / 2] as [number, number, number, number], focused: i === focus }));
     },
     basket() { return { x: basketX, y: basketY, r: basketR }; },
+    piles() {
+      if (!cmp.active) return [];
+      const plateImg = sprites.get(PLATE), ph = plateImg ? plateW * plateImg.naturalHeight / Math.max(plateImg.naturalWidth, plateImg.naturalHeight) : plateW;
+      // Mirrors plate(): the same arrangement, scale, tilt and glow.
+      const arranged = cmp.sub === 'reveal' ? easeInOutSine(clamp01((cmp.t - 0.6) / 0.6)) : 0, small = Math.min(cmp.values[0]!, cmp.values[1]!);
+      return slots.slice(0, 2).map(sl => {
+        const box: [number, number, number, number] = [sl.x - plateW / 2, plateY - ph / 2, sl.x + plateW / 2, plateY + ph / 2], fruit: [number, number][] = [];
+        const sc = lerp(1, rowScale(sl), arranged), glow = cmp.sub === 'reveal' && cmp.t > 1.2 && sl === slots[cmp.bigger];
+        for (let k = sl.eaten; k < sl.sent; k++) {
+          if (!sl.landed[k]) continue;
+          fruitSpot(sl, k, arranged);
+          const img = sprites.get(fruitName(sl.fruit[k] ?? 0)), long = img ? Math.max(img.naturalWidth, img.naturalHeight) : 1;
+          const w = fruitSize * sc * (img ? img.naturalWidth / long : 1), h = fruitSize * sc * (img ? img.naturalHeight / long : 1);
+          const a = glow && k >= small ? 0 : sl.tilt[k]! * (1 - arranged), c = Math.abs(Math.cos(a)), sn = Math.abs(Math.sin(a));
+          let hx = (w * c + h * sn) / 2, hy = (w * sn + h * c) / 2;
+          if (glow && k >= small) { const r = fruitSize * 0.62 * sc + 1.5; hx = Math.max(hx, r); hy = Math.max(hy, r) + 6 * s; }
+          box[0] = Math.min(box[0], pos.x - hx); box[1] = Math.min(box[1], pos.y - hy); box[2] = Math.max(box[2], pos.x + hx); box[3] = Math.max(box[3], pos.y + hy);
+          fruit.push([pos.x, pos.y]);
+        }
+        return { box, fruit };
+      });
+    },
     controls() {
       const choice = phase === 'choice', n = choice ? pending?.choices.length ?? 0 : phase === 'rest' ? 2 : 0;
       return Array.from({ length: n }, (_, i) => ({ x: controlX(i, choice), y: choice ? choiceY : controlsY, radius: choice ? choiceSize / 2 : controlsRadius, id: choice ? pending!.choices[i]! : i === 0 ? 'again' : 'home' }));
@@ -1291,7 +1358,11 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
       startMusic(audio, 'dino-picnic');
     },
     // Any route away from rest (corner Home, the break nudge's Home) closes the finished round.
-    exit() { stopMusic(audio); stopIdle(); closeFinishedRound(); services.save.flush(); },
+    exit() {
+      stopMusic(audio); stopIdle(); closeFinishedRound(); services.save.flush();
+      // Leaving releases every canvas scaled for this game; the next entry scales what it draws again.
+      releaseArt(); sprites.clearScaled(BG); bgCanvas = undefined; sizeKey = ''; madeName = '';
+    },
     resize: layout,
     update(dt) {
       const started = performance.now(); sceneT += dt;
