@@ -127,6 +127,8 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   /** When each shape (by its index in SHAPES) was last hinted, so a hint for one shape never clears another's. */
   const hintAt = new Float64Array(SHAPES.length).fill(-99);
   const hint = (shape: Shape): void => { hintAt[SHAPES.indexOf(shape)] = time; };
+  /** The outline the keyboard guidance ring shows (a spot index), or -1. Its shape counts as hinted while it shows. */
+  let ringSpot = -1;
   /** When a due break nudge may show (a natural pause in creative play), or -1; and whether free build has stamped since the last pause. */
   let boundaryAt = -1, stampedSincePause = false, lastStampAt = 0;
   let bg: HTMLCanvasElement | undefined;
@@ -471,7 +473,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     learnHits = t?.[0] ?? 0; learnMisses = t?.[1] ?? 0; motorHits = t?.[2] ?? 0; motorMisses = t?.[3] ?? 0;
     pointerPlacements = t?.[4] ?? 0; keyPlacements = t?.[5] ?? 0;
     for (const p of pieces) p.tried = p.part >= 0 && !!wip.tried?.includes(p.part);
-    held = undefined; hintAt.fill(-99); hinted = false; lastHint = time; lastPlace = time;
+    held = undefined; hintAt.fill(-99); ringSpot = -1; hinted = false; lastHint = time; lastPlace = time;
     // A ring on a top button belongs to the celebration just ended; play keys must not press it.
     phase = 'deal'; phaseT = 0; boardSlide = 0; cue = 0; focus = -1;
     sfx('whoosh', 'D', 0, 0.6);
@@ -529,8 +531,25 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     return best;
   }
 
-  /** Whether this piece's shape was hinted within ASSIST_SECONDS, whatever was hinted since. */
-  function assisted(p: Piece): boolean { return time - hintAt[SHAPES.indexOf(p.shape)]! < ASSIST_SECONDS; }
+  /** Whether this piece's shape was hinted within ASSIST_SECONDS, whatever was hinted since, or the keyboard ring shows its outline now. */
+  function assisted(p: Piece): boolean {
+    return time - hintAt[SHAPES.indexOf(p.shape)]! < ASSIST_SECONDS || (ringSpot >= 0 && spots[ringSpot]?.part.shape === p.shape);
+  }
+
+  /**
+   * The keyboard guidance ring shows the key piece's matching outline, so its shape counts as hinted. The time
+   * is recorded when the ring appears on an outline and again when it leaves it (moves on, or goes when the
+   * mouse takes over), never per frame: a mouse placement within ASSIST_SECONDS of the ring earns no credit.
+   */
+  function updateRing(): void {
+    const kp = pieces[keyPiece];
+    const ring = phase === 'play' && kbActive && kp && !kp.extra && (kp.state === 'tray' || kp.state === 'held') ? nearestSpot(kp.shape, kp.hx, kp.hy, true) : -1;
+    if (ring === ringSpot) return;
+    const was = spots[ringSpot], now = spots[ring];
+    if (was) hint(was.part.shape);
+    if (now) hint(now.part.shape);
+    ringSpot = ring;
+  }
 
   /** Scratch context for outline hit tests; used on a drop only, never per frame. */
   let probe: CanvasRenderingContext2D | null | undefined;
@@ -764,6 +783,8 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     // Stamping again (a full sheet's sparkle too) is play: a break point still waiting is dropped, and
     // the next one needs another full quiet spell after this stamp.
     boundaryAt = -1; lastStampAt = time; stampedSincePause = true;
+    // The trail spacing counts from every try, a full sheet's too, so a still press sparkles once, not every frame.
+    lastStampX = x; lastStampY = y;
     const list = stamps();
     if (list.length >= MAX_STAMPS * STAMP_STRIDE) { fx.sparkleRing(x, y, 30 * u, 6, random); sfx('tick', undefined, 0, 0.6); return; }
     let slot: Stamp | undefined;
@@ -773,7 +794,6 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     const nx = Math.round(clamp01((x - freeX) / freeW) * 1000), ny = Math.round(clamp01((y - freeY) / freeH) * 1000);
     list.push(selShape, selColor, nx, ny, size, rot);
     slot.active = true; slot.shape = selShape; slot.color = selColor; slot.x = nx; slot.y = ny; slot.size = size; slot.rot = rot; slot.t = 0;
-    lastStampX = x; lastStampY = y;
     sfx('pop', 'C', selShape * 2 + (selColor % 2));
     fx.sparkleRing(x, y, freeW * size / 1000 * 0.4, 5, random);
     sayShape(services, SHAPES[selShape]!);
@@ -858,6 +878,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
       services.roundBoundary();
       startPicture(data.currentId);
     }
+    updateRing();
   }
 
   /** Sounds and puffs for the alive animation, fired as time crosses each cue. */
@@ -1158,12 +1179,9 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
       if (!landing) continue;
       if (s.open && !s.placed) drawOutline(ctx, s, 0, 0); else drawPart(ctx, s);
     }
-    // Guidance rings: the keyboard target's outline, or the hint's outline.
-    const kp = pieces[keyPiece];
-    if (phase === 'play' && kbActive && kp && !kp.extra && (kp.state === 'tray' || kp.state === 'held')) {
-      const si = nearestSpot(kp.shape, kp.hx, kp.hy, true);
-      if (si >= 0) drawSpotRing(ctx, spots[si]!, 0.9);
-    }
+    // Guidance rings: the keyboard target's outline (as updateRing recorded it), or the hint's outline.
+    const ringed = spots[ringSpot];
+    if (ringed) drawSpotRing(ctx, ringed, 0.9);
     if (hand.kind === KIND_HINT && hand.step >= 2 && hand.spot >= 0 && spots[hand.spot]) drawSpotRing(ctx, spots[hand.spot]!, 0.8);
     // A piece held for a moment (picked up by a click, or dragged) lights its nearest matching outline.
     if (phase === 'play' && hand.kind !== KIND_DEMO) {
