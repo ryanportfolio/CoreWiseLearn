@@ -1,0 +1,478 @@
+{
+  "style": "Flat chunky vector, thick dark outlines, flat saturated fills, single soft highlight, no text. Sprites are 512x512 RGBA with the subject centred and fitted to 80 percent of the canvas; backgrounds are 1536x864 opaque RGB.",
+  "generatedWith": "OpenAI image_gen through Codex CLI (gpt-6-astra agent), downscaled with the project scratch script .tmp/art/png.mjs",
+  "count": 47,
+  "totalBytes": 8748764,
+  "files": [
+    {
+      "file": "art/mascot/cheer.png",
+      "group": "mascot",
+      "name": "cheer",
+      "use": "Mascot celebrating a win or a completed round (confetti drawn in code)",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 116686
+    },
+    {
+      "file": "art/mascot/idle.png",
+      "group": "mascot",
+      "name": "idle",
+      "use": "Mascot resting pose for the hub and idle moments",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 118926
+    },
+    {
+      "file": "art/mascot/point.png",
+      "group": "mascot",
+      "name": "point",
+      "use": "Mascot pointing right to direct attention at a tile or button",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 99483
+    },
+    {
+      "file": "art/mascot/wave.png",
+      "group": "mascot",
+      "name": "wave",
+      "use": "Mascot waving hello on the name-entry and welcome screens",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 110152
+    },
+    {
+      "file": "art/mascot/yawn.png",
+      "group": "mascot",
+      "name": "yawn",
+      "use": "Mascot yawning for the bedtime or inactivity prompt",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 123875
+    },
+    {
+      "file": "art/tiles/candy-rainbow.png",
+      "group": "tiles",
+      "name": "candy-rainbow",
+      "use": "Hub tile icon for a future candy game",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 121402
+    },
+    {
+      "file": "art/tiles/dino-green.png",
+      "group": "tiles",
+      "name": "dino-green",
+      "use": "Hub tile icon for a future dinosaur game",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 134457
+    },
+    {
+      "file": "art/tiles/ocean-octopus.png",
+      "group": "tiles",
+      "name": "ocean-octopus",
+      "use": "Hub tile icon for the ocean bubble-pop game (active)",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 170070
+    },
+    {
+      "file": "art/tiles/rocket-red.png",
+      "group": "tiles",
+      "name": "rocket-red",
+      "use": "Hub tile icon for a future rocket game",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 115872
+    },
+    {
+      "file": "art/tiles/unicorn-rainbow.png",
+      "group": "tiles",
+      "name": "unicorn-rainbow",
+      "use": "Hub tile icon for a future unicorn game",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 159773
+    },
+    {
+      "file": "art/buttons/avatar-silhouette.png",
+      "group": "buttons",
+      "name": "avatar-silhouette",
+      "use": "Placeholder profile icon before an avatar is chosen",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 109265
+    },
+    {
+      "file": "art/buttons/backspace.png",
+      "group": "buttons",
+      "name": "backspace",
+      "use": "Delete-letter key on the name-entry keyboard",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 70931
+    },
+    {
+      "file": "art/buttons/home.png",
+      "group": "buttons",
+      "name": "home",
+      "use": "Back-to-hub button icon",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 137106
+    },
+    {
+      "file": "art/buttons/play-arrow.png",
+      "group": "buttons",
+      "name": "play-arrow",
+      "use": "Start or play button icon",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 98169
+    },
+    {
+      "file": "art/buttons/sound-off.png",
+      "group": "buttons",
+      "name": "sound-off",
+      "use": "Sound toggle icon, sound muted",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 126053
+    },
+    {
+      "file": "art/buttons/sound-on.png",
+      "group": "buttons",
+      "name": "sound-on",
+      "use": "Sound toggle icon, sound on",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 93340
+    },
+    {
+      "file": "art/buttons/stars-empty.png",
+      "group": "buttons",
+      "name": "stars-empty",
+      "use": "Unearned rating star",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 93620
+    },
+    {
+      "file": "art/buttons/stars-filled.png",
+      "group": "buttons",
+      "name": "stars-filled",
+      "use": "Earned rating star",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 106021
+    },
+    {
+      "file": "art/buttons/sticker-star.png",
+      "group": "buttons",
+      "name": "sticker-star",
+      "use": "Sticker book button icon",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 106851
+    },
+    {
+      "file": "art/creatures/clownfish.png",
+      "group": "creatures",
+      "name": "clownfish",
+      "use": "Pop-game bubble creature",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 142094
+    },
+    {
+      "file": "art/creatures/crab.png",
+      "group": "creatures",
+      "name": "crab",
+      "use": "Pop-game bubble creature",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 140229
+    },
+    {
+      "file": "art/creatures/dolphin.png",
+      "group": "creatures",
+      "name": "dolphin",
+      "use": "Pop-game bubble creature",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 118845
+    },
+    {
+      "file": "art/creatures/jellyfish.png",
+      "group": "creatures",
+      "name": "jellyfish",
+      "use": "Pop-game bubble creature",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 134622
+    },
+    {
+      "file": "art/creatures/octopus-purple.png",
+      "group": "creatures",
+      "name": "octopus-purple",
+      "use": "Pop-game bubble creature",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 168787
+    },
+    {
+      "file": "art/creatures/pufferfish.png",
+      "group": "creatures",
+      "name": "pufferfish",
+      "use": "Pop-game bubble creature",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 144625
+    },
+    {
+      "file": "art/creatures/seahorse.png",
+      "group": "creatures",
+      "name": "seahorse",
+      "use": "Pop-game bubble creature",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 100696
+    },
+    {
+      "file": "art/creatures/starfish.png",
+      "group": "creatures",
+      "name": "starfish",
+      "use": "Pop-game bubble creature",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 114482
+    },
+    {
+      "file": "art/creatures/turtle.png",
+      "group": "creatures",
+      "name": "turtle",
+      "use": "Pop-game bubble creature",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 139208
+    },
+    {
+      "file": "art/creatures/whale-small.png",
+      "group": "creatures",
+      "name": "whale-small",
+      "use": "Pop-game bubble creature",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 110557
+    },
+    {
+      "file": "art/decoys/seaweed-clump.png",
+      "group": "decoys",
+      "name": "seaweed-clump",
+      "use": "Pop-game decoy or floor dressing",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 102012
+    },
+    {
+      "file": "art/decoys/urchin-grumpy.png",
+      "group": "decoys",
+      "name": "urchin-grumpy",
+      "use": "Pop-game decoy: do not pop",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 162822
+    },
+    {
+      "file": "art/effects/bubble-ring.png",
+      "group": "effects",
+      "name": "bubble-ring",
+      "use": "Bubble overlay drawn over a creature; inside is transparent",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 166715
+    },
+    {
+      "file": "art/effects/confetti-piece-set.png",
+      "group": "effects",
+      "name": "confetti-piece-set",
+      "use": "Six confetti shapes on a 3 by 2 grid, cropped in code (3 columns by 2 rows, cells about 170 by 256 px)",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 89441
+    },
+    {
+      "file": "art/effects/pop-burst.png",
+      "group": "effects",
+      "name": "pop-burst",
+      "use": "Burst overlay shown when a bubble pops; centre is transparent",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 135867
+    },
+    {
+      "file": "art/effects/sparkle.png",
+      "group": "effects",
+      "name": "sparkle",
+      "use": "Four-point sparkle for rewards and the sticker book",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 55131
+    },
+    {
+      "file": "art/avatars/bunny.png",
+      "group": "avatars",
+      "name": "bunny",
+      "use": "Child profile avatar",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 133400
+    },
+    {
+      "file": "art/avatars/fox.png",
+      "group": "avatars",
+      "name": "fox",
+      "use": "Child profile avatar",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 161667
+    },
+    {
+      "file": "art/avatars/frog.png",
+      "group": "avatars",
+      "name": "frog",
+      "use": "Child profile avatar",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 158770
+    },
+    {
+      "file": "art/avatars/koala.png",
+      "group": "avatars",
+      "name": "koala",
+      "use": "Child profile avatar",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 122401
+    },
+    {
+      "file": "art/avatars/lion.png",
+      "group": "avatars",
+      "name": "lion",
+      "use": "Child profile avatar",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 173622
+    },
+    {
+      "file": "art/avatars/owl.png",
+      "group": "avatars",
+      "name": "owl",
+      "use": "Child profile avatar",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 184910
+    },
+    {
+      "file": "art/avatars/panda.png",
+      "group": "avatars",
+      "name": "panda",
+      "use": "Child profile avatar",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 155824
+    },
+    {
+      "file": "art/avatars/penguin.png",
+      "group": "avatars",
+      "name": "penguin",
+      "use": "Child profile avatar",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 138540
+    },
+    {
+      "file": "art/backgrounds/hub-meadow-beach.png",
+      "group": "backgrounds",
+      "name": "hub-meadow-beach",
+      "use": "Hub screen background; UI sits in the calm middle band",
+      "width": 1536,
+      "height": 864,
+      "transparent": false,
+      "bytes": 848569
+    },
+    {
+      "file": "art/backgrounds/meadow-sky.png",
+      "group": "backgrounds",
+      "name": "meadow-sky",
+      "use": "Name-entry screen background",
+      "width": 1536,
+      "height": 864,
+      "transparent": false,
+      "bytes": 810711
+    },
+    {
+      "file": "art/backgrounds/ocean-floor.png",
+      "group": "backgrounds",
+      "name": "ocean-floor",
+      "use": "Bubble-pop game background",
+      "width": 1536,
+      "height": 864,
+      "transparent": false,
+      "bytes": 912307
+    },
+    {
+      "file": "art/backgrounds/sticker-album.png",
+      "group": "backgrounds",
+      "name": "sticker-album",
+      "use": "Sticker book background",
+      "width": 1536,
+      "height": 864,
+      "transparent": false,
+      "bytes": 709858
+    }
+  ]
+}

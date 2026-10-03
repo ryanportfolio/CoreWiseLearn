@@ -2,11 +2,18 @@
 
 > Kernel rules. Read first. Cross-cutting only. Topical detail lives in `.claude/reference/`.
 
-<!-- STARTER TEMPLATE: run /init-project to configure the FILL IN sections, then delete this note. -->
-
 ## What this project is
 
-<!-- FILL IN (via /init-project): two or three sentences — what this is and who it serves; a short "won't compromise on" list; optional glossary of terms the team uses. Cap ~10 lines: this file loads every turn, and direction earns its weight only while it stays short. A model that knows what the product refuses to compromise on tests for it without being told. -->
+A browser game hub for the owner's niece and nephew, aged 4 and 5, who cannot read. They play alone on a Windows laptop with a low-end integrated GPU, a mouse or trackpad and a keyboard. The hub, a name-entry screen and a growing set of small games share one engine (`src/engine/`), one art style (flat chunky vector) and one save file; new games register in `src/engine/registry.ts`.
+
+Won't compromise on:
+
+- No instruction text. The only text on screen is a child's name and numbers. Mechanics are taught by demonstration.
+- Nothing is ever wrong, locked or lost. No game over; misses only ease the hidden adaptive difficulty; every round ends with at least one star.
+- Every interactive target is at least 96 CSS px on its shortest side. Mouse, trackpad and any key all work; there is no wrong button.
+- 60 fps at 1366x768 on an integrated GPU. No per-frame allocations in update or render, no shadowBlur, no per-frame gradients or fillText.
+- No settings screens, no network calls at runtime, no analytics, no external links. Adult configuration is JSON in the repo.
+- Engagement stays honest: stickers, stars and unlocks reward play; nothing nags, times out or manipulates.
 
 ## Default prose mode: caveman ultra
 
@@ -21,9 +28,7 @@ Caveman covers chat replies only. Anything written to a file or for another read
 
 ## CRITICAL: Verification
 
-<!-- FILL IN (via /init-project): what can this sandbox verify? Installs/builds/type-checks meaningful? Can the user reach a dev server you start? What is the AUTHORITATIVE signal (CI, deploy log, local tests)? -->
-
-Defaults until configured:
+This machine can verify everything that matters: `npm run typecheck` and `npm run build` are meaningful, and the owner can open any dev server you start (`npm run dev -- --port <n>`, per-scene pages under `/CoreWiseLearn/dev/`). There is no CI yet; the authoritative signal is a clean typecheck and build plus a headed-browser check of the behaviour you changed, with frame times read from `window.__corewise.loop.stats`. Screenshots go under `D:\screenshots\CoreWiseLearn\`. The children's laptop is the final judge for feel and performance; the owner tests there by hand.
 
 - Inspect logs / run scripts / read code yourself before claiming anything works.
 - Never claim visual/UI verification you didn't actually perform.
@@ -60,9 +65,7 @@ Defaults until configured:
 
 ## Environment & deploy target
 
-<!-- FILL IN (via /init-project): where the app runs (host, DB, secrets); install policy (can sessions run npm/pip for app-runtime deps?); migration policy; anything that ALWAYS requires user action. -->
-
-Defaults until configured: ask before installing app-runtime dependencies; provide migrations as copy/paste-ready artifacts rather than running them blind.
+Static site, no server, no database, no secrets. Local only for now: the owner runs it from `npm run dev` or `npm run preview` and copies it to the children's laptop by hand. GitHub Pages is the eventual host; `.github/workflows/deploy.yml` is manual-trigger only and Pages is not enabled (steps in `.claude/reference/deployment.md`). Runtime dependencies are zero and stay zero without the owner's OK; dev dependencies may be added when a task needs them, named in the handover. Save data lives in the browser's localStorage with a versioned schema; a schema change ships with a migration in `src/engine/save.ts`, never a reset. Enabling Pages and merging to `main` always need the owner's go-ahead.
 
 ## Project reference library
 

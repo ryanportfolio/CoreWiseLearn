@@ -2,4 +2,20 @@
 
 > Build / dev / test / deploy commands for this project.
 
-_(empty. Record the project's npm scripts / make targets / CLI invocations here)_
+All commands run from the repo root with npm (Node 20 or newer; 24 is what the machine uses).
+
+| Command | What it does |
+|---|---|
+| `npm install` | Install the three dev dependencies (vite, typescript, vite-plugin-pwa). There are no runtime dependencies. |
+| `npm run dev` | Vite dev server with hot reload at `http://localhost:5173/CoreWiseLearn/`. The service worker is not active in dev. |
+| `npm run dev -- --port 5181` | Same, on a chosen port, so several agents can run a server at once. |
+| `npm run typecheck` | `tsc --noEmit` against `tsconfig.json` (strict). Run before every commit. |
+| `npm run build` | Production build into `dist/`, including the service worker and web manifest. |
+| `npm run preview` | Serve `dist/` at `http://localhost:4173/CoreWiseLearn/`. Use this, not `dev`, to check offline behaviour and installability. |
+| `node scripts/make-icons.mjs` | Regenerate the placeholder PNG icons in `public/icons/`. |
+
+Per-scene dev pages: with the dev server running, `/CoreWiseLearn/dev/<scene>.html` boots one scene alone with stub navigation (see `dev/README.md`). Add `?seed` on hub pages for a test profile, `?round=10` and `?tier=2` on the bubble-pop page.
+
+Deploy: manual only for now. `.github/workflows/deploy.yml` is `workflow_dispatch` and GitHub Pages is not enabled; see `deployment.md` for the steps to turn it on.
+
+Frame-time measurement: the running app exposes `window.__corewise.loop.stats` (`last`, `mean`, `max`, `fps`, `samples()`), so a browser script can read timings without touching game code.
