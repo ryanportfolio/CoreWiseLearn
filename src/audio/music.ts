@@ -10,9 +10,9 @@
 
 import type { Audio } from '../engine/audio';
 
-export type MusicTrack = 'name-entry' | 'hub' | 'ocean' | 'sticker-book';
+export type MusicTrack = 'name-entry' | 'hub' | 'ocean' | 'sticker-book' | 'dino-picnic' | 'letter-train' | 'web-playground' | 'workshop';
 
-export const MUSIC_TRACKS: readonly MusicTrack[] = ['name-entry', 'hub', 'ocean', 'sticker-book'];
+export const MUSIC_TRACKS: readonly MusicTrack[] = ['name-entry', 'hub', 'ocean', 'sticker-book', 'dino-picnic', 'letter-train', 'web-playground', 'workshop'];
 
 const EXTENSIONS = ['mp3', 'ogg'] as const;
 /** The build lists existing files so absent owner music creates no offline requests. */

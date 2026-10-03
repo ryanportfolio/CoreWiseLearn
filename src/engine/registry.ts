@@ -6,6 +6,10 @@
 import type { Scene } from './scene';
 import { registerSaveValidator, type AppServices, type SaveBagValidator } from '../app/services';
 import { bubblePop } from '../games/bubble-pop';
+import { dinoPicnic } from '../games/dino-picnic';
+import { letterTrain } from '../games/letter-train';
+import { webPlayground } from '../games/web-playground';
+import { shapeWorkshop } from '../games/shape-workshop';
 
 /** Everything a game may need from the hub, handed in when its scene is created. */
 export type GameServices = AppServices;
@@ -37,6 +41,10 @@ export interface GameDefinition {
 
 const games: GameDefinition[] = [
   bubblePop,
+  dinoPicnic,
+  letterTrain,
+  webPlayground,
+  shapeWorkshop,
   // Add games here in hub order. See docs/adding-a-game.md.
 ];
 
