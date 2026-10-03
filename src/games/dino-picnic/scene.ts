@@ -37,10 +37,19 @@ const CARD_FILL = '#fff4dc', CARD_LINE = '#6b4a33', DOT_EMPTY = '#ece0c4', DOT_R
 const POOL = 32, PARTICLES = 220, MAX_FRUIT = 10;
 /** Most progress pips a round shows: six plates and two comparisons. */
 const MAX_PIPS = 8;
+/** Pip spacing in pip sizes: each pip sits on a cream disc a little wider than its plate. */
+const PIP_GAP = 1.3;
 const SETTLE_SECONDS = 0.8, EAT_GAP = 0.3, DANCE_SECONDS = 1.3, CELEBRATION_SECONDS = 4.6, STAR_START = 0.5;
 // Choice and rest ignore input this long (and again after the break nudge), so steady pressing from the round cannot
 // choose for the child; the first key then only shows focus, and a later key acts once focus has shown FOCUS_HOLD_MS.
 const MENU_GUARD_MS = 1200, FOCUS_HOLD_MS = 250, PLAY_GUARD_MS = 350, KEY_GAP_MS = 120, PRESS_GAP_MS = 150, IDLE_SECONDS = 6, IDLE_REPEAT = 7;
+/**
+ * A pointer press on a plate is a counting choice only when it comes at least this long after the previous press on
+ * that plate; faster presses are a stream (mashing) and record no counting evidence for the plate.
+ */
+const COUNT_GAP_MS = 700;
+/** Smallest wish-card dot radius; where three dinos would shrink the dots below it, the round plays with two. */
+const MIN_DOT_R = 7;
 /** Comparison hint: the hand points at the bigger pile after 6 idle seconds, again every 8 s, for 3 s each time. */
 const HINT_REPEAT = 8, HINT_SECONDS = 3;
 /** Introduction: the hand reaches the card, then taps each dot in turn before it fetches a fruit. */
@@ -60,7 +69,8 @@ const LAND = 0, BOUNCE = 1, RETURN = 2, EAT = 3, DROP = 4;
 interface Slot {
   kind: number; x: number; state: SlotState; t: number;
   target: number; count: number; sent: number; incoming: number; eaten: number; swallowed: number;
-  overshoot: boolean; assisted: boolean; compare: boolean;
+  /** overshoot: a deliberate spare. counted: every press on this plate was a deliberate pointer choice. */
+  overshoot: boolean; assisted: boolean; compare: boolean; counted: boolean;
   fruit: Uint8Array; landed: Uint8Array; scatterX: Float32Array; scatterY: Float32Array; tilt: Float32Array; dotPulse: Float32Array;
   chompT: number; happyT: number; wiggleT: number; giggleT: number; giggleN: number; cardT: number; lastPress: number; hopT: number;
   cardW: number; cardH: number;
@@ -147,7 +157,7 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
   const soundButton = createSoundButton(services);
   const slots: Slot[] = Array.from({ length: 3 }, () => ({
     kind: 0, x: 0, state: 'off' as SlotState, t: 0, target: 0, count: 0, sent: 0, incoming: 0, eaten: 0, swallowed: 0,
-    overshoot: false, assisted: false, compare: false,
+    overshoot: false, assisted: false, compare: false, counted: true,
     fruit: new Uint8Array(MAX_FRUIT), landed: new Uint8Array(MAX_FRUIT), scatterX: new Float32Array(MAX_FRUIT), scatterY: new Float32Array(MAX_FRUIT), tilt: new Float32Array(MAX_FRUIT), dotPulse: new Float32Array(MAX_FRUIT).fill(9),
     chompT: 0, happyT: 0, wiggleT: 9, giggleT: 9, giggleN: 0, cardT: 0, lastPress: -9, hopT: 9, cardW: 0, cardH: 0,
   }));
@@ -170,6 +180,8 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
   /** The last placed layout stands the dinos lower; the progress row sits at the top. */
   let lowLayout = false, pipsTop = false;
   let phase: Phase = 'play', tier: Tier = 0, intro = false, dinoOffset = 0;
+  /** Dinos feeding this round: the tier's count, or two where three would make the card dots too small to count. */
+  let dinos = 1;
   let time = 0, sceneT = 0, phaseT = 0, idleT = 0;
   let ordersTotal = 0, ordersStarted = 0, ordersDone = 0, happy = 0, compTotal = 0, compDone = 0, lastTarget = 0;
   let hits = 0, misses = 0, stars = 1, starsPlayed = 0, nextFruit = 0, focus = 0;
@@ -193,17 +205,17 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     sfx.index = index; sfx.volume = volume; sfx.variant = variant; playSfx(audio, name, sfx);
   };
   const playable = (): boolean => phase === 'play';
-  const activeSlots = (): number => (cmp.active ? 2 : intro ? 1 : TIERS[tier].dinos);
+  const activeSlots = (): number => (cmp.active ? 2 : dinos);
   const feeding = (sl: Slot): boolean => sl.state === 'asking' || sl.state === 'settling';
   /** Still wants fruit: fewer sent (landed or in the air) than its card asks for. */
   const wants = (sl: Slot): boolean => sl.state === 'asking' && sl.sent < sl.target;
 
   function slotX(i: number): number {
     if (cmp.active) return W * (i === 0 ? 0.3 : 0.7);
-    const t = TIERS[intro ? 0 : tier];
     // Evenly spaced across the width, the most room each card can get.
-    if (spread) return W * (i + 0.5) / t.dinos;
-    return W * (t.slots[i] ?? 0.5);
+    if (spread) return W * (i + 0.5) / dinos;
+    // The places of the tier that plays this many dinos.
+    return W * (TIERS[dinos - 1]!.slots[i] ?? 0.5);
   }
   /** Fruit scale for a plate's rows: 1 up to three in a row, smaller for four and five so the row stays on the leaf. */
   function rowScale(sl: Slot): number {
@@ -303,9 +315,9 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     if (!hatCanvas || reratio || hat !== hatSize) { hatSize = hat; hatCanvas = bakeHat(hatSize, artRatio); }
     const headerScale = Math.min(1.25, Math.max(0.6, Math.min(W / 1366, H / 768)));
     starR = 34 * headerScale; starY = 70 * headerScale;
-    pipSize = Math.round(34 * u); pipY = H - pipSize * 0.75; pipsTop = anyLow;
+    pipSize = Math.round(40 * u); pipY = H - pipSize * 0.72; pipsTop = anyLow;
     // Where the dinos stand lower, the plates reach the bottom edge: the round's progress row moves up between the corner buttons.
-    if (pipsTop) { pipY = cornerY; pipSize = Math.max(8, Math.round(Math.min(pipSize, (soundX - homeX - 2 * cornerRadius - 24) / (MAX_PIPS * 1.15)))); }
+    if (pipsTop) { pipY = cornerY; pipSize = Math.max(8, Math.round(Math.min(pipSize, (soundX - homeX - 2 * cornerRadius - 24) / (MAX_PIPS * PIP_GAP)))); }
     choiceSize = Math.round(Math.max(110, Math.min(340 * Math.min(1.25, H / 768), (W - 60) / 2)));
     choiceY = H * 0.58;
     // Never under 48 px (96 px across), whatever uiScale the config sets.
@@ -360,11 +372,16 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
   }
   const basketMouthY = (): number => basketY - basketSize * 0.12;
 
-  /** Send one fruit toward a plate. Spare fruit bounces home with a giggle; nothing is ever wrong. */
-  function feed(i: number, fromX: number, fromY: number, deliberate: boolean, kind = -1): void {
+  /**
+   * Send one fruit toward a plate. Spare fruit bounces home with a giggle; nothing is ever wrong. `counts`: a deliberate
+   * pointer placement (not a key, the helper hand, or a quick press in a stream), the only kind that is counting evidence.
+   */
+  function feed(i: number, fromX: number, fromY: number, counts: boolean, kind = -1): void {
     const sl = slots[i]; if (!sl || sl.state === 'off' || sl.compare) return;
     const k = kind >= 0 ? kind : nextFruit; if (kind < 0) nextFruit = (nextFruit + 1 + Math.floor(random() * 2)) % FRUITS.length;
     const near = Math.hypot(fromX - sl.x, fromY - plateY) < plateW;
+    // One press on this plate that was not a counting choice leaves the whole plate without counting evidence.
+    if (!counts && feeding(sl)) sl.counted = false;
     if (wants(sl)) {
       // The card's dot fills on the press, with the fruit still in the air, so the card shows full as soon as
       // enough fruit is on its way; focus then moves to a plate that still wants fruit.
@@ -381,8 +398,8 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
       if (kind < 0) nextFruit = k; else launch(RETURN, k, i, 0, fromX, fromY, basketX, basketMouthY(), 0.4, 40 * s);
       return;
     }
-    if (feeding(sl) && deliberate) sl.overshoot = true;
-    if (sl.state === 'settling') sl.t = 0;
+    // A full plate keeps its own short wait: spares never restart it, so the dino always eats however fast the presses come.
+    if (feeding(sl) && counts) sl.overshoot = true;
     launch(BOUNCE, k, i, 0, fromX, fromY, sl.x, plateY - plateW * 0.1, near ? 0.22 : 0.42, near ? 30 * s : 90 * s);
   }
   function giggle(sl: Slot): void { sl.giggleT = 0; sl.giggleN = 0; sl.happyT = 0.6; sl.wiggleT = 0; }
@@ -426,7 +443,7 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     if (intro) target = INTRO_TARGETS[ordersStarted % INTRO_TARGETS.length] ?? 2;
     else target = pickTarget(data.stage, random, n => n === lastTarget || slots.some((o, j) => j !== i && feeding(o) && o.target === n));
     lastTarget = target;
-    Object.assign(sl, { state: 'asking', t: 0, target, count: 0, sent: 0, incoming: 0, eaten: 0, swallowed: 0, overshoot: false, assisted: intro, compare: false, cardT: 0 });
+    Object.assign(sl, { state: 'asking', t: 0, target, count: 0, sent: 0, incoming: 0, eaten: 0, swallowed: 0, overshoot: false, assisted: intro, compare: false, counted: true, cardT: 0 });
     sl.scatterX.fill(0); sl.scatterY.fill(0); sl.tilt.fill(0); sl.dotPulse.fill(9); sl.landed.fill(0);
     cardSize(sl); ordersStarted++;
     play('pop-big', 'D', 2, 0.55);
@@ -447,6 +464,9 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     hits = misses = 0; stars = 1; starsPlayed = 0; focus = 0; nextFruit = Math.floor(random() * FRUITS.length);
     cmp.active = false; carry.active = false; hand.mode = 0;
     particles.clear(); for (const f of flights) f.active = false;
+    // On a narrow screen three wish cards would shrink their dots below countable size: two dinos play instead.
+    dinos = intro ? 1 : TIERS[tier].dinos;
+    if (dinos === 3) { layout(W, H); if (dotR < MIN_DOT_R) dinos = 2; }
     const n = activeSlots();
     for (let i = 0; i < 3; i++) {
       const sl = slots[i]!;
@@ -523,6 +543,8 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
       sl.landed.fill(0);
       pile(sl, value);
     }
+    // Spares still on their way home belong to the feeding stage.
+    for (const f of flights) if (f.mode === BOUNCE || f.mode === RETURN) f.active = false;
     cmp.hinted = false; focus = 0; layout(W, H); carry.active = false;
   }
   /**
@@ -656,8 +678,11 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
         break;
       case 'settling':
         if (sl.t >= SETTLE_SECONDS) {
-          if (!sl.assisted && !intro) recordPlate(data, !sl.overshoot);
-          if (!sl.overshoot) happy++;
+          // Counting evidence only from plates filled by deliberate pointer choices; a plate that also got keys or
+          // quick presses records nothing and keeps its star, whatever spares bounced back.
+          const spare = sl.overshoot && sl.counted;
+          if (!sl.assisted && !intro && sl.counted) recordPlate(data, !spare);
+          if (!spare) happy++;
           startEating(sl);
         }
         break;
@@ -824,8 +849,9 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
       hand.mode = 5; hand.t = 0; hand.slot = cmp.bigger; cmp.hinted = true; idleT = IDLE_SECONDS - HINT_REPEAT;
       play('pop', 'A', 4, 0.4);
     }
+    // Fruit landing or being eaten holds the round's end; spares on their way home do not, so steady pressing cannot.
     let busy = false;
-    for (const f of flights) if (f.active) { busy = true; break; }
+    for (const f of flights) if (f.active && f.mode !== BOUNCE && f.mode !== RETURN) { busy = true; break; }
     if (!cmp.active && !busy && ordersStarted >= ordersTotal) {
       let settled = true;
       for (let i = 0; i < n; i++) { const st = slots[i]!.state; if (st !== 'done' && st !== 'off') { settled = false; break; } }
@@ -983,13 +1009,18 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     ctx.globalAlpha = 1;
   }
   function renderPips(ctx: CanvasRenderingContext2D): void {
-    const total = ordersTotal + compTotal, done = ordersDone + compDone, gap = pipSize * 1.15;
+    const total = ordersTotal + compTotal, done = ordersDone + compDone, gap = pipSize * PIP_GAP;
     // The row sits on the side of the blanket away from the basket.
     const cx = pipsTop ? W / 2 : basketX > W * 0.6 ? W * 0.4 : basketX < W * 0.4 ? W * 0.6 : W * 0.25;
+    // Each plate sits on an outlined disc, so the row reads on the busy blanket: plates still to come are soft on cream,
+    // finished ones are bright on yellow.
+    const r = pipSize * 0.58, line = Math.max(2, pipSize * 0.08);
     for (let i = 0; i < total; i++) {
-      const x = cx + (i - (total - 1) / 2) * gap;
-      ctx.globalAlpha = i < done ? 1 : 0.35;
-      drawSprite(ctx, sprites, PLATE, x, pipY, pipSize);
+      const x = cx + (i - (total - 1) / 2) * gap, finished = i < done;
+      ctx.globalAlpha = 1;
+      chunkyCircle(ctx, x, pipY, r, finished ? HIGHLIGHT : CARD_FILL, CARD_LINE, line);
+      ctx.globalAlpha = finished ? 1 : 0.55;
+      drawSprite(ctx, sprites, PLATE, x, pipY, finished ? pipSize : Math.round(pipSize * 0.86));
     }
     ctx.globalAlpha = 1;
   }
@@ -1079,6 +1110,12 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     for (let j = 0; j < 2; j++) if (i < 0 || i === j) { const sl = slots[j]!; if (sl.hopT >= 0.42 || sl.hopT < 0) sl.hopT = i < 0 ? -0.1 * j : 0; }
     play('pop', 'A', 3, 0.35);
   }
+  /** Record a pointer press on plate i; true when it came long enough after the last one to be a counting choice. */
+  function countingPress(i: number, now: number): boolean {
+    const sl = slots[i]!, gap = now - sl.lastPress;
+    sl.lastPress = now;
+    return gap >= COUNT_GAP_MS;
+  }
   function pointerDown(x: number, y: number): void {
     idleT = 0;
     if (hand.mode === 3) hand.mode = 0;
@@ -1096,7 +1133,7 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     // on the basket counts nothing.
     if (carry.active) {
       carry.active = false;
-      if (i >= 0) { hits++; focus = i; feed(i, x, y, true, carry.kind); }
+      if (i >= 0) { hits++; focus = i; feed(i, x, y, countingPress(i, now), carry.kind); }
       else if (!onBasket(x, y)) { misses++; launch(RETURN, carry.kind, 0, 0, x, y, basketX, basketMouthY(), 0.4, 40 * s); play('whoosh', 'D', 0, 0.6); }
       return;
     }
@@ -1110,8 +1147,8 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
       const sl = slots[i]!;
       // A bounce or double-click within a moment is the same press.
       if (now - sl.lastPress < PRESS_GAP_MS) return;
-      sl.lastPress = now; hits++; focus = i;
-      feed(i, basketX, basketMouthY(), true);
+      hits++; focus = i;
+      feed(i, basketX, basketMouthY(), countingPress(i, now));
       return;
     }
     if (!onCorner(x, y)) misses++;
@@ -1122,7 +1159,7 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     if (quick) { carry.sticky = true; return; } // A click on the basket: the fruit follows until the next press.
     carry.active = false;
     const i = slotAt(x, y);
-    if (i >= 0) { hits++; focus = i; feed(i, x, y, true, carry.kind); }
+    if (i >= 0) { hits++; focus = i; feed(i, x, y, countingPress(i, performance.now()), carry.kind); }
     // Let go over the basket (a long press in place): the fruit just drops back in.
     else if (onBasket(x, y)) play('pop', 'B', 1, 0.35);
     else { misses++; launch(RETURN, carry.kind, 0, 0, x, y, basketX, basketMouthY(), 0.4, 40 * s); play('whoosh', 'D', 0, 0.6); }
@@ -1143,7 +1180,8 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     if (now < keyAfter) return;
     keyAfter = now + KEY_GAP_MS;
     ensureFocus();
-    feed(focus, basketX, basketMouthY(), true);
+    // Keys play fully but are never counting evidence: one key per fruit cannot tell a count from steady pressing.
+    feed(focus, basketX, basketMouthY(), false);
   }
 
   const stats: DinoPicnicStats = {

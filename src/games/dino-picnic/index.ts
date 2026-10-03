@@ -1,5 +1,6 @@
 import type { AppServices } from '../../app/services';
 import type { GameDefinition } from '../../engine/registry';
+import { sanitizePicnicData } from './data';
 import { createDinoPicnicScene, GAME_ID } from './scene';
 
 export const dinoPicnic: GameDefinition = {
@@ -9,5 +10,6 @@ export const dinoPicnic: GameDefinition = {
   themes: ['numbers', 'counting', 'dinosaurs'],
   mode: 'round',
   learning: ['counting'],
+  validateSave: (bag, protect) => sanitizePicnicData(bag, protect),
   createScene: (services) => createDinoPicnicScene(services as unknown as AppServices),
 };
