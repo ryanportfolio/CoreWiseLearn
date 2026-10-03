@@ -114,7 +114,7 @@ Medium: painted wooden toys. Everything is a transparent WebP sprite except the 
 
 | File (under `public/art/letter-train/`) | Use |
 |---|---|
-| `town.webp` 1536x1024 | Background: toy town, track at 54.8 percent height, plank platform |
+| `town.webp` 1920x1280 | Background: toy town, track at 54.8 percent height, plank platform. `TOWN_W` and `TOWN_H` in `scene.ts` hold its size. |
 | `engine.webp` | Engine with a bear driver, side view |
 | `icon.webp` 624x624 | Hub tile icon: the same engine from the front three-quarter view, square |
 | `wagon-red/yellow/green/blue.webp` | Cars and the sticker-choice wagons |
@@ -138,7 +138,9 @@ Round G2, 2026-10-03, same tool chain (Codex CLI 0.159.0, `codex exec -m gpt-6-a
 
 Round G4, 2026-10-03: the spare hen from the G2 sheet (prompt: "a plump red-brown wooden toy hen with a red comb, standing side-on, smiling, on no base"; processed with the fox by the same G2 script, 265x320 transparent WebP) became `words/hen.webp`, replacing `words/sun.webp`. No new image was generated.
 
-Processing (`sharp`, script kept outside the build): each sheet is cut into its grid cells; alpha below 24 becomes 0 and alpha of 200 or more becomes 255; edge pixels take their colour from nearby opaque pixels so the generator's coloured glow cannot tint the rim; specks and slivers from neighbouring cells are dropped; each object is trimmed with 4 px padding, resized with Lanczos and written as WebP at quality 90, alpha quality 100. The background is WebP quality 82 at full size. Edges were checked on cream and on the dark outline colour. The raw sheets, the exact prompts, the style reference crop and the processing script are kept outside the checkout in `D:/CoreWise/_artifacts/CoreWiseLearn/letter-train/`.
+Processing (`sharp`, script kept outside the build): each sheet is cut into its grid cells; alpha below 24 becomes 0 and alpha of 200 or more becomes 255; edge pixels take their colour from nearby opaque pixels so the generator's coloured glow cannot tint the rim; specks and slivers from neighbouring cells are dropped; each object is trimmed with 4 px padding, resized with Lanczos and written as WebP at quality 90, alpha quality 100. The first background was WebP quality 82 at full size (replaced in round HD below). Edges were checked on cream and on the dark outline colour. The raw sheets, the exact prompts, the style reference crop and the processing script are kept outside the checkout in `D:/CoreWise/_artifacts/CoreWiseLearn/letter-train/`.
+
+Round HD, 2026-10-03: `town.webp` was redrawn at 1920x1280, so a 1920x1080 window at pixel ratio 1 never draws it larger than its own pixels (it was drawn at 1.25 times before). The image tool returns at most 1536x1024 for a 3:2 picture, so `bg-raw.png` was cut into three overlapping 683x1024 portrait strips, each enlarged to 1024x1536 and attached to its own request (same tool chain) asking for a sharper, faithful redraw of exactly that strip. A scratch script then placed each returned strip where it best matched the raw enlarged 1.5 times, replaced each strip's broad colour (Gaussian blur, sigma 32 px) with the raw's so colours and shapes stay the original's, joined neighbouring strips along the vertical path where they differ least (6 px feather) and resized the 2304x1536 result to 1920x1280 with Lanczos 3; WebP quality 80, opaque. The track and platform stay at 54.8 and 58.5 percent height. The distant village and the clouds are sharper than in the original, which had a soft depth-of-field blur there. Strips, prompts, Codex logs, the stitched PNG and the scripts are in `D:/CoreWise/_artifacts/CoreWiseLearn/hd-game-backgrounds/`.
 
 ## Performance plan
 
