@@ -31,7 +31,8 @@ export function sanitizeLetterTrainData(bag: Record<string, unknown>, protect: (
   const p = bag.pending;
   if (p === null) return;
   const ids = STICKERS.filter(s => s.game === GAME_ID).map(s => s.id);
-  if (!rec(p) || p.stars !== 3 || !Array.isArray(p.choices) || p.choices.length > 2 || !p.choices.every(id => typeof id === 'string' && ids.includes(id)) ||
+  // `id` is optional: rounds stored before rounds had ids load as they are.
+  if (!rec(p) || ('id' in p && typeof p.id !== 'string') || p.stars !== 3 || !Array.isArray(p.choices) || p.choices.length > 2 || !p.choices.every(id => typeof id === 'string' && ids.includes(id)) ||
     new Set(p.choices).size !== p.choices.length || typeof p.chosen !== 'string' || (p.chosen !== '' && !p.choices.includes(p.chosen)) ||
     typeof p.rewardEnabled !== 'boolean' || typeof p.restEntered !== 'boolean' || !(p.tier === 0 || p.tier === 1 || p.tier === 2) ||
     !Array.isArray(p.passengers) || p.passengers.length > MAX_CARS || !p.passengers.every(n => count(n) && n < PASSENGERS.length)) {

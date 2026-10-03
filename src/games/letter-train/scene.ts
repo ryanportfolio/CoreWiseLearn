@@ -73,6 +73,8 @@ interface Block {
   fromX: number; fromY: number; t: number; car: number; appear: number; squash: number; canvas: HTMLCanvasElement | undefined; canvasDpr: number;
 }
 interface Pending {
+  /** Names this round across tabs, as Bubble Bay's does; rounds stored by older builds have none. */
+  id?: string;
   stars: number; choices: string[]; chosen: string; rewardEnabled: boolean; restEntered: boolean; passengers: number[]; tier: Tier;
 }
 interface GameData extends Record<string, unknown> {
@@ -153,7 +155,8 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
   let phase: Phase = 'arrive', tier: Tier = 0, stage: Stage = 0, sceneT = 0, time = 0, phaseT = 0;
   let plans: TrainPlan[] = [], plan: TrainPlan | undefined, trainIndex = 0, nCars = 0, trainOff = 0, parkX = 0, trainL = 0;
   let starsEarned = 0, starFlight = -1, chuffT = 0, tootSquash = 9, departFrom = 0;
-  let hits = 0, misses = 0, motorHits = 0, motorMisses = 0;
+  /** `placements`: blocks the child (not the demonstration) put on cars this round, by any input. */
+  let hits = 0, misses = 0, motorHits = 0, motorMisses = 0, placements = 0;
   let held = -1, selectedBlock = -1, downX = 0, downY = 0, grabX = 0, grabY = 0, moved = false;
   /** Keyboard highlights show only after keyboard input; pointer input hides them again. */
   let kbActive = false;
@@ -268,10 +271,15 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     parkX = Math.min(maxPark, Math.max(minPark, parkFor(C)));
     if (phase === 'play' || phase === 'toot') trainOff = parkX; else if (phase === 'arrive') trainOff += parkX - oldPark;
     platformY = Math.min(H - B / 2 - 10, Math.max(platformTop + B * 0.62, platformTop + (H - platformTop) * 0.5));
-    const n = nCars, spacing = Math.min(B * 1.4, (W - 24) / Math.max(1, n));
+    const n = nCars, spacing = Math.min(B * 1.4, (W - 24) / Math.max(1, n)), edge = B * 0.54;
     for (let i = 0; i < n; i++) {
       const b = blocks[i]!; b.homeX = W / 2 + (i - (n - 1) / 2) * spacing; b.homeY = platformY;
-      if (b.state === 'idle' || b.state === 'hidden') { b.x = b.homeX; b.y = b.homeY; }
+      // After a resize every block that is not flying stays in view: a selected block moves to its new home (it still
+      // draws lifted there), a held block is kept inside the view until the pointer moves it, and a returning block
+      // starts its arc from inside the view (its arc rises 0.35 block widths).
+      if (b.state === 'idle' || b.state === 'hidden' || b.state === 'selected') { b.x = b.homeX; b.y = b.homeY; }
+      else if (b.state === 'held') { b.x = Math.min(W - edge, Math.max(edge, b.x)); b.y = Math.min(H - edge, Math.max(edge, b.y)); }
+      else if (b.state === 'return') { b.fromX = Math.min(W - edge, Math.max(edge, b.fromX)); b.fromY = Math.min(H - edge, Math.max(edge + B * 0.35, b.fromY)); }
     }
   }
   /** Letters one train holds with full-size cars and the engine in view, never more than MAX_CARS. */
@@ -417,7 +425,7 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     pending = null; data.pending = null;
     tier = services.debug.tier ?? toTier(data.tier);
     stage = options.stage ?? toStage(data.stage);
-    hits = misses = motorHits = motorMisses = 0; starsEarned = 0; starFlight = -1; roundPassengers.length = 0;
+    hits = misses = motorHits = motorMisses = placements = 0; starsEarned = 0; starFlight = -1; roundPassengers.length = 0;
     const name = services.profile()?.unnamed ? '' : services.profile()?.name ?? '';
     plans = planRound(stage, TIERS[tier].cars, perTrainLetters(), nameCap(), name, random, data.recentWords);
     for (const p of plans) if (p.word) { data.recentWords = [...data.recentWords.filter(w => w !== p.word), p.word].slice(-4); }
@@ -436,7 +444,11 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
   function startTrain(): void {
     plan = plans[trainIndex];
     if (!plan) return;
-    const stageCars = plan.stage <= 2 ? Math.min(plan.cars.length, Math.max(1, Math.min(TIERS[tier].cars, perTrainLetters()))) : plan.cars.length;
+    // Stages 0 to 2 keep at least two cars wherever the platform holds two blocks at 96 px: a one-car train leaves no
+    // choice (choiceLeft), so a narrow screen would never record learning. Such a train runs its engine off the right
+    // edge and shrinks its cars as a word train does (fitTrain).
+    const letterCars = Math.max(Math.min(2, nameCap()), Math.min(TIERS[tier].cars, perTrainLetters()));
+    const stageCars = plan.stage <= 2 ? Math.min(plan.cars.length, letterCars) : plan.cars.length;
     nCars = Math.min(MAX_CARS, stageCars);
     const passengers = [0, 1, 2, 3, 4, 5].sort(() => random() - 0.5);
     const wagonStart = Math.floor(random() * WAGONS.length);
@@ -506,8 +518,11 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     // Motor tier: control only. Learning stage: letters only. Both change between rounds.
     if (services.debug.tier === undefined) {
       const n = motorHits + motorMisses, rate = n ? motorHits / n : 1;
+      // A round offers only as many placements as its cars (six at tier 0), so promotion asks for at most that many
+      // motor attempts, never more than 8: accurate pointer play can move up from every tier.
+      const needed = Math.max(1, Math.min(8, placements));
       if (n >= 4 && rate < 0.7) { data.tier = Math.max(0, tier - 1); data.qualifyingRounds = 0; }
-      else if (n >= 8 && rate >= 0.9) {
+      else if (n >= needed && rate >= 0.9) {
         data.qualifyingRounds++;
         if (data.qualifyingRounds >= 2) { data.tier = Math.min(2, tier + 1); data.qualifyingRounds = 0; }
       } else data.qualifyingRounds = 0;
@@ -523,7 +538,9 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     adjustLevels();
     data.rounds++;
     const passengers = roundPassengers.slice(0, MAX_CARS);
-    pending = { stars: 3, choices: chooseOffers(), chosen: '', rewardEnabled: services.config.rewardsEnabled, restEntered: false, passengers, tier };
+    // A unique id, so two tabs' rounds that happen to match in every field stay two rounds when the save store merges them.
+    const id = globalThis.crypto?.randomUUID?.() ?? `round-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    pending = { id, stars: 3, choices: chooseOffers(), chosen: '', rewardEnabled: services.config.rewardsEnabled, restEntered: false, passengers, tier };
     data.pending = pending;
     const bag = rewards(services); bag.rounds[GAME_ID] = (bag.rounds[GAME_ID] ?? 0) + 1;
     if (services.config.rewardsEnabled) bag.stars += pending.stars;
@@ -645,6 +662,7 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
       record(false, source); sendHome(b); wiggleHome(b); playSfx(audio, 'miss', missOpt); return;
     }
     record(true, source);
+    if (source !== 'demo') placements++;
     b.state = 'fly'; b.t = 0; b.fromX = b.x; b.fromY = b.y; b.car = car;
     c.filled = true; c.block = index; idleT = 0; nextHintAt = IDLE_FIRST; hintT = -1;
     ensureKb();
@@ -731,6 +749,8 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     if (hitBlock >= 0) {
       const b = blocks[hitBlock]!;
       if (selectedBlock >= 0 && selectedBlock !== hitBlock) { sendHome(blocks[selectedBlock]!); selectedBlock = -1; }
+      // A second touch, or a press after a pointerup that never arrived: the block held so far goes home first.
+      releaseHeld();
       held = hitBlock; b.state = 'held'; moved = false; downX = x; downY = y; grabX = b.x - x; grabY = b.y - y; pairWith(hitBlock);
       keyOpt.index = Math.max(0, letterIndex(b.letter)); playSfx(audio, 'key', keyOpt);
       return;
@@ -738,6 +758,12 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     // A tap on a car says hello: its passenger hops.
     for (let i = 0; i < nCars; i++) if (Math.abs(x - carX(i)) < cw() / 2 && y > slotY() - C && y < trackY) { cars[i]!.hop = 0; return; }
     if (phase === 'arrive') tapBurst(x, y);
+  }
+  /** Let go of the block the pointer holds, without an attempt: it slides home. Never touches the demonstration's block. */
+  function releaseHeld(): void {
+    if (held < 0 || demoT >= 0) return;
+    const b = blocks[held]; held = -1;
+    if (b && b.state === 'held') sendHome(b);
   }
   function pointerMove(x: number, y: number): void {
     if (held < 0 || demoT >= 0) return;
@@ -851,6 +877,9 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
   }
   function updatePlay(dt: number): void {
     phaseT += dt;
+    // The engine cleared its pointer without a pointerup reaching the scene (the window lost focus mid-drag, a second
+    // touch's release): the held block goes home, so no block stays held and every round can finish.
+    if (held >= 0 && !input.pointer.down) releaseHeld();
     // One bake or one round-end pre-scale per update, never both.
     if (!bakeNext()) prepNext();
     if (phase === 'arrive') {
