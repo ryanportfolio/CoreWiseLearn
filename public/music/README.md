@@ -39,4 +39,14 @@ covers the padding most MP3 encoders add, but a clean cut sounds best.
 
 A missing file just means silence for that track. The game keeps working and
 writes one line to the browser console, so you can add the tracks one at a
-time. After adding or replacing a file, reload the page.
+time.
+
+The list of music files is read once, when `npm run dev` starts or when
+`npm run build` runs, so a reload alone does not pick up a new file:
+
+- After adding or removing a file, stop `npm run dev` (Ctrl+C), start it again,
+  then reload the page.
+- After replacing a file under the same name, reloading the page is enough in
+  `npm run dev`.
+- For `npm run preview` or a copy for the children's laptop, run
+  `npm run build` again after any change to this folder.
