@@ -1,0 +1,22 @@
+{
+  "app": "CoreWiseLearn sound lab",
+  "version": 1,
+  "exportedAt": "2026-10-03T01:06:58.151Z",
+  "note": "Owner ratings from the first sound lab session. Read docs/audio/README.md for the summary.",
+  "effects": {
+    "pop": { "rating": 5, "notes": "", "chosenVariant": null, "settings": { "register": 0, "brightness": 3000, "level": 1, "attack": 1, "decay": 1, "shape": 0, "overtone": 1, "noise": 1 } },
+    "pop-big": { "rating": 5, "notes": "I like all, variation is good, could be used as this category on various games", "chosenVariant": null, "settings": { "register": 0, "brightness": 3000, "level": 1, "attack": 1, "decay": 1, "shape": 0, "overtone": 1, "noise": 1 } },
+    "miss": { "rating": 4, "notes": "I like all, variation is good, could be used as this category on various games", "chosenVariant": null, "settings": { "register": 0, "brightness": 1400, "level": 1, "attack": 1, "decay": 1, "shape": 0, "overtone": 1, "noise": 1 } },
+    "key": { "rating": 4, "notes": "I like all, variation is good, could be used as this category on various games", "chosenVariant": null, "settings": { "register": 0, "brightness": 3000, "level": 1, "attack": 1, "decay": 1, "shape": 0, "overtone": 1, "noise": 1 } },
+    "backspace": { "rating": 4, "notes": "I like all, variation is good, could be used as this category on various games", "chosenVariant": null, "settings": { "register": 0, "brightness": 2000, "level": 1, "attack": 1, "decay": 1, "shape": 0, "overtone": 1, "noise": 1 } },
+    "go": { "rating": 4, "notes": "I like all, variation is good, could be used as this category on various games", "chosenVariant": null, "settings": { "register": 0, "brightness": 3000, "level": 1, "attack": 1, "decay": 1, "shape": 0, "overtone": 1, "noise": 1 } },
+    "button": { "rating": 1, "notes": "I edited it to make it slightly better but it's not fun", "chosenVariant": null, "editedAfterVariant": true, "settings": { "register": -24, "brightness": 3000, "level": 2, "attack": 4, "decay": 3, "shape": 1, "overtone": 1, "noise": 3 } },
+    "hover": { "rating": 2, "notes": "difficult to hear it", "chosenVariant": null, "editedAfterVariant": true, "settings": { "register": 0, "brightness": 2400, "level": 2, "attack": 1, "decay": 1, "shape": 0, "overtone": 1, "noise": 1 } },
+    "star": { "rating": 4, "notes": "I like all except C, variation is good, could be used as this category on various games", "chosenVariant": null, "settings": { "register": 0, "brightness": 3000, "level": 1, "attack": 1, "decay": 1, "shape": 0, "overtone": 1, "noise": 1 } },
+    "fanfare": { "rating": 5, "notes": "I like all, variation is good, could be used as this category on various games", "chosenVariant": null, "settings": { "register": 0, "brightness": 3000, "level": 1, "attack": 1, "decay": 1, "shape": 0, "overtone": 1, "noise": 1 } },
+    "sticker": { "rating": 5, "notes": "I like all, variation is good, could be used as this category on various games", "chosenVariant": null, "settings": { "register": 0, "brightness": 3000, "level": 1, "attack": 1, "decay": 1, "shape": 0, "overtone": 1, "noise": 1 } },
+    "yawn": { "rating": 3, "notes": "", "chosenVariant": null, "settings": { "register": 0, "brightness": 1800, "level": 1, "attack": 1, "decay": 1, "shape": 0, "overtone": 1, "noise": 1 } },
+    "whoosh": { "rating": null, "notes": "I like all, D difficult to hear, variation is good, could be used as this category on various games", "chosenVariant": null, "settings": { "register": 0, "brightness": 3000, "level": 1, "attack": 1, "decay": 1, "shape": 0, "overtone": 1, "noise": 1 } },
+    "tick": { "rating": 5, "notes": "good but too difficult to hear", "chosenVariant": null, "editedAfterVariant": true, "settings": { "register": 0, "brightness": 3000, "level": 2, "attack": 1, "decay": 1, "shape": 0, "overtone": 1, "noise": 1 } }
+  }
+}

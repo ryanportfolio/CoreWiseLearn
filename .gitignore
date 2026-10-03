@@ -22,3 +22,6 @@ build/
 Thumbs.db
 .DS_Store
 debug.log
+
+# Playwright MCP scratch (console logs, snapshots) from browser checks
+.playwright-mcp/
