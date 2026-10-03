@@ -18,7 +18,7 @@ import { createSoundButton, soundArt, syncSoundIcon } from '../../scenes/hub/sha
 import { defaultData, GAME_ID, sanitizePicnicData, type PendingRound, type PicnicData } from './data';
 import {
   applyLearning, applyMotor, comparisonsPerRound, INTRO_TARGETS, pickComparison, pickTarget,
-  recordComparison, recordPlate, starsFor, TIERS,
+  recordComparison, recordPlate, ROUND_STARS, TIERS,
 } from './rules';
 import { playVoice, preloadVoice } from './voice';
 
@@ -48,8 +48,15 @@ const MENU_GUARD_MS = 1200, FOCUS_HOLD_MS = 250, PLAY_GUARD_MS = 350, KEY_GAP_MS
  * that plate; faster presses are a stream (mashing) and record no counting evidence for the plate.
  */
 const COUNT_GAP_MS = 700;
-/** Smallest wish-card dot radius; where three dinos would shrink the dots below it, the round plays with two. */
+/**
+ * Smallest wish-card dot radius (14 px across): cards never draw smaller dots. Where cards that size do not fit between
+ * the dinos, fewer dinos play.
+ */
 const MIN_DOT_R = 7;
+/** Width of the widest wish card (two pads, five dot steps, a two-digit numeral) at card scale 1. */
+const CARD_UNITS = 14 * 2 + 5 * 44 + 60 * 1.65;
+/** Smallest play scale tried before the basket moves to the bottom edge, and again before a dino leaves. */
+const MIN_SCALE = 0.3;
 /** Comparison hint: the hand points at the bigger pile after 6 idle seconds, again every 8 s, for 3 s each time. */
 const HINT_REPEAT = 8, HINT_SECONDS = 3;
 /** Introduction: the hand reaches the card, then taps each dot in turn before it fetches a fruit. */
@@ -180,7 +187,7 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
   /** The last placed layout stands the dinos lower; the progress row sits at the top. */
   let lowLayout = false, pipsTop = false;
   let phase: Phase = 'play', tier: Tier = 0, intro = false, dinoOffset = 0;
-  /** Dinos feeding this round: the tier's count, or two where three would make the card dots too small to count. */
+  /** Dinos feeding this round: the tier's count, or fewer where their wish cards or the basket do not fit (see fit). */
   let dinos = 1;
   let time = 0, sceneT = 0, phaseT = 0, idleT = 0;
   let ordersTotal = 0, ordersStarted = 0, ordersDone = 0, happy = 0, compTotal = 0, compDone = 0, lastTarget = 0;
@@ -196,6 +203,8 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
   let feetY = 0, dinoH = 0, plateW = 0, plateY = 0, fruitSize = 0, dotR = 0, dotStep = 0, cardPad = 0, numW = 0, numSize = 0;
   /** Dino centres when the tier's own places leave too little room between the wish cards (narrow screens). */
   let spread = false;
+  /** Whether the placed wish cards, at their smallest countable size or larger, fit between neighbouring dinos. */
+  let cardsFit = true;
   let zoneW = 0, zoneTop = 0, zoneBottom = 0, basketX = 0, basketY = 0, basketSize = 0, basketR = 0, hatSize = 0;
   let starY = 0, starR = 0, pipY = 0, pipSize = 0;
   let cornerRadius = 48, cornerY = 60, homeX = 60, soundX = 1306, cornerFocus = -1;
@@ -236,16 +245,17 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
   }
   /** Play geometry at scale s. With `lowered`, the dinos stand lower so the wish cards clear the corner buttons. */
   function place(lowered: boolean): void {
-    const t = TIERS[intro ? 0 : tier];
     dinoH = 250 * s; plateW = 236 * s; fruitSize = Math.round(plateW * FRUIT_OF_PLATE);
     // The widest wish card (ten dots and a two-digit numeral) at full size. Where the tier's places leave less room
-    // between dinos (narrow screens), the dinos spread evenly and the cards shrink to fit between them.
-    const fullCard = s * (14 * 2 + 5 * 44 + 60 * 1.65), several = !cmp.active && activeSlots() > 1;
+    // between dinos (narrow screens), the dinos spread evenly and the cards shrink to fit between them, but never below
+    // countable dots: cards that would need smaller dots do not fit, and fit() plays fewer dinos.
+    const several = !cmp.active && activeSlots() > 1;
     spread = false;
     let gap = slotGap();
-    if (several && gap < fullCard + 8) { spread = true; gap = slotGap(); }
-    const k = several ? Math.min(1, (gap - 8) / fullCard) : 1;
-    dotR = 17 * s * k; dotStep = 44 * s * k; cardPad = 14 * s * k; numSize = Math.round(62 * s * k); numW = 60 * s * k;
+    if (several && gap < CARD_UNITS * s + 8) { spread = true; gap = slotGap(); }
+    const c = Math.max(MIN_DOT_R / 17, several ? Math.min(s, (gap - 8) / CARD_UNITS) : s);
+    cardsFit = !several || CARD_UNITS * c <= gap - 8 + 1e-6;
+    dotR = 17 * c; dotStep = 44 * c; cardPad = 14 * c; numSize = Math.round(62 * c); numW = 60 * c;
     const maxCard = cardPad * 2 + 5 * dotStep + numberWidth(10);
     // Press zones reach from above a two-row card down to below the plate.
     const above = dinoH + 14 * s + (cardPad * 2 + 2 * dotStep) + 18 * s, below = plateW * 0.7;
@@ -257,36 +267,76 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     if (activeSlots() > 1) zoneW = Math.max(96, Math.min(zoneW, gap - 4));
     zoneTop = feetY - above; zoneBottom = feetY + below;
     basketSize = Math.round(170 * s); basketR = Math.max(48, basketSize * 0.5);
-    // The whole press circle stays on screen.
-    basketX = Math.min(W - basketR, Math.max(basketR, W * t.basketX)); basketY = Math.min(H - basketR, H * t.basketY);
+    placeBasket(0);
     for (let i = 0; i < 3; i++) { slots[i]!.x = slotX(i); cardSize(slots[i]!); }
+  }
+  /** Basket places to try: 0 the tier's own, then on the bottom edge 1 centre, 2 left, 3 right. The whole press circle stays on screen. */
+  function placeBasket(k: number): void {
+    const t = TIERS[intro ? 0 : tier];
+    basketX = Math.min(W - basketR, Math.max(basketR, k === 0 ? W * t.basketX : k === 1 ? W / 2 : k === 2 ? 0 : W));
+    basketY = k === 0 ? Math.min(H - basketR, H * t.basketY) : H - basketR;
   }
   /** Whether the press zone of the dino at x comes within r of (cx, cy). */
   function zoneNear(x: number, cx: number, cy: number, r: number): boolean {
     const dx = Math.max(x - zoneW / 2 - cx, 0, cx - x - zoneW / 2), dy = Math.max(zoneTop - cy, 0, cy - zoneBottom);
     return dx * dx + dy * dy < r * r;
   }
-  /** True when a wish card would leave the top of the screen or a press area overlaps the basket or a corner button. */
-  function crowded(): boolean {
-    if (zoneTop < 0) return true;
-    const basketOn = !cmp.active;
-    if (basketOn && (Math.hypot(basketX - homeX, basketY - cornerY) < basketR + cornerRadius || Math.hypot(basketX - soundX, basketY - cornerY) < basketR + cornerRadius)) return true;
+  /** True when a wish card would leave the top of the screen, the cards or press areas do not fit side by side, or a press area overlaps a corner button. */
+  function zonesCrowded(): boolean {
+    if (zoneTop < 0 || !cardsFit || (activeSlots() > 1 && zoneW >= slotGap())) return true;
     for (let i = 0; i < activeSlots(); i++) {
       const x = slots[i]!.x;
-      if (zoneNear(x, homeX, cornerY, cornerRadius) || zoneNear(x, soundX, cornerY, cornerRadius) || (basketOn && zoneNear(x, basketX, basketY, basketR))) return true;
+      if (zoneNear(x, homeX, cornerY, cornerRadius) || zoneNear(x, soundX, cornerY, cornerRadius)) return true;
     }
     return false;
   }
+  /** True when the basket's press circle overlaps a corner button or a dino's press area. */
+  function basketCrowded(): boolean {
+    if (Math.hypot(basketX - homeX, basketY - cornerY) < basketR + cornerRadius || Math.hypot(basketX - soundX, basketY - cornerY) < basketR + cornerRadius) return true;
+    for (let i = 0; i < activeSlots(); i++) if (zoneNear(slots[i]!.x, basketX, basketY, basketR)) return true;
+    return false;
+  }
+  /** Whether the placed layout has no overlapping press targets, with the basket at its tier place or (`moved`) on the bottom edge. */
+  function fits(moved: boolean): boolean {
+    if (zonesCrowded()) return false;
+    if (cmp.active) return true;
+    for (let k = moved ? 1 : 0; k < (moved ? 4 : 1); k++) { placeBasket(k); if (!basketCrowded()) return true; }
+    return false;
+  }
   /**
-   * The largest scale up to `start` at which the play layout fits (a large uiScale on a small screen asks for more than
-   * fits): first as placed, then with the dinos lower, then smaller. Leaves that layout placed.
+   * The largest play layout up to scale `start` in which no two press targets overlap (dinos, basket, corner buttons)
+   * and every wish card is on screen (a large uiScale or a small screen asks for more than fits): first as placed, then
+   * with the dinos lower, then smaller down to MIN_SCALE; then the same with the basket on the bottom edge; then with
+   * one dino fewer. Leaves that layout placed. Every size from 390x400 up at every uiScale fits; a smaller screen keeps
+   * the last layout tried. `comparing`: the round is in a comparison, so a dino that leaves has no plate to settle.
    */
-  function fit(start: number): void {
-    for (let f = 1; ; f *= 0.95) {
-      s = start * f;
-      place(false); if (!crowded()) return;
-      place(true); if (!crowded() || s <= 0.3) return;
+  function fit(start: number, comparing: boolean): void {
+    for (;;) {
+      for (let moved = 0; moved < 2; moved++) {
+        for (let f = 1; ; f *= 0.95) {
+          s = start * f;
+          place(false); if (fits(moved === 1)) return;
+          place(true); if (fits(moved === 1)) return;
+          if (s <= MIN_SCALE) break;
+        }
+      }
+      if (cmp.active || dinos <= 1) return;
+      dropDino(comparing);
     }
+  }
+  /**
+   * One dino fewer: the last one leaves. Mid-round (a resize while feeding), its unfinished wish goes back to the round
+   * for a dino that stays and fruit on its way to it is dropped; a plate it was already eating counts as done.
+   */
+  function dropDino(comparing: boolean): void {
+    dinos--;
+    if (phase !== 'play' || comparing) return;
+    const sl = slots[dinos]!;
+    if (sl.state === 'asking' || sl.state === 'settling') ordersStarted--;
+    else if (sl.state === 'eating') ordersDone++;
+    sl.state = 'off';
+    for (const f of flights) if (f.active && f.slot === dinos && f.mode !== RETURN) f.active = false;
+    if (hand.slot === dinos && (hand.mode === 1 || hand.mode === 2)) hand.mode = 0;
   }
   function layout(width: number, height: number): void {
     const resized = width !== W || height !== H;
@@ -304,8 +354,8 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     soundButton.x = soundX; soundButton.y = cornerY; soundButton.radius = cornerRadius;
     // Feeding and comparing each get their own fitted scale; the round's end draws at the feeding scale.
     const t = TIERS[intro ? 0 : tier], comparing = cmp.active;
-    cmp.active = !comparing; fit(u * (cmp.active ? 1 : t.scale)); const otherS = s, otherLow = lowLayout;
-    cmp.active = comparing; fit(u * (comparing ? 1 : t.scale));
+    cmp.active = !comparing; fit(u * (cmp.active ? 1 : t.scale), comparing); const otherS = s, otherLow = lowLayout;
+    cmp.active = comparing; fit(u * (comparing ? 1 : t.scale), comparing);
     const anyLow = lowLayout || (otherLow && (comparing || (!intro && comparisonsPerRound(data) > 0)));
     playS = comparing ? otherS : s; compareS = comparing ? s : otherS;
     // The halo shows only while feeding and the hat only in comparisons, so each bakes at its own scale once.
@@ -464,9 +514,10 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     hits = misses = 0; stars = 1; starsPlayed = 0; focus = 0; nextFruit = Math.floor(random() * FRUITS.length);
     cmp.active = false; carry.active = false; hand.mode = 0;
     particles.clear(); for (const f of flights) f.active = false;
-    // On a narrow screen three wish cards would shrink their dots below countable size: two dinos play instead.
+    // Each round starts with the tier's dinos; the layout plays fewer where their cards or the basket do not fit.
     dinos = intro ? 1 : TIERS[tier].dinos;
-    if (dinos === 3) { layout(W, H); if (dotR < MIN_DOT_R) dinos = 2; }
+    for (const sl of slots) sl.state = 'off';
+    layout(W, H);
     const n = activeSlots();
     for (let i = 0; i < 3; i++) {
       const sl = slots[i]!;
@@ -589,7 +640,7 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
   }
   function finishRound(): void {
     if (phase !== 'play') return;
-    stars = starsFor(happy, ordersTotal, intro);
+    stars = ROUND_STARS;
     if (!intro && services.debug.tier === undefined) applyMotor(data, tier, hits, misses);
     applyLearning(data);
     data.rounds++;
@@ -679,7 +730,8 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
       case 'settling':
         if (sl.t >= SETTLE_SECONDS) {
           // Counting evidence only from plates filled by deliberate pointer choices; a plate that also got keys or
-          // quick presses records nothing and keeps its star, whatever spares bounced back.
+          // quick presses records nothing, whatever spares bounced back. Spares never cost stars; `happy` only counts
+          // plates without a deliberate spare for the stats and the stored round.
           const spare = sl.overshoot && sl.counted;
           if (!sl.assisted && !intro && sl.counted) recordPlate(data, !spare);
           if (!spare) happy++;
@@ -1260,7 +1312,11 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
       const now = performance.now();
       if (event.type === 'pointermove') {
         if ((phase === 'choice' || phase === 'rest') && now >= inputAfter) { const index = hoverMenu(event.info.x, event.info.y); if (index >= 0) { if (menuSelected < 0) focusAt = now; menuSelected = index; } }
-        else if (playable() && cmp.active && cmp.sub === 'ask') { const i = slotAt(event.info.x, event.info.y); if (i >= 0 && i <= 1) { focus = i; cmp.focusShown = true; } }
+        else if (playable() && cmp.active && cmp.sub === 'ask') {
+          // Focus shown (or moved) by hovering starts the same deliberate-choice clock as focus shown by a key.
+          const i = slotAt(event.info.x, event.info.y);
+          if (i >= 0 && i <= 1) { if (!cmp.focusShown || focus !== i) cmp.focusAt = time; focus = i; cmp.focusShown = true; }
+        }
         return;
       }
       if (event.type !== 'pointerdown' && event.type !== 'anykey') return;

@@ -84,8 +84,8 @@ export function applyMotor(data: PicnicData, tier: Tier, hits: number, misses: n
   } else data.qualifyingRounds = 0;
 }
 
-/** Stars for attainable accomplishments: finishing, then plates filled without a spare fruit. */
-export function starsFor(happy: number, orders: number, intro: boolean): number {
-  if (intro) return 3;
-  return 1 + (happy >= Math.ceil(orders / 2) ? 1 : 0) + (happy >= orders ? 1 : 0);
-}
+/**
+ * Every finished round earns three stars: extra fruit never costs one (owner decision, 2026-10-03). It still counts as
+ * counting evidence through recordPlate. A pending round saved under the older rule keeps the stars it stored.
+ */
+export const ROUND_STARS = 3;
