@@ -16,15 +16,17 @@ import {
   type Stage, type TrainPlan,
 } from './content';
 import { playVoiceClip } from './voice';
+import { GAME_ID, LEARN_WINDOW, MAX_CARS, PASSENGERS, sanitizeLetterTrainData } from './save';
 
-export const GAME_ID = 'letter-train';
+export { GAME_ID, PASSENGERS, sanitizeLetterTrainData };
+
 export interface TierParams { block: number; cars: number; magnet: number }
 export const TIERS: readonly [TierParams, TierParams, TierParams] = [
   { block: 150, cars: 2, magnet: 1.3 },
   { block: 132, cars: 3, magnet: 1.0 },
   { block: 116, cars: 4, magnet: 0.7 },
 ];
-const MAX_CARS = 6, TRAINS_PER_ROUND = 3, PARTICLES = 220;
+const TRAINS_PER_ROUND = 3, PARTICLES = 220;
 /** Geometry in block widths. */
 const CAR_W = 2.1, PITCH = 1.89, ENGINE_H = 1.45, FRONT_TOP = 0.135;
 /** Blocks pop up and respond while the train is still pulling in; toot plus departure is about 1.6 s. */
@@ -33,12 +35,11 @@ const ARRIVE_SECONDS = 1.6, BLOCK_APPEAR = 0.15, BLOCK_STAGGER = 0.08, TOOT_SECO
 // first key shows focus, a key that is not an arrow acts only once that focus has shown for FOCUS_HOLD_MS.
 const CELEBRATION_SECONDS = 4, CELEBRATION_LOCK = 1.5, CHOICE_LOCK = 1.2, REST_LOCK = 1.2, FOCUS_HOLD_MS = 250;
 const IDLE_FIRST = 6, IDLE_REPEAT = 8, HINT_SECONDS = 2.4, DEMO_SECONDS = 3.2;
-const LEARN_WINDOW = 12, CLICK_SLOP = 12;
+const CLICK_SLOP = 12;
 const ART = 'letter-train/';
 const WAGONS = ['wagon-red', 'wagon-yellow', 'wagon-green', 'wagon-blue'] as const;
 const BLOCKS = ['block-red', 'block-yellow', 'block-green', 'block-blue'] as const;
 const BLOCK_INK = ['#b3261e', '#9a6a00', '#2e7d32', '#1f5fa8'] as const;
-export const PASSENGERS = ['bunny', 'duckling', 'elephant', 'hippo', 'mouse', 'lamb'] as const;
 const BUTTON_PLAY = 'buttons/play-arrow.png', BUTTON_HOME = 'buttons/home.png';
 const sprite = (path: string) => `${GAME_ID}:${path}`;
 const passengerSticker = (i: number) => `${GAME_ID}-${PASSENGERS[i] ?? 'bunny'}`;
@@ -84,7 +85,8 @@ export interface LetterTrainStats {
   readonly choiceIds: readonly string[]; readonly selected: number; readonly stickerId: string; readonly particles: number;
   readonly workMean: number; readonly workMax: number; readonly kbBlock: number; readonly kbCar: number;
   blocks(): { letter: string; x: number; y: number; state: BlockState; size: number }[];
-  cars(): { letter: string; x: number; y: number; filled: boolean; open: boolean; size: number }[];
+  /** `plate`: the car shows its case-pair plate. */
+  cars(): { letter: string; x: number; y: number; filled: boolean; open: boolean; size: number; plate: boolean }[];
   controls(): { x: number; y: number; w: number; h: number; id: string }[];
   /** Pixel ratios the cached art was built at, the backdrop's drawn rectangle and the corner buttons. */
   view(): {
@@ -96,32 +98,6 @@ export interface LetterTrainStats {
 export interface LetterTrainScene extends Scene { readonly stats: LetterTrainStats }
 
 const toTier = (n: unknown): Tier => (n === 1 ? 1 : n === 2 ? 2 : 0);
-const count = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0;
-const rec = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
-
-/** Validate this game's save bag in place; anything malformed falls back and protects the stored document. */
-export function sanitizeLetterTrainData(bag: Record<string, unknown>, protect: () => void): void {
-  const fix = (key: string, ok: (v: unknown) => boolean, fallback: unknown): void => {
-    if (!(key in bag)) { bag[key] = fallback; return; }
-    if (!ok(bag[key])) { protect(); bag[key] = fallback; }
-  };
-  fix('tier', v => v === 0 || v === 1 || v === 2, 0);
-  fix('qualifyingRounds', count, 0);
-  fix('rounds', count, 0);
-  fix('stage', v => v === 0 || v === 1 || v === 2 || v === 3 || v === 4, 0);
-  fix('learn', v => Array.isArray(v) && v.length <= LEARN_WINDOW && v.every(n => n === 0 || n === 1), []);
-  fix('recentWords', v => Array.isArray(v) && v.length <= WORDS.length && v.every(w => typeof w === 'string'), []);
-  if (!('pending' in bag)) bag.pending = null;
-  const p = bag.pending;
-  if (p === null) return;
-  const ids = STICKERS.filter(s => s.game === GAME_ID).map(s => s.id);
-  if (!rec(p) || p.stars !== 3 || !Array.isArray(p.choices) || p.choices.length > 2 || !p.choices.every(id => typeof id === 'string' && ids.includes(id)) ||
-    new Set(p.choices).size !== p.choices.length || typeof p.chosen !== 'string' || (p.chosen !== '' && !p.choices.includes(p.chosen)) ||
-    typeof p.rewardEnabled !== 'boolean' || typeof p.restEntered !== 'boolean' || !(p.tier === 0 || p.tier === 1 || p.tier === 2) ||
-    !Array.isArray(p.passengers) || p.passengers.length > MAX_CARS || !p.passengers.every(n => count(n) && n < PASSENGERS.length)) {
-    protect(); bag.pending = null;
-  }
-}
 
 function artList(): { name: string; path: string }[] {
   const paths = ['town.webp', 'engine.webp', 'star.webp', 'hand.webp', ...WAGONS.map(w => `${w}.webp`), ...BLOCKS.map(b => `${b}.webp`),
@@ -158,7 +134,7 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
   const random = () => services.random();
   const particles = createParticleSystem(PARTICLES);
   const soundButton = createSoundButton(services);
-  const cars: Car[] = Array.from({ length: MAX_CARS }, () => ({ letter: '', wagon: 0, passenger: 0, filled: false, block: -1, hop: 9, wiggle: 9, plate: 9, slot: undefined, plateCanvas: undefined, slotDpr: 0, plateDpr: 0 }));
+  const cars: Car[] = Array.from({ length: MAX_CARS }, () => ({ letter: '', wagon: 0, passenger: 0, filled: false, block: -1, hop: 9, wiggle: 9, plate: -1, slot: undefined, plateCanvas: undefined, slotDpr: 0, plateDpr: 0 }));
   const blocks: Block[] = Array.from({ length: MAX_CARS }, () => ({ letter: '', color: 0, state: 'hidden' as BlockState, x: 0, y: 0, homeX: 0, homeY: 0, fromX: 0, fromY: 0, t: 0, car: -1, appear: 0, squash: 9, canvas: undefined, canvasDpr: 0 }));
   // Round-end art (celebration riders, sticker choice, rest) scaled ahead during the last train, one image per update.
   const PREP_MAX = 40, prepNames: string[] = new Array<string>(PREP_MAX).fill(''), prepSizes = new Float32Array(PREP_MAX);
@@ -290,8 +266,18 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
       if (b.state === 'idle' || b.state === 'hidden') { b.x = b.homeX; b.y = b.homeY; }
     }
   }
+  /** Letters one train holds with full-size cars and the engine in view, never more than MAX_CARS. */
   function perTrainLetters(): number {
-    return Math.max(1, Math.floor(((W - 32) / 96 - 0.3 - ENGINE_H * 640 / 356) / PITCH));
+    return Math.min(MAX_CARS, Math.max(1, Math.floor(((W - 32) / 96 - 0.3 - ENGINE_H * 640 / 356) / PITCH)));
+  }
+  /** Blocks the platform holds side by side at 96 px (a name train may shrink its cars to carry this many letters). */
+  function nameCap(): number {
+    return Math.min(MAX_CARS, Math.max(1, Math.floor((W - 24) / 96)));
+  }
+  /** Spread the three stars over the round's trains: with more than three trains (a long name on a narrow screen) some trains earn none. */
+  function earnsStar(train: number): boolean {
+    const n = Math.max(TRAINS_PER_ROUND, plans.length);
+    return Math.ceil((train + 1) * TRAINS_PER_ROUND / n) > Math.ceil(train * TRAINS_PER_ROUND / n);
   }
   function ensureBackground(): void {
     if (bgCanvas) return;
@@ -425,7 +411,7 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     stage = options.stage ?? toStage(data.stage);
     hits = misses = motorHits = motorMisses = 0; starsEarned = 0; starFlight = -1; roundPassengers.length = 0;
     const name = services.profile()?.unnamed ? '' : services.profile()?.name ?? '';
-    plans = planRound(stage, TIERS[tier].cars, perTrainLetters(), name, random, data.recentWords).slice(0, TRAINS_PER_ROUND);
+    plans = planRound(stage, TIERS[tier].cars, perTrainLetters(), nameCap(), name, random, data.recentWords);
     for (const p of plans) if (p.word) { data.recentWords = [...data.recentWords.filter(w => w !== p.word), p.word].slice(-4); }
     trainIndex = 0; particles.clear(); startTrain(); services.save.flush();
     // The round-end fanfare is rendered ahead once per session, as in Bubble Bay, so the frame the round ends does not
@@ -448,7 +434,7 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     const wagonStart = Math.floor(random() * WAGONS.length);
     for (let i = 0; i < MAX_CARS; i++) {
       const c = cars[i]!;
-      Object.assign(c, { letter: plan.cars[i] ?? '', wagon: (wagonStart + i) % WAGONS.length, passenger: passengers[i % 6]!, filled: false, block: -1, hop: 9, wiggle: 9, plate: 9, slot: undefined, plateCanvas: undefined, slotDpr: 0, plateDpr: 0 });
+      Object.assign(c, { letter: plan.cars[i] ?? '', wagon: (wagonStart + i) % WAGONS.length, passenger: passengers[i % 6]!, filled: false, block: -1, hop: 9, wiggle: 9, plate: -1, slot: undefined, plateCanvas: undefined, slotDpr: 0, plateDpr: 0 });
     }
     const order = Array.from({ length: nCars }, (_, i) => i);
     for (let k = 0; k < 6; k++) { order.sort(() => random() - 0.5); if (nCars < 2 || order.some((v, i) => v !== i)) break; }
@@ -491,11 +477,12 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     playSfx(audio, 'go', tootOpt); puff(6);
   }
   function depart(): void {
-    departFrom = trainOff; phase = 'depart'; phaseT = 0; chuffT = 0; starFlight = 0; playSfx(audio, 'whoosh');
+    departFrom = trainOff; phase = 'depart'; phaseT = 0; chuffT = 0; starFlight = earnsStar(trainIndex) ? 0 : -1; playSfx(audio, 'whoosh');
   }
   function trainGone(): void {
     for (let i = 0; i < nCars; i++) if (!roundPassengers.includes(cars[i]!.passenger)) roundPassengers.push(cars[i]!.passenger);
-    starsEarned = Math.min(TRAINS_PER_ROUND, starsEarned + 1); starFlight = -1;
+    if (starFlight >= 0) starsEarned = Math.min(TRAINS_PER_ROUND, starsEarned + 1);
+    starFlight = -1;
     trainIndex++;
     if (trainIndex < plans.length) startTrain(); else finishRound();
   }
@@ -613,10 +600,23 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
    * Keyboard placements (typed letters, arrows, any key) never count, so they can neither raise nor lower the stage.
    */
   function record(hit: boolean, source: Source): void {
-    if (source !== 'pointer') return;
+    if (source !== 'pointer' || !choiceLeft()) return;
     if (hit) hits++; else misses++;
     data.learn.push(hit ? 1 : 0);
     if (data.learn.length > LEARN_WINDOW) data.learn.splice(0, data.learn.length - LEARN_WINDOW);
+  }
+  /**
+   * True when the child is choosing: more than one block still to place, or more than one open car. The last block
+   * onto the last open car (and any block on a one-car train) is placed without a letter choice.
+   */
+  function choiceLeft(): boolean {
+    let free = 0, open = 0;
+    for (let i = 0; i < nCars; i++) {
+      const st = blocks[i]!.state;
+      if (st === 'idle' || st === 'selected' || st === 'return' || st === 'held') free++;
+      if (isOpen(i)) open++;
+    }
+    return free > 1 || open > 1;
   }
   function attempt(index: number, car: number, source: Source): void {
     const b = blocks[index]; if (!b || (phase !== 'play' && phase !== 'arrive')) return;
@@ -851,9 +851,10 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
         starFlight += dt;
         if (starFlight >= STAR_FLIGHT && starFlight - dt < STAR_FLIGHT) { starOpt.index = starsEarned; playSfx(audio, 'star', starOpt); }
       }
-      if (phaseT >= DEPART_SECONDS && starFlight >= STAR_FLIGHT) trainGone();
+      if (phaseT >= DEPART_SECONDS && (starFlight < 0 || starFlight >= STAR_FLIGHT)) trainGone();
     }
-    for (let i = 0; i < MAX_CARS; i++) { const c = cars[i]!; c.hop += dt; c.wiggle += dt; c.plate += dt; }
+    // The plate timer (-1 until a case pair clicks in) stops once its pop-in is over; the plate stays until the train leaves.
+    for (let i = 0; i < MAX_CARS; i++) { const c = cars[i]!; c.hop += dt; c.wiggle += dt; if (c.plate >= 0 && c.plate < 1) c.plate += dt; }
     updateBlocks(dt);
   }
   function updateResult(dt: number): void {
@@ -919,7 +920,7 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
         if (b && b.state === 'placed') drawBlock(ctx, b, sx, sy, C / B);
       }
       drawWagonFront(ctx, wagon, wx, bottom, Math.round(width));
-      if (c.filled && c.plate < 9) {
+      if (c.filled && c.plate >= 0) {
         const plate = plateCanvas(c);
         if (plate) {
           const s = C * 0.42 * (c.plate < 0.35 ? easeOutBack(c.plate / 0.35) : 1);
@@ -1114,7 +1115,7 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     get workMean() { let s = 0; for (let i = 0; i < workCount; i++) s += work[i]!; return workCount ? s / workCount : 0; },
     get workMax() { let m = 0; for (let i = 0; i < workCount; i++) m = Math.max(m, work[i]!); return m; },
     blocks() { return blocks.slice(0, nCars).map(b => ({ letter: b.letter, x: b.x, y: b.y, state: b.state, size: B })); },
-    cars() { return cars.slice(0, nCars).map((c, i) => ({ letter: c.letter, x: slotX(i), y: slotY(), filled: c.filled, open: isOpen(i), size: C })); },
+    cars() { return cars.slice(0, nCars).map((c, i) => ({ letter: c.letter, x: slotX(i), y: slotY(), filled: c.filled, open: isOpen(i), size: C, plate: c.filled && c.plate >= 0 })); },
     controls() {
       // The tap areas hoverMenu uses, centred.
       const wh = choiceW * 211 / 480, top = choiceY - choiceW * 0.64, bottom = choiceY + wh / 2 + 16;

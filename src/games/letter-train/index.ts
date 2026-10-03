@@ -1,6 +1,7 @@
 import type { AppServices } from '../../app/services';
 import type { GameDefinition } from '../../engine/registry';
-import { createLetterTrainScene, GAME_ID } from './scene';
+import { createLetterTrainScene } from './scene';
+import { GAME_ID, sanitizeLetterTrainData } from './save';
 
 export const letterTrain: GameDefinition = {
   id: GAME_ID,
@@ -9,5 +10,6 @@ export const letterTrain: GameDefinition = {
   themes: ['letters', 'words'],
   mode: 'round',
   learning: ['letters'],
+  validateSave: (bag, protect) => sanitizeLetterTrainData(bag, protect),
   createScene: (services) => createLetterTrainScene(services as unknown as AppServices),
 };

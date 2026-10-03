@@ -77,15 +77,20 @@ export function letterTrain(stage: Stage, count: number, random: () => number, u
   return { stage: STAGE_SAME_UPPER, cars: letters, blocks: letters.slice(), ordered: false };
 }
 
-/** Split a name into trains of at most `perTrain` letters, as evenly as possible. */
-export function nameTrains(name: string, perTrain: number): TrainPlan[] {
+/**
+ * Split the whole name, in order, over trains whose sizes differ by at most one letter. A train takes up to
+ * `perTrain` letters (what fits with full-size cars), or more, up to `cap` (what the platform holds), when that
+ * keeps the name within `trains` trains. Only a name longer than `cap` times `trains` needs more trains.
+ */
+export function nameTrains(name: string, perTrain: number, cap: number, trains: number): TrainPlan[] {
   const letters = nameLetters(name);
   if (!letters) return [];
-  const trains = Math.ceil(letters.length / Math.max(1, perTrain));
-  const size = Math.ceil(letters.length / trains);
+  const per = Math.max(1, Math.min(cap, Math.max(perTrain, Math.ceil(letters.length / Math.max(1, trains)))));
+  const count = Math.ceil(letters.length / per), base = Math.floor(letters.length / count), extra = letters.length % count;
   const plans: TrainPlan[] = [];
-  for (let i = 0; i < letters.length; i += size) {
-    const part = letters.slice(i, i + size).split('');
+  for (let i = 0, at = 0; i < count; i++) {
+    const size = base + (i < extra ? 1 : 0), part = letters.slice(at, at + size).split('');
+    at += size;
     plans.push({ stage: STAGE_NAME, cars: part, blocks: part.slice(), ordered: true, nameChunk: true });
   }
   return plans;
@@ -97,10 +102,11 @@ export function wordTrain(word: Word): TrainPlan {
 }
 
 /**
- * The trains of one round. Three trains, except that a name train split in
- * parts keeps its parts together.
+ * The trains of one round. Three trains, except that the whole name always rides: a name too long for three trains
+ * at this width (or for two beside a word) adds trains. `perTrain` is how many letters fit one train with full-size
+ * cars, `nameCap` how many blocks fit the platform.
  */
-export function planRound(stage: Stage, cars: number, perTrain: number, name: string, random: () => number, recentWords: readonly string[]): TrainPlan[] {
+export function planRound(stage: Stage, cars: number, perTrain: number, nameCap: number, name: string, random: () => number, recentWords: readonly string[]): TrainPlan[] {
   const hasName = nameLetters(name).length > 0;
   if (stage === STAGE_NAME && !hasName) stage = STAGE_WORDS;
   const plans: TrainPlan[] = [];
@@ -111,19 +117,19 @@ export function planRound(stage: Stage, cars: number, perTrain: number, name: st
     return plans;
   }
   if (stage === STAGE_NAME) {
-    plans.push(...nameTrains(name, perTrain));
+    plans.push(...nameTrains(name, perTrain, nameCap, 3));
     for (const l of nameLetters(name)) used.add(l);
     while (plans.length < 3) plans.push(letterTrain(STAGE_PAIRS, cars, random, used));
     return plans;
   }
   const fresh = WORDS.filter(w => !recentWords.includes(w));
   const pool = fresh.length >= 2 ? fresh : WORDS.slice();
-  // The name rides last; a name split over several trains keeps all its parts.
-  const nameParts = hasName ? nameTrains(name, perTrain).slice(0, 3) : [];
-  const wordCount = 3 - nameParts.length;
+  // The name rides last, every part of it, in at most two trains where the platform allows, so at least one word rides.
+  const nameParts = hasName ? nameTrains(name, perTrain, nameCap, 2) : [];
+  const wordCount = Math.max(1, 3 - nameParts.length);
   for (let i = 0; i < wordCount && pool.length; i++) plans.push(wordTrain(pool.splice(Math.floor(random() * pool.length), 1)[0]!));
   plans.push(...nameParts);
-  return plans.slice(-3);
+  return plans;
 }
 
 /** True when a block letter belongs on a car letter. Case only differs in the pairs stage. */
