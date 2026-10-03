@@ -196,6 +196,8 @@ export function pictureOutline(kind: PictureKind, points: Float32Array, n: numbe
 const KITE = new Float32Array([0, -1, 0.72, -0.18, 0, 1, -0.72, -0.18]);
 
 export interface PendingRound {
+  /** Names this round, so two tabs' rounds with the same fields stay apart when the save merges them. Rounds saved before ids have none. */
+  id?: string;
   mode: Mode; picture: number; stars: number; caught: number; points: number;
   choices: string[]; chosen: string; rewardEnabled: boolean; restEntered: boolean;
 }
@@ -222,7 +224,7 @@ export function sanitizeData(bag: Record<string, unknown>, protect: () => void):
   const p = bag.pending as Record<string, unknown> | null;
   if (p === null) return;
   const mine = (id: unknown): boolean => typeof id === 'string' && STICKERS.some(s => s.game === GAME_ID && s.id === id);
-  const ok = !!p && typeof p === 'object' && !Array.isArray(p) &&
+  const ok = !!p && typeof p === 'object' && !Array.isArray(p) && (p.id === undefined || typeof p.id === 'string') &&
     (p.mode === 'numbers' || p.mode === 'letters') && upTo(p.picture, PICTURES.length - 1) &&
     upTo(p.stars, 3) && (p.stars as number) >= 1 && upTo(p.caught, 99) && upTo(p.points, 26) &&
     Array.isArray(p.choices) && p.choices.length <= 2 && p.choices.every(mine) && new Set(p.choices).size === p.choices.length &&

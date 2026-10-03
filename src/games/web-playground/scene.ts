@@ -141,11 +141,16 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
   let signCanvas: HTMLCanvasElement | undefined, signT = 0;
   let caughtCount = 0, flightT = 1, flightX = 0, flightY = 0;
   let nPoints = 5, nextPoint = 1, threadT = 1, closeT = 0;
+  // roomy: the connect picture uses reclaimed space (fitPicture), as the usual area cannot fit its points.
+  let roomy = false;
   let correct = 0, wrong = 0, alone = 0, attempts = 0, hits = 0, padded = 0, stars = 1, starsPlayed = 0, ticks = 0;
   // keyboardUsed: the keyboard focus ring shows on the wanted ball or next point; a key turns it on, a pointer press off.
   let pose: Pose = 'wave', poseT = 0, hopT = 9, friendHopT = 9, keyboardUsed = false, demoDone = false;
   let pending: PendingRound | null = null;
   let inputAfter = 0, menuSelected = -1, cornerFocus = -1, focusAt = 0;
+  // The celebration counter's digit glyphs are baked in an idle period during play, at counterWarm px (0: not yet);
+  // counterMade: baked since the last frame, so the next render draws them once under the backdrop to upload them.
+  let counterPx = 50, counterWarm = 0, counterMade = false, scratch: CanvasRenderingContext2D | null | undefined;
   let fanfareStarted = false, fanfareAsked = false, idleHandle = 0, dayDecoded = false, duskDecoded = false, frame = 0, bakedAt = -1;
   // Size and pixel ratio the backdrops were made at; the ratio every glyph canvas was baked at.
   let bgW = 0, bgH = 0, bgDpr = 0, dayStale = false, duskStale = false, artDpr = 0;
@@ -196,6 +201,7 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     replaceBalls();
     fitConnect();
     starR = Math.max(22, Math.min(40 * u, cornerRadius * 0.7)); starY = cornerY;
+    counterPx = Math.round(Math.max(36, 50 * u));
     badgeSize = Math.min(330 * Math.min(1.25, H / 768), (W - 60) / 2.3, H * 0.42);
     // Never under 48 px (96 px across), whatever uiScale the config sets.
     controlsRadius = Math.max(48, Math.min(Math.max(48 * services.config.uiScale, 62 * u), W / 5));
@@ -293,15 +299,24 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
    * still be closer than the gap, the picture grows just enough, kept on the same bottom line and centred across,
    * into the space between the corner buttons, as long as no point or outline comes near those buttons. All of this
    * is tried with POINT_GAP first, then with POINT_GAP_MIN.
+   *
+   * With `roomy` set (space reclaimed, used only where the usual area cannot fit the points), the area reaches down to
+   * the bottom of the view below the margin it usually keeps, first right of the hero and then, where that is still
+   * too small, across the whole width above and beside him. The connect draws its points over the hero, so a point
+   * there is never covered.
    */
   function fitPicture(): boolean {
     const kind = PICTURES[picture]!;
     pictureBox(kind, unit, nPoints, picBox);
     const shapeN = pictureOutline(kind, unit, nPoints, picShape);
-    const top = cornerY + cornerRadius + 12 * u, bottom = narrow ? feetY - heroSize * 0.8 : feetY - 40 * u;
-    const left = narrow ? 12 * u : heroX + heroSize * 0.55, right = W - 30 * u;
+    if (!(picBox[1]! - picBox[0]! > 0 && picBox[3]! - picBox[2]! > 0)) return false; // no picture chosen yet
+    const top = cornerY + cornerRadius + 12 * u, right = W - 30 * u, beside = heroX + heroSize * 0.55;
+    if (!roomy) return fitIn(top, narrow ? feetY - heroSize * 0.8 : feetY - 40 * u, narrow ? 12 * u : beside, right, shapeN);
+    return fitIn(top, H - 8, beside, right, shapeN) || fitIn(top, H - 8, 12 * u, right, shapeN);
+  }
+  /** fitPicture in one area: point discs inside top..bottom and left..right. */
+  function fitIn(top: number, bottom: number, left: number, right: number, shapeN: number): boolean {
     const bw = picBox[1]! - picBox[0]!, bh = picBox[3]! - picBox[2]!;
-    if (!(bw > 0 && bh > 0)) return false; // no picture chosen yet
     const base = Math.max(MIN_DISC, Math.min(tierP.point, nPoints >= 10 ? 104 : tierP.point) * u);
     for (let pass = 0; pass < 9; pass++) {
       const last = pass === 8, d = pass % 4 < 2 ? base : MIN_DISC, stretch = pass % 2 || last ? 1.2 : 1;
@@ -331,12 +346,16 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     }
     return true;
   }
-  /** The round's connect points: as many as the level asks for, fewer only when that many cannot fit the view without overlapping. */
+  /**
+   * The round's connect points: as many as the level asks for, fewer only when that many cannot fit the view without
+   * overlapping. Where even five do not fit the usual area, space is reclaimed for them (roomy).
+   */
   function choosePoints(): void {
-    nPoints = connectCount(level);
+    nPoints = connectCount(level); roomy = false;
     for (;;) {
       picturePoints(PICTURES[picture]!, nPoints, unit, curveT);
-      if (fitPicture() || nPoints <= 5) break;
+      if (fitPicture()) break;
+      if (nPoints <= 5) { roomy = true; fitPicture(); break; }
       nPoints = nPoints >= 10 ? 7 : 5;
     }
     placePoints(); for (let i = 0; i < MAX_POINTS; i++) pointCanvas[i] = undefined;
@@ -348,28 +367,38 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
    * and the least gap) drops only points still to come: the same picture is laid out again with the most points that
    * fit, as long as that keeps every joined point and the next one. Points are joined in index order, so the joined
    * points keep their numerals or letters, the next point keeps its glyph, and the threads are drawn again between the
-   * new positions. Only when even that cannot fit (many points already joined in a very small view) do the points still
-   * to come go as well, with any joined points past the most that fit: the picture keeps the joined points that fit and
+   * new positions. Where no such count fits the usual area, space is reclaimed (roomy) and the same counts are tried
+   * again. Only when even that cannot fit (many points already joined in a very small view) do the points still to
+   * come go as well, with any joined points past the most that fit: the picture keeps the joined points that fit and
    * closes, as if the last one had just been joined, so the round ends a step early. No step is counted that the child
    * did not make. Shrinking the spacing alone cannot help: the points already sit at the floor size and least gap.
+   * Five points always fit with reclaimed space, at every size from 390x600 up and every uiScale from 0.75 to 2.
    */
   function fitConnect(): void {
-    const fits = fitPicture();
+    roomy = false;
+    let fits = fitPicture();
+    if (!fits && phase !== 'connect') { roomy = true; fits = fitPicture(); }
     if (phase !== 'connect' || fits) { placePoints(); return; }
     const kind = PICTURES[picture]!, n0 = nPoints;
-    let fallback = 0;
-    for (let n = n0 - 1; n >= 5; n--) {
-      // Stars are drawn in one stroke ({n/2} or {n/3}), which needs 5, 7 or 8 points; hearts and kites take any count.
-      if (kind === 'star' && n !== 5 && n !== 7 && n !== 8) continue;
-      picturePoints(kind, n, unit, curveT); nPoints = n;
-      if (!fitPicture()) continue;
-      if (n > nextPoint) { placePoints(); return; }
-      fallback = n; break;
+    // Stars are drawn in one stroke ({n/2} or {n/3}), which needs 5, 7 or 8 points; hearts and kites take any count.
+    const drawable = (n: number): boolean => kind !== 'star' || n === 5 || n === 7 || n === 8 || n === n0;
+    for (let pass = 0; pass < 2; pass++) {
+      roomy = pass === 1;
+      // The usual area at n0 has just failed.
+      for (let n = roomy ? n0 : n0 - 1; n > nextPoint && n >= 5; n--) {
+        if (!drawable(n)) continue;
+        picturePoints(kind, n, unit, curveT); nPoints = n;
+        if (fitPicture()) { placePoints(); return; }
+      }
     }
-    nPoints = fallback || n0;
-    picturePoints(kind, nPoints, unit, curveT); fitPicture(); placePoints();
-    // updateConnect closes the picture on its next step.
-    if (fallback) nextPoint = Math.min(nextPoint, nPoints);
+    // Fewer fit than are joined: the most joined points that fit, in reclaimed space. updateConnect closes the picture on its next step.
+    for (let n = Math.min(n0, nextPoint); n >= 5; n--) {
+      if (!drawable(n)) continue;
+      picturePoints(kind, n, unit, curveT); nPoints = n;
+      if (fitPicture()) break;
+    }
+    placePoints();
+    nextPoint = Math.min(nextPoint, nPoints);
   }
   function placePoints(): void {
     for (let i = 0; i < nPoints; i++) { pts[i * 2] = picX + unit[i * 2]! * picSX; pts[i * 2 + 1] = picY + unit[i * 2 + 1]! * picSY; }
@@ -419,10 +448,23 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     if (!fanfareStarted && audio.context) { fanfareStarted = true; if (prepareSfxStep(audio, 'fanfare')) fanfareAsked = true; }
   }
   function setPhase(next: Phase): void { phase = next; phaseT = 0; }
-  /** Adds fanfare notes to the render started in startRound while this idle period has at least 4 ms left. */
+  const fanfareDue = (): boolean => fanfareStarted && !fanfareAsked;
+  /** The counter's digits are not baked at its current size (a resize can change it); they wait for the font. */
+  const counterDue = (): boolean => fontReady && counterWarm !== counterPx;
+  /**
+   * Adds fanfare notes to the render started in startRound while this idle period has at least 4 ms left. Once that is
+   * done, bakes the celebration counter's ten digits at the current size (as Bubble Bay does), so the first
+   * celebration makes no canvas and calls no fillText.
+   */
   function prepareIdle(deadline: IdleDeadline): void {
     idleHandle = 0;
-    while (deadline.timeRemaining() >= 4) if (prepareSfxStep(audio, 'fanfare')) { fanfareAsked = true; return; }
+    if (fanfareDue()) {
+      while (deadline.timeRemaining() >= 4) if (prepareSfxStep(audio, 'fanfare')) { fanfareAsked = true; break; }
+      return;
+    }
+    if (!counterDue() || !(deadline.didTimeout || deadline.timeRemaining() >= 4)) return;
+    scratch ??= document.createElement('canvas').getContext('2d');
+    if (scratch) { drawCounter(scratch, 1234567890, 0, 0, counterPx, 1); counterWarm = counterPx; counterMade = true; }
   }
   function stopIdle(): void { if (idleHandle) cancelIdleCallback(idleHandle); idleHandle = 0; }
   function beginCatch(): void {
@@ -594,7 +636,9 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
       else { const l = nextLevel(level, data.letterGood, correct, wrong); data.letterLevel = l.level; data.letterGood = l.good; }
     }
     data.rounds++;
-    pending = { mode, picture, stars, caught: caughtCount, points: nPoints, choices: chooseOffers(), chosen: '', rewardEnabled: services.config.rewardsEnabled, restEntered: false };
+    // A unique id, so the save never takes this round for another tab's round with the same fields (as Bubble Bay).
+    const id = globalThis.crypto?.randomUUID?.() ?? `round-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    pending = { id, mode, picture, stars, caught: caughtCount, points: nPoints, choices: chooseOffers(), chosen: '', rewardEnabled: services.config.rewardsEnabled, restEntered: false };
     data.pending = pending;
     const bag = rewards(services); bag.rounds[GAME_ID] = (bag.rounds[GAME_ID] ?? 0) + 1;
     if (services.config.rewardsEnabled) bag.stars += stars;
@@ -981,9 +1025,11 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     if (phase === 'celebration') {
       // Count the caught balls out in a row under the stars; the counter rides just right of the last one counted.
       const shown = Math.min(caughtCount, ticks), gap = miniD * 1.12, left = W / 2 - (caughtCount * gap) / 2 - 30 * u, y = starY + starR + 24 * u + miniD / 2;
-      const counterPx = Math.round(Math.max(36, 50 * u));
+      // Drawn at the size its digits were baked at: after a resize during the celebration, the old size until the next
+      // idle period has baked the new one. Never baked (no idle period yet): the current size, baked here.
+      const px = counterWarm || counterPx;
       for (let i = 0; i < shown; i++) { const c = caughtCanvas[i]; if (c) { const size = c.width / dpr(); ctx.drawImage(c, left + (i + 0.5) * gap - size / 2, y - size / 2, size, size); } }
-      drawCounter(ctx, shown, left + shown * gap + counterPx * 0.45, y, counterPx, phaseT - (shown / Math.max(1, caughtCount)) * 1.6);
+      drawCounter(ctx, shown, left + shown * gap + px * 0.45, y, px, phaseT - (shown / Math.max(1, caughtCount)) * 1.6);
       return;
     }
     if (phase === 'choice' && pending) {
@@ -1158,7 +1204,7 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
       } else if (phase === 'sticker' && phaseT >= 0.7) enterRest();
       if (pose === 'shoot' && poseT > 0.9 && phase === 'catch' && step === 'ask') pose = 'wave';
       ensureBakes();
-      if (fanfareStarted && !fanfareAsked && !idleHandle) idleHandle = requestIdleCallback(prepareIdle, IDLE_OPTIONS);
+      if ((fanfareDue() || counterDue()) && !idleHandle) idleHandle = requestIdleCallback(prepareIdle, IDLE_OPTIONS);
       particles.update(dt);
       updateMs += performance.now() - started;
     },
@@ -1166,6 +1212,8 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
       const started = performance.now(), ctx = view.ctx;
       frame++;
       if (view.width !== W || view.height !== H || dpr() !== artDpr) { layout(view.width, view.height); ensureBakes(); }
+      // Digits baked in the last idle period: drawn once here, under the backdrop, which uploads them.
+      if (counterMade) { drawCounter(ctx, 1234567890, W / 2, H / 2, counterWarm, 1); counterMade = false; }
       if (phase === 'swing') {
         const p = easeInOutSine(clamp01(phaseT / (SWING_OUT + SWING_ACROSS_IN)));
         drawBg(ctx, bgDay, -p * W); drawBg(ctx, bgDusk, W - p * W);
@@ -1177,7 +1225,6 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
       if (phase === 'connect' || phase === 'complete' || phase === 'celebration') {
         const fill = phase === 'connect' ? 0 : phase === 'complete' ? clamp01((phaseT - 0.3) / 0.6) : 1;
         drawPicture(ctx, fill); drawThreads(ctx);
-        if (phase === 'connect') drawPoints(ctx);
         if (phase === 'connect' && nextPoint > 0 && closeT === 0 && threadT < 1) {
           const hp = hand(), hx = hp[0], hy = hp[1], j = nextPoint - 1;
           web(ctx, hx, hy, lerp(hx, pts[j * 2]!, easeOutCubic(threadT)), lerp(hy, pts[j * 2 + 1]!, easeOutCubic(threadT)), 0, 2.2 * u);
@@ -1188,6 +1235,8 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
         web(ctx, hx, hy, lerp(hx, target.x, k), lerp(hy, target.y, k), 0, 3 * u);
       }
       if (phase !== 'choice' && phase !== 'sticker') drawHero(ctx);
+      // Points above the hero: in reclaimed space (fitPicture) a point may stand in front of him, never behind.
+      if (phase === 'connect') drawPoints(ctx);
       if (phase === 'catch' || phase === 'connect') drawGuide(ctx);
       if (phase === 'catch') { drawSign(ctx); drawFlight(ctx); }
       particles.render(ctx); drawPuffs(ctx); drawPows(ctx);
