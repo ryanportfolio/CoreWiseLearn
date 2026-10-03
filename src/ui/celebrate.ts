@@ -122,9 +122,11 @@ export function drawStarRow(ctx: CanvasRenderingContext2D, cx: number, cy: numbe
       const g = tw * tw;
       if (g > 0.05) {
         ctx.globalAlpha = g;
-        glintPath(ctx, radius * 0.38, -radius * 0.42, radius * (0.18 + 0.14 * g));
+        glintPath(ctx, radius * 0.42, -radius * 0.5, radius * (0.22 + 0.2 * g));
         ctx.fillStyle = '#ffffff';
         ctx.fill();
+        ctx.lineWidth = Math.max(2, radius * 0.06);
+        ctx.stroke();
       }
     }
     ctx.restore();

@@ -32,7 +32,7 @@ A smoke run lost its 75 s round when another agent wrote `.tmp/wa.html` and Vite
 
 ## 2026-10-02: stopping a background `npm run dev` leaves Vite holding the port
 
-Killing the Bash background task that started `npm run dev -- --port 5183` ended the npm wrapper but not the Vite node process, which kept the port (two agents hit this, ports 5182 and 5183). Free it with `taskkill /PID <pid> /F` after `netstat -ano | findstr :5183`, or start Vite with `node node_modules/vite/bin/vite.js --port 5183` so the background task is the server itself.
+Killing the Bash background task that started `npm run dev -- --port 5183` ended the npm wrapper but not the Vite node process, which kept the port (two agents hit this, ports 5182 and 5183). Free it with `taskkill /PID <pid> /F` after `netstat -ano | findstr :5183`. Starting Vite with `node node_modules/vite/bin/vite.js --port 5183` as the background task does not reliably help: a later agent had that command refused by the command hook ("command contains control characters"), and a `.tmp/serve.sh` wrapper that `exec`s node still left the port held after the task stopped. Plan on the `taskkill` step, or give the owner the command for their own terminal tab.
 
 ## 2026-10-02: `loop.stats.mean` is the vsync interval, not the frame cost
 

@@ -10,9 +10,11 @@
 import type { Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
 import type { AppServices } from '../../app/services';
 import { createButton, dispatchDown, dispatchUp } from '../../ui/button';
-import { chunkyText, drawSprite, OUTLINE } from '../../ui/draw';
+import { chunkyText, OUTLINE } from '../../ui/draw';
 import { starPath } from '../../ui/celebrate';
-import { easeOutBack, easeOutCubic } from '../../ui/tween';
+import { clamp01, easeInOutSine, easeOutBack, easeOutCubic, pulse } from '../../ui/tween';
+import { reducedMotion } from '../../ui/motion';
+import { drawMascotAt, mascotFeetY } from '../../ui/mascot';
 import { playSfx } from '../../audio/sfx';
 import { artName, artRequest, buttonRadius, circleTarget, loadAllArt, type LayoutTarget } from '../hub/shared';
 
@@ -22,6 +24,11 @@ const DIM = 0.55;
 const BUTTON_DELAY = 1;
 const SLIDE_SECONDS = 0.9;
 const DRIFTERS = 10;
+/** The dim fades in over this long, then the pre-dimmed snapshot takes over. */
+const DIM_SECONDS = 0.4;
+/** A slow yawn stretch, the first one with the yawn sound on enter, then one every YAWN_EVERY seconds. */
+const YAWN_SECONDS = 1.6;
+const YAWN_EVERY = 6;
 
 /** Load (or finish loading) the nudge's art. Never rejects. */
 export function loadBreakNudgeAssets(services: AppServices): Promise<void> {
@@ -60,7 +67,9 @@ export function createBreakNudgeScene(services: AppServices): Scene {
 
   let width = services.canvas.width;
   let height = services.canvas.height;
+  /** The scene beneath, as drawn, and a dimmed copy for after the fade-in. */
   let snapshot: HTMLCanvasElement | undefined;
+  let dimmed: HTMLCanvasElement | undefined;
   let time = 0;
   let dismissed = false;
   let spawnTimer = 0;
@@ -121,13 +130,18 @@ export function createBreakNudgeScene(services: AppServices): Scene {
     const canvas = snapshot && snapshot.width === src.width && snapshot.height === src.height ? snapshot : document.createElement('canvas');
     canvas.width = src.width;
     canvas.height = src.height;
-    const sctx = canvas.getContext('2d');
-    if (sctx) {
-      sctx.drawImage(src, 0, 0);
-      sctx.fillStyle = `rgba(16, 12, 36, ${DIM})`;
-      sctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
+    canvas.getContext('2d')?.drawImage(src, 0, 0);
     snapshot = canvas;
+    const dim = dimmed && dimmed.width === src.width && dimmed.height === src.height ? dimmed : document.createElement('canvas');
+    dim.width = src.width;
+    dim.height = src.height;
+    const dctx = dim.getContext('2d');
+    if (dctx) {
+      dctx.drawImage(src, 0, 0);
+      dctx.fillStyle = `rgba(16, 12, 36, ${DIM})`;
+      dctx.fillRect(0, 0, dim.width, dim.height);
+    }
+    dimmed = dim;
   }
 
   function spawnDrifter(): void {
@@ -191,16 +205,30 @@ export function createBreakNudgeScene(services: AppServices): Scene {
     },
     render(view: SceneContext) {
       const { ctx } = view;
-      if (snapshot) ctx.drawImage(snapshot, 0, 0, width, height);
-      else {
+      if (time < DIM_SECONDS && snapshot) {
+        // Dim fades in over the frozen scene, then the pre-dimmed copy is a single blit.
+        ctx.drawImage(snapshot, 0, 0, width, height);
+        ctx.globalAlpha = DIM * easeOutCubic(time / DIM_SECONDS);
+        ctx.fillStyle = 'rgb(16, 12, 36)';
+        ctx.fillRect(0, 0, width, height);
+        ctx.globalAlpha = 1;
+      } else if (dimmed) {
+        ctx.drawImage(dimmed, 0, 0, width, height);
+      } else {
         ctx.fillStyle = '#1b1f3b';
         ctx.fillRect(0, 0, width, height);
       }
 
+      // Slides up from below, then breathes and yawns slowly: a long stretch up and a sink back,
+      // the first one with the yawn sound. Drawn from its feet so the stretch grows upward.
+      const calm = reducedMotion();
       const slide = easeOutBack(Math.min(1, time / SLIDE_SECONDS), 1.2);
-      const breathe = time > SLIDE_SECONDS ? Math.sin((time - SLIDE_SECONDS) * 1.8) * 0.025 : 0;
-      const y = mascotY + (height - mascotY + mascotSize) * (1 - slide);
-      drawSprite(ctx, services.sprites, artName(YAWN), mascotX, y, mascotSize, 0, 1 + breathe, 1 - breathe);
+      const breathe = calm ? 0 : Math.sin(time * 1.8) * 0.02;
+      const yawn = easeInOutSine(pulse(clamp01((time % YAWN_EVERY) / YAWN_SECONDS)));
+      const sy = 1 + 0.07 * yawn - breathe;
+      const sx = 1 - 0.04 * yawn + breathe;
+      const ground = mascotY + mascotFeetY(YAWN) * mascotSize + (height - mascotY + mascotSize) * (1 - slide);
+      drawMascotAt(ctx, services.sprites, artName(YAWN), YAWN, mascotX, ground, mascotSize, 0, 0, sx, sy);
 
       const saved = ctx.globalAlpha;
       for (let i = 0; i < DRIFTERS; i++) {

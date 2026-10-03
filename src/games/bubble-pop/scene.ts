@@ -816,7 +816,8 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
         const dy = py - b.y;
         score = dx * dx + dy * dy;
       } else {
-        score = -b.y;
+        // Lowest bubble whose centre is on screen, so the pop is seen; one only peeking in comes last.
+        score = b.y < H ? -b.y : H * 4 - b.y;
       }
       if (score < bestScore) {
         bestScore = score;

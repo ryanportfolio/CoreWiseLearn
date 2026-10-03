@@ -566,13 +566,13 @@ export function createNameEntryScene(services: AppServices): Scene {
       const h = hopT;
       let dev = 0;
       if (h < 0.1) {
-        dev = -0.2 * easeOutCubic(h / 0.1);
+        dev = -0.15 * easeOutCubic(h / 0.1);
       } else if (h < 0.55) {
         const p = (h - 0.1) / 0.45;
         lift += s * 0.2 * 4 * p * (1 - p);
         dev = Math.max(0, 0.35 - 1.75 * (h - 0.1));
       } else if (h < 0.8) {
-        dev = -Math.max(0, 0.3 - 1.75 * (h - 0.55));
+        dev = -Math.max(0, 0.25 - 1.75 * (h - 0.55));
       } else if (h < 1.15) {
         const p = (h - 0.8) / 0.35;
         lift += s * 0.08 * 4 * p * (1 - p);
