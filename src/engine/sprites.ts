@@ -67,7 +67,11 @@ export function createSpriteStore(): SpriteStore {
         // Full-screen art: draw it once at its own size in an idle moment, so the browser decodes it
         // then (about 9 ms for a 1920x1080 WebP on the dev box) instead of on a scene's first frame.
         // img.decode() does not do this: a canvas draw decodes again.
-        const warm = (): void => { warmDecode(img); ready(); };
+        // If the early decode throws, the image still counts as loaded; its first draw then pays the decode.
+        const warm = (): void => {
+          try { warmDecode(img); } catch { /* fall through to ready() */ }
+          ready();
+        };
         if (typeof requestIdleCallback === 'function') requestIdleCallback(warm, { timeout: 200 });
         else setTimeout(warm, 0);
       };
