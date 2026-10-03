@@ -1,8 +1,8 @@
 {
-  "style": "Flat chunky vector, thick dark outlines, flat saturated fills, single soft highlight, no text. Sprites are 512x512 RGBA with the subject centred and fitted to 80 percent of the canvas; backgrounds are 1365x768 (maximum 1366x768) opaque RGB.",
+  "style": "Flat chunky vector, thick dark outlines, flat saturated fills, single soft highlight, no text. Sprites are 512x512 RGBA with the subject centred and fitted to 80 percent of the canvas; backgrounds are 1920x1080 opaque WebP.",
   "generatedWith": "OpenAI image_gen through Codex CLI (gpt-6-astra agent), downscaled with the project scratch script .tmp/art/png.mjs",
   "count": 59,
-  "totalBytes": 4548294,
+  "totalBytes": 3479600,
   "files": [
     {
       "file": "art/mascot/cheer.png",
@@ -435,44 +435,44 @@
       "bytes": 63536
     },
     {
-      "file": "art/backgrounds/hub-meadow-beach.png",
+      "file": "art/backgrounds/hub-meadow-beach.webp",
       "group": "backgrounds",
       "name": "hub-meadow-beach",
       "use": "Hub screen background; UI sits in the calm middle band",
-      "width": 1365,
-      "height": 768,
+      "width": 1920,
+      "height": 1080,
       "transparent": false,
-      "bytes": 318554
+      "bytes": 128472
     },
     {
-      "file": "art/backgrounds/meadow-sky.png",
+      "file": "art/backgrounds/meadow-sky.webp",
       "group": "backgrounds",
       "name": "meadow-sky",
       "use": "Name-entry screen background",
-      "width": 1365,
-      "height": 768,
+      "width": 1920,
+      "height": 1080,
       "transparent": false,
-      "bytes": 457755
+      "bytes": 121478
     },
     {
-      "file": "art/backgrounds/ocean-floor.png",
+      "file": "art/backgrounds/ocean-floor.webp",
       "group": "backgrounds",
       "name": "ocean-floor",
       "use": "Bubble-pop game background",
-      "width": 1365,
-      "height": 768,
+      "width": 1920,
+      "height": 1080,
       "transparent": false,
-      "bytes": 377185
+      "bytes": 154744
     },
     {
-      "file": "art/backgrounds/sticker-album.png",
+      "file": "art/backgrounds/sticker-album.webp",
       "group": "backgrounds",
       "name": "sticker-album",
       "use": "Sticker book background",
-      "width": 1365,
-      "height": 768,
+      "width": 1920,
+      "height": 1080,
       "transparent": false,
-      "bytes": 407906
+      "bytes": 88012
     },
     {
       "file": "art/rewards/shell-coral.webp",
@@ -622,5 +622,19 @@
     ],
     "source": "Raw 1254x1254 RGBA PNGs, prompts and per-attempt verdicts retained outside public in the art-r4 scratch folder (provenance.json, raw/, prompts.py, notes.json)",
     "preparation": "Matte fringe and specks removed, interiors made fully opaque, cropped to the alpha bounds; stickers resized so the longest side is 410 px on a 512x512 transparent canvas, shells to 480 px wide matching the open shells; WebP quality 92 with alpha quality 100."
+  },
+  "backgroundArt": {
+    "generatedWith": "Codex CLI 0.159.0 (codex exec -m gpt-6-astra, reasoning effort medium) using its built-in image_gen tool, editing the attached original; the backend picks the image model and the log does not name it",
+    "date": "2026-10-03",
+    "files": [
+      "art/backgrounds/hub-meadow-beach.webp",
+      "art/backgrounds/meadow-sky.webp",
+      "art/backgrounds/ocean-floor.webp",
+      "art/backgrounds/sticker-album.webp"
+    ],
+    "reference": "Each file was made from its own 1536x864 original (D:/CoreWise/_artifacts/CoreWiseLearn/v1.1-original-art/art/backgrounds/<name>.png, the source of the earlier 1365x768 PNG) attached as the only image.",
+    "prompt": "Make a faithful higher-resolution version of exactly the attached picture: same composition, position, size and shape of every element, same objects and counts (listed per file), same colours, same flat chunky vector style with thick dark navy outlines; improve only crisp outlines and smooth flat fills; no added, removed, moved or restyled objects, no text, letters, numbers, logos, borders or watermarks, no characters, no change of crop, horizon or colours. hub-meadow-beach took a second attempt that named the sky gradient (deeper blue at the top fading lighter toward the horizon), because the first drew one flat sky colour.",
+    "source": "Raw 1672x941 PNGs (the largest size the tool returned), prompts, Codex logs and the processing scripts retained outside public in D:/CoreWise/_artifacts/CoreWiseLearn/hd-backgrounds (raw/<name>-<attempt>.png; the shipped files use meadow-sky, ocean-floor and sticker-album attempt 1 and hub-meadow-beach attempt 2)",
+    "preparation": "Cover-fit to 1920x1080 with Lanczos 3 (1.148x, 0.6 px cropped vertically); hub-meadow-beach sky pixels shifted row by row to the original's sky colour at that height, weighted by closeness to the row's sky colour, since the generator drew the gradient steeper than the original; WebP quality 95, opaque."
   }
 }

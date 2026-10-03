@@ -55,3 +55,7 @@ The box is an AMD Radeon RX 6600 XT desktop with a 100 Hz panel, not the childre
 ## 2026-10-03: a passing typecheck through rtk can print nothing
 
 The Bash hook runs commands through the rtk wrapper, which trims output. A passing `tsc` or `npm run typecheck` then prints nothing, or only npm's `> tsc --noEmit -p tsconfig.json` line, so the output alone does not show that the check ran and passed. Judge the result by the exit code (`npm run typecheck; echo "exit $?"`), not by the output.
+
+## 2026-10-03: `img.decode()` does not spare a canvas draw the decode
+
+In Chrome, awaiting `HTMLImageElement.decode()` before the first `drawImage` left the first draw just as slow (a 1920x1080 WebP: about 9 ms either way, measured in a headed probe), because the canvas path decodes again. A backed-out change cost one measurement round. What works: draw the image once at its native size into a scratch canvas and use that canvas as a draw source; later draws at any size then cost about 0.1 ms. `src/engine/sprites.ts` does this in an idle callback for images of 1 M pixels or more. `createImageBitmap(img)` also works but blocks the main thread for the whole decode.
