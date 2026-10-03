@@ -108,21 +108,27 @@ const equal = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.st
 function outstanding(round: unknown): boolean {
   return record(round) && round.chosen === '' && Array.isArray(round.choices) && round.choices.length > 0 && round.rewardEnabled === true;
 }
+const fixedFields = (r: Record<string, unknown>) => Object.entries(r).filter(([k]) => k !== 'chosen' && k !== 'restEntered');
 /** The same round, whatever its tab has chosen or shown since: everything fixed when the round ended matches. */
 function sameRound(a: unknown, b: unknown): boolean {
-  const fixed = (r: Record<string, unknown>) => Object.entries(r).filter(([k]) => k !== 'chosen' && k !== 'restEntered');
-  return record(a) && record(b) && equal(fixed(a), fixed(b));
+  return record(a) && record(b) && equal(fixedFields(a), fixedFields(b));
+}
+/** A key naming one round: its `id`, or for a round stored before rounds had ids, everything fixed when it ended. */
+function roundKey(profileId: string, gameId: string, round: Record<string, unknown>): string {
+  const name = typeof round.id === 'string' && round.id ? `id:${round.id}` : `fixed:${JSON.stringify(fixedFields(round))}`;
+  return JSON.stringify([profileId, gameId, name]);
 }
 /**
  * A game's unresolved round (its bag's `pending`) merges as one record, never field by field: one round's chosen
  * gift with another round's offers is no round at all. This tab's change wins, except that a round this tab is
- * done with (gift chosen, round closed, or no gift) never replaces another tab's round whose gift still waits.
+ * done with (gift chosen, round closed, or no gift) never replaces a different round whose gift still waits and
+ * that this tab never held (`held`: another tab's round). A round this tab loaded or created is its own to close.
  * The bag holds one round, so of two tabs' waiting gifts the newer is stored; the older tab still offers its own
  * on screen, and its child's choice is saved with the stickers.
  */
-function mergeRound(before: unknown, local: unknown, remote: unknown): unknown {
+function mergeRound(before: unknown, local: unknown, remote: unknown, held: boolean): unknown {
   if (equal(before, local)) return remote;
-  if (outstanding(remote) && !outstanding(local) && !sameRound(remote, local)) return remote;
+  if (outstanding(remote) && !outstanding(local) && !sameRound(remote, local) && !held) return remote;
   return local;
 }
 export function createSaveStore(options: SaveOptions = {}): SaveStore {
@@ -225,12 +231,22 @@ export function createSaveStore(options: SaveOptions = {}): SaveStore {
     }
     merged.rounds = rounds;
   }
+  // Rounds this tab held: the round in a game's bag when the game took the bag (gameData), and every round this tab
+  // wrote. Rounds another tab stored reach this tab's bag only through adopt, after the game took its bag, and are
+  // not held until a later gameData hands them to the game.
+  const heldRounds = new Set<string>();
+  function hold(profileId: string, gameId: string, round: unknown): void {
+    if (record(round)) heldRounds.add(roundKey(profileId, gameId, round));
+  }
   /** Replace each game bag's unresolved round in `merged` (the field merge's result) with mergeRound's. */
   function mergeRounds(before: Profile | undefined, local: Profile, remote: Profile | undefined, merged: Profile): void {
     for (const [gameId, bag] of Object.entries(merged.games)) {
       const mine = local.games[gameId], theirs = remote?.games[gameId];
       if (!mine || !theirs || (!('pending' in mine) && !('pending' in theirs))) continue;
-      const round = mergeRound(before?.games[gameId]?.pending, mine.pending, theirs.pending);
+      const was = before?.games[gameId]?.pending;
+      if (!equal(was, mine.pending)) hold(local.id, gameId, mine.pending);
+      const held = record(theirs.pending) && heldRounds.has(roundKey(local.id, gameId, theirs.pending));
+      const round = mergeRound(was, mine.pending, theirs.pending, held);
       if (round === undefined) delete bag.pending; else bag.pending = structuredClone(round);
     }
   }
@@ -327,7 +343,8 @@ export function createSaveStore(options: SaveOptions = {}): SaveStore {
       const existing = data.profiles.find(p => p.id === profile.id);
       if (!existing) return profile;
       // A different stored round replaces the bag's round object rather than rewriting its fields, so a scene
-      // holding this tab's own round keeps it intact.
+      // holding this tab's own round keeps it intact. The game has not taken that round (see heldRounds), so
+      // clearing the bag's round never closes it for the other tab.
       for (const [gameId, bag] of Object.entries(profile.games)) {
         const live = existing.games[gameId];
         if (live && 'pending' in bag && !equal(live.pending, bag.pending)) live.pending = structuredClone(bag.pending);
@@ -497,6 +514,7 @@ export function createSaveStore(options: SaveOptions = {}): SaveStore {
         } else {
           bag = profile.games[gameId] = structuredClone(defaults);
           createdDefaults.set(bag, structuredClone(defaults));
+          hold(profile.id, gameId, bag.pending);
           save();
           return bag as T;
         }
@@ -507,6 +525,8 @@ export function createSaveStore(options: SaveOptions = {}): SaveStore {
         bag[k] = structuredClone(defaults[k]);
         if (created && !(k in created)) created[k] = structuredClone(defaults[k]);
       }
+      // The game takes the bag's unresolved round as its own: closing it later wins over storage.
+      hold(profile.id, gameId, bag.pending);
       return bag as T;
     },
     save, flush,

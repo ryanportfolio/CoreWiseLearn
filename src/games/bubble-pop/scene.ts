@@ -72,6 +72,8 @@ interface Bubble {
 }
 interface Flight { active: boolean; x: number; y: number; t: number; creature: number; slot: number; r: number }
 interface PendingRound {
+  /** Names this round across tabs; rounds stored by older builds have none. */
+  id?: string;
   count: number; stars: number; choices: string[]; chosen: string; variant: number;
   tally: number[]; tier: Tier; rewardEnabled: boolean; restEntered: boolean;
 }
@@ -371,7 +373,8 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
     stars = intro ? 3 : count >= 10 ? 3 : count >= 5 ? 2 : 1; adjustTier();
     variant = data.lastCelebration < 0 ? Math.floor(random() * 4) : (data.lastCelebration + 1 + Math.floor(random() * 3)) % 4;
     data.lastCelebration = variant; data.rounds++; data.bestCount = Math.max(data.bestCount, count);
-    pending = { count, stars, choices: chooseOffers(), chosen: '', variant, tally: Array.from(tally.slice(0, Math.min(count, tally.length))), tier, rewardEnabled: services.config.rewardsEnabled, restEntered: false };
+    const id = globalThis.crypto?.randomUUID?.() ?? `round-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    pending = { id, count, stars, choices: chooseOffers(), chosen: '', variant, tally: Array.from(tally.slice(0, Math.min(count, tally.length))), tier, rewardEnabled: services.config.rewardsEnabled, restEntered: false };
     data.pending = pending;
     const bag = rewards(services); bag.rounds[GAME_ID] = (bag.rounds[GAME_ID] ?? 0) + 1;
     if (services.config.rewardsEnabled) bag.stars += stars;
