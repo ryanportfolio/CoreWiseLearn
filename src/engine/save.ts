@@ -27,6 +27,8 @@ export interface SaveStore {
   /** Preserve the stored document when a game discovers malformed nested fields. */
   protect(): void;
   getProfile(idOrName: string): Profile | undefined;
+  /** Write this tab's changes, then take what other tabs stored: new profiles, names, aliases and progress. */
+  refreshProfiles(): void;
   selectProfile(idOrName: string): Profile;
   createGuestProfile(): Profile;
   renameProfile(id: string, name: string): boolean;
@@ -94,6 +96,41 @@ function validIdentity(data: SaveData): boolean {
     return true;
   });
 }
+/** True when a load of this document would neither reject it nor protect it. */
+function loadable(doc: SaveData): boolean {
+  if (!validProfiles(doc) || doc.schemaVersion !== SCHEMA_VERSION || !validIdentity(doc)) return false;
+  let ok = true;
+  for (const profile of structuredClone(doc.profiles)) sanitizeSavedGames(profile.games, () => { ok = false; });
+  return ok;
+}
+const equal = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+/** A finished round whose child has not chosen a gift yet. */
+function outstanding(round: unknown): boolean {
+  return record(round) && round.chosen === '' && Array.isArray(round.choices) && round.choices.length > 0 && round.rewardEnabled === true;
+}
+const fixedFields = (r: Record<string, unknown>) => Object.entries(r).filter(([k]) => k !== 'chosen' && k !== 'restEntered');
+/** The same round, whatever its tab has chosen or shown since: everything fixed when the round ended matches. */
+function sameRound(a: unknown, b: unknown): boolean {
+  return record(a) && record(b) && equal(fixedFields(a), fixedFields(b));
+}
+/** A key naming one round: its `id`, or for a round stored before rounds had ids, everything fixed when it ended. */
+function roundKey(profileId: string, gameId: string, round: Record<string, unknown>): string {
+  const name = typeof round.id === 'string' && round.id ? `id:${round.id}` : `fixed:${JSON.stringify(fixedFields(round))}`;
+  return JSON.stringify([profileId, gameId, name]);
+}
+/**
+ * A game's unresolved round (its bag's `pending`) merges as one record, never field by field: one round's chosen
+ * gift with another round's offers is no round at all. This tab's change wins, except that a round this tab is
+ * done with (gift chosen, round closed, or no gift) never replaces a different round whose gift still waits and
+ * that this tab never held (`held`: another tab's round). A round this tab loaded or created is its own to close.
+ * The bag holds one round, so of two tabs' waiting gifts the newer is stored; the older tab still offers its own
+ * on screen, and its child's choice is saved with the stickers.
+ */
+function mergeRound(before: unknown, local: unknown, remote: unknown, held: boolean): unknown {
+  if (equal(before, local)) return remote;
+  if (outstanding(remote) && !outstanding(local) && !sameRound(remote, local) && !held) return remote;
+  return local;
+}
 export function createSaveStore(options: SaveOptions = {}): SaveStore {
   const key = options.storageKey ?? STORAGE_KEY;
   let status: SaveStatus = 'ready';
@@ -142,7 +179,6 @@ export function createSaveStore(options: SaveOptions = {}): SaveStore {
   // Compare against this tab's last persisted view. A clean stale tab must never
   // write over another tab, and edits to one profile must preserve the others.
   let baseline = structuredClone(data);
-  const equal = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
   function mergeChanges(before: unknown, local: unknown, remote: unknown): unknown {
     if (equal(before, local)) return structuredClone(remote);
     if (record(before) && record(local) && record(remote)) {
@@ -194,6 +230,25 @@ export function createSaveStore(options: SaveOptions = {}): SaveStore {
       rounds[game] = Math.max(0, amount(remoteRounds[game]) + amount(localRounds[game]) - amount(beforeRounds[game]));
     }
     merged.rounds = rounds;
+  }
+  // Rounds this tab held: the round in a game's bag when the game took the bag (gameData), and every round this tab
+  // wrote. Rounds another tab stored reach this tab's bag only through adopt, after the game took its bag, and are
+  // not held until a later gameData hands them to the game.
+  const heldRounds = new Set<string>();
+  function hold(profileId: string, gameId: string, round: unknown): void {
+    if (record(round)) heldRounds.add(roundKey(profileId, gameId, round));
+  }
+  /** Replace each game bag's unresolved round in `merged` (the field merge's result) with mergeRound's. */
+  function mergeRounds(before: Profile | undefined, local: Profile, remote: Profile | undefined, merged: Profile): void {
+    for (const [gameId, bag] of Object.entries(merged.games)) {
+      const mine = local.games[gameId], theirs = remote?.games[gameId];
+      if (!mine || !theirs || (!('pending' in mine) && !('pending' in theirs))) continue;
+      const was = before?.games[gameId]?.pending;
+      if (!equal(was, mine.pending)) hold(local.id, gameId, mine.pending);
+      const held = record(theirs.pending) && heldRounds.has(roundKey(local.id, gameId, theirs.pending));
+      const round = mergeRound(was, mine.pending, theirs.pending, held);
+      if (round === undefined) delete bag.pending; else bag.pending = structuredClone(round);
+    }
   }
   function refreshObject(target: Record<string, unknown>, source: Record<string, unknown>): void {
     for (const field of Object.keys(target)) if (!(field in source)) delete target[field];
@@ -257,6 +312,7 @@ export function createSaveStore(options: SaveOptions = {}): SaveStore {
         const remote = merged.profiles[index];
         const persisted = persistedView(before, profile, remote);
         const next = mergeChanges(persisted, profile, remote) as Profile;
+        mergeRounds(persisted, profile, remote, next);
         const localRewards = profile.games[REWARDS_GAME_ID];
         const remoteRewards = remote?.games[REWARDS_GAME_ID];
         const beforeRewards = persisted?.games[REWARDS_GAME_ID] ?? {};
@@ -270,21 +326,46 @@ export function createSaveStore(options: SaveOptions = {}): SaveStore {
         else delete merged.activeProfile;
       }
       if (!merged.profiles.some(p => p.id === merged.activeProfile)) delete merged.activeProfile;
+      // Never write what the next load would reject or protect. Keep the stored document and stop saving instead.
+      if (!loadable(merged)) {
+        status = 'protected';
+        console.warn('Merged progress failed validation; the stored progress is kept and this visit will not overwrite it.');
+        return;
+      }
       localStorage.setItem(key, JSON.stringify(merged));
-      // Refresh changed fields while retaining live profile and game-bag objects.
-      const profiles = merged.profiles.map(profile => {
-        const existing = data.profiles.find(p => p.id === profile.id);
-        if (!existing) return profile;
-        refreshObject(existing as unknown as Record<string, unknown>, profile as unknown as Record<string, unknown>);
-        return existing;
-      });
-      data.profiles = profiles;
-      // Selection belongs to this tab. Another child's tab may persist its own
-      // selection, but cannot redirect a running game's profile or award.
-      if (!profiles.some(p => p.id === data.activeProfile)) delete data.activeProfile;
-      baseline = structuredClone(data);
+      adopt(merged);
     }
     catch (error) { status = error instanceof SyntaxError ? 'protected' : 'unavailable'; }
+  }
+  /** Take `latest` as this tab's persisted state, refreshing changed fields while retaining live profile and game-bag objects. */
+  function adopt(latest: SaveData): void {
+    const profiles = latest.profiles.map(profile => {
+      const existing = data.profiles.find(p => p.id === profile.id);
+      if (!existing) return profile;
+      // A different stored round replaces the bag's round object rather than rewriting its fields, so a scene
+      // holding this tab's own round keeps it intact. The game has not taken that round (see heldRounds), so
+      // clearing the bag's round never closes it for the other tab.
+      for (const [gameId, bag] of Object.entries(profile.games)) {
+        const live = existing.games[gameId];
+        if (live && 'pending' in bag && !equal(live.pending, bag.pending)) live.pending = structuredClone(bag.pending);
+      }
+      refreshObject(existing as unknown as Record<string, unknown>, profile as unknown as Record<string, unknown>);
+      return existing;
+    });
+    data.profiles = profiles;
+    // Selection belongs to this tab. Another child's tab may persist its own
+    // selection, but cannot redirect a running game's profile or award.
+    if (!profiles.some(p => p.id === data.activeProfile)) delete data.activeProfile;
+    baseline = structuredClone(data);
+  }
+  function refreshProfiles(): void {
+    flush();
+    // Only when every change of this tab is persisted: then the stored document is this tab's state plus others'.
+    if (status !== 'ready' || !equal(data, baseline)) return;
+    const latest = stored();
+    if (!latest) return;
+    for (const profile of latest.profiles) sanitizeSavedGames(profile.games, () => store.protect());
+    if (status === 'ready') adopt(latest);
   }
   function save(): void {
     if (status !== 'ready' || timer !== undefined) return;
@@ -330,14 +411,16 @@ export function createSaveStore(options: SaveOptions = {}): SaveStore {
       status = 'protected';
     },
     getProfile,
+    refreshProfiles,
     selectProfile(value) {
       if (!normalizeName(value) && !getProfile(value)) return store.createGuestProfile();
       const clean = value.normalize('NFKC').slice(0, 10);
       let profile = getProfile(value) ?? getProfile(clean);
       if (!profile) {
-        // Another tab may have created this child since this tab loaded. Use that
-        // profile instead of creating a second one with the same name.
-        adoptStoredProfiles();
+        // Another tab may have created or renamed this child since this tab loaded.
+        // Take the stored profiles with their current names and aliases, so the name
+        // finds that child by id instead of creating a second one with the same name.
+        refreshProfiles();
         profile = getProfile(value) ?? getProfile(clean) ?? create(clean);
       }
       profile.lastPlayedAt = Date.now();
@@ -431,6 +514,7 @@ export function createSaveStore(options: SaveOptions = {}): SaveStore {
         } else {
           bag = profile.games[gameId] = structuredClone(defaults);
           createdDefaults.set(bag, structuredClone(defaults));
+          hold(profile.id, gameId, bag.pending);
           save();
           return bag as T;
         }
@@ -441,6 +525,8 @@ export function createSaveStore(options: SaveOptions = {}): SaveStore {
         bag[k] = structuredClone(defaults[k]);
         if (created && !(k in created)) created[k] = structuredClone(defaults[k]);
       }
+      // The game takes the bag's unresolved round as its own: closing it later wins over storage.
+      hold(profile.id, gameId, bag.pending);
       return bag as T;
     },
     save, flush,

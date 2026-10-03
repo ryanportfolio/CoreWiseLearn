@@ -13,7 +13,7 @@ Won't compromise on:
 - Every interactive target is at least 96 CSS px on its shortest side. Mouse, trackpad and any key all work; there is no wrong button.
 - 60 fps at 1366x768 on an integrated GPU. No per-frame allocations in update or render, no shadowBlur, no per-frame gradients or fillText.
 - No settings screens, no network calls at runtime except fetching the app's own files (no third-party requests, no analytics, nothing about the child sent anywhere), no external links. Adult configuration is JSON in the repo.
-- Engagement stays honest: stickers, stars and unlocks reward play; nothing nags, times out or manipulates.
+- Engagement stays honest: stickers and stars reward play; everything to play is open from the start, nothing unlocks; nothing nags, times out or manipulates.
 
 ## Default prose mode: caveman ultra
 
