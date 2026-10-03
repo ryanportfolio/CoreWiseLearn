@@ -17,7 +17,7 @@ import { PAPER, SHAPES, SWATCHES, TRAY_ASPECT, bakeShape, drawBaked, paintShape,
 import { ALIVE_SECONDS, PICTURES, PICTURE_IDS, partPose, picturePose, pictureById, resetPose, shelfPose, type Face, type Part, type Picture, type PictureId, type Pose } from './pictures';
 import { FX_BUBBLE, FX_PUFF, createFx } from './fx';
 import { MAX_STAMPS, SHEET_COUNT, STAMP_STRIDE, TALLY_LENGTH, defaults, sanitize, type Wip, type WorkshopData } from './save';
-import { loadVoiceList, sayShape } from './voice';
+import { loadVoiceList, sayShape, startVoice, stopVoice } from './voice';
 
 export const GAME_ID = 'shape-workshop';
 const ART = {
@@ -123,7 +123,10 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   let areaTop = 0, toolTop = 0, freeTop = 0, areaBottom = 0, areaLeft = 0, areaRight = 0, swatchCycle = false, narrowBuild = false, narrowFree = false;
   /** Build on a narrow portrait screen: the mode buttons stand in a column under the speaker, beside the sheet. */
   let buildColumn = false;
-  let time = 0, sceneT = 0, phaseT = 0, inputAfter = 0, lastPlace = 0, lastHint = -99, hintShape = '', hintAt = -99, hinted = false;
+  let time = 0, sceneT = 0, phaseT = 0, inputAfter = 0, lastPlace = 0, lastHint = -99, hinted = false;
+  /** When each shape (by its index in SHAPES) was last hinted, so a hint for one shape never clears another's. */
+  const hintAt = new Float64Array(SHAPES.length).fill(-99);
+  const hint = (shape: Shape): void => { hintAt[SHAPES.indexOf(shape)] = time; };
   /** When a due break nudge may show (a natural pause in creative play), or -1; and whether free build has stamped since the last pause. */
   let boundaryAt = -1, stampedSincePause = false, lastStampAt = 0;
   let bg: HTMLCanvasElement | undefined;
@@ -468,7 +471,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     learnHits = t?.[0] ?? 0; learnMisses = t?.[1] ?? 0; motorHits = t?.[2] ?? 0; motorMisses = t?.[3] ?? 0;
     pointerPlacements = t?.[4] ?? 0; keyPlacements = t?.[5] ?? 0;
     for (const p of pieces) p.tried = p.part >= 0 && !!wip.tried?.includes(p.part);
-    held = undefined; hintAt = -99; hinted = false; lastHint = time; lastPlace = time;
+    held = undefined; hintAt.fill(-99); hinted = false; lastHint = time; lastPlace = time;
     // A ring on a top button belongs to the celebration just ended; play keys must not press it.
     phase = 'deal'; phaseT = 0; boardSlide = 0; cue = 0; focus = -1;
     sfx('whoosh', 'D', 0, 0.6);
@@ -526,7 +529,8 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     return best;
   }
 
-  function assisted(p: Piece): boolean { return hintShape === p.shape && time - hintAt < ASSIST_SECONDS; }
+  /** Whether this piece's shape was hinted within ASSIST_SECONDS, whatever was hinted since. */
+  function assisted(p: Piece): boolean { return time - hintAt[SHAPES.indexOf(p.shape)]! < ASSIST_SECONDS; }
 
   /** Scratch context for outline hit tests; used on a drop only, never per frame. */
   let probe: CanvasRenderingContext2D | null | undefined;
@@ -615,6 +619,20 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   function place(p: Piece, spotIndex: number, how: number): void {
     const s = spots[spotIndex]!;
     s.reserved = true;
+    // A piece filling another same-shape piece's outline swaps outlines with that piece. A resumed picture
+    // deals one piece per empty outline and restores first tries by outline, so the piece still in the tray
+    // must own the outline left empty, and its first-try state must be saved under that outline.
+    if (p.part >= 0 && p.part !== spotIndex) {
+      const q = pieces.find(o => o !== p && o.part === spotIndex && o.state !== 'gone' && o.state !== 'fly');
+      const tried = wip.tried;
+      if (tried) {
+        for (const part of [p.part, spotIndex]) { const k = tried.indexOf(part); if (k >= 0) tried.splice(k, 1); }
+        if (p.tried) tried.push(spotIndex);
+        if (q?.tried) tried.push(p.part);
+      }
+      if (q) q.part = p.part;
+      p.part = spotIndex;
+    }
     p.state = 'fly'; p.t = 0; p.fromX = p.x; p.fromY = p.y; p.target = spotIndex; p.drag = false; p.selected = false;
     if (held === p) held = undefined;
     closeTrayGaps();
@@ -656,7 +674,8 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     adjustDifficulty();
     services.save.flush();
     thumbDirty[PICTURE_IDS.indexOf(pic.id)] = 1;
-    phase = 'done'; phaseT = 0; cue = 0; held = undefined; handStop();
+    // The celebration draws the parts live over a bare sheet: the board's outlines and glued parts must go now.
+    phase = 'done'; phaseT = 0; cue = 0; held = undefined; handStop(); boardDirty = true;
     for (const p of pieces) if (p.state !== 'gone' && p.state !== 'fly') { if (shown(p)) fx.spawn(FX_PUFF, p.x, p.y, 0, -30 * u, 0.6, p.w * 0.8, -1); p.state = 'gone'; }
   }
 
@@ -710,7 +729,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   }
 
   function leave(): void {
-    flushLive(); handStop();
+    flushLive(); handStop(); stopVoice();
     services.save.flush();
     sfx('button');
     services.nav.toHub();
@@ -804,7 +823,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
         if (phase !== 'deal' || phaseT > delay) { p.x = approach(p.x, p.hx, 14, dt); p.y = approach(p.y, p.hy, 14, dt); }
       } else if (p.state === 'held') {
         // Its outline lights up now (see renderBuild): that is a hint for this shape, as the hand's is.
-        if (!p.extra && hand.kind !== KIND_DEMO && p.t >= HELD_RING && p.t - dt < HELD_RING) { hintShape = p.shape; hintAt = time; }
+        if (!p.extra && hand.kind !== KIND_DEMO && p.t >= HELD_RING && p.t - dt < HELD_RING) hint(p.shape);
         if (p.drag) { p.x = approach(p.x, input.pointer.x, 32, dt); p.y = approach(p.y, input.pointer.y, 32, dt); }
         else if (hand.kind === KIND_DEMO && hand.piece === i) { p.x = hand.x; p.y = hand.y + p.h * 0.35; }
         else { p.x = approach(p.x, p.hx, 18, dt); p.y = approach(p.y, p.hy - 6 * u, 18, dt); }
@@ -954,7 +973,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
         hand.piece = pi; hand.spot = si;
         if (picked) {
           // The piece is already in hand: the hand glides straight to its outline and taps it.
-          hintShape = p.shape; hintAt = time; lastHint = time; sfx('hover');
+          hint(p.shape); lastHint = time; sfx('hover');
           hand.step = 3; handGo(spots[si]!.x, spots[si]!.y, 0.9);
           return;
         }
@@ -963,7 +982,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
         hand.press = 1; handGo(hand.x, hand.y, 0.3);
         const p = pieces[hand.piece];
         if (hand.kind === KIND_DEMO && p && p.state === 'tray') { p.state = 'held'; sfx('button', 'B'); }
-        else if (p) { hintShape = p.shape; hintAt = time; lastHint = time; sfx('hover'); }
+        else if (p) { hint(p.shape); lastHint = time; sfx('hover'); }
       } else if (step === 2) {
         const s = spots[hand.spot];
         if (!s) { handStop(); return; }
@@ -1379,6 +1398,20 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     else { p.selected = true; }
   }
 
+  /**
+   * End a press whose release never reached the scene (the window lost focus, the pointer was cancelled, or the
+   * button came up where the page could not see it). Nothing stamps or stays held: a dragged piece floats back
+   * to the tray, a clicked one stays picked up as after a click.
+   */
+  function endGesture(): void {
+    pointerDown = false;
+    const p = held;
+    if (!p) return;
+    held = undefined;
+    if (p.state !== 'held') return;
+    if (p.drag) returnPiece(p); else p.selected = true;
+  }
+
   function buildKey(code: string): void {
     if (phase === 'alive' && phaseT > SKIP_AFTER) { phase = 'send'; phaseT = 0; return; }
     if (phase !== 'play' || hand.kind === KIND_DEMO) return;
@@ -1525,18 +1558,21 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
       for (const [i, b] of allButtons.entries()) b.popIn(0.05 + i * 0.04);
       startMusic(audio, 'workshop');
       startFanfare();
+      startVoice();
     },
-    pause() { stopMusic(audio); stopIdle(); flushLive(); services.save.flush(); pointerDown = false; },
+    pause() { stopMusic(audio); stopIdle(); stopVoice(); flushLive(); services.save.flush(); endGesture(); },
     resume() {
       // Back on top after the break nudge: keys pressed into it must not act here. The input guard starts
       // over as on entry and no top button stays ringed.
-      guard(); focus = -1; startMusic(audio, 'workshop');
+      guard(); focus = -1; startMusic(audio, 'workshop'); startVoice();
     },
-    exit() { stopMusic(audio); stopIdle(); flushLive(); services.save.flush(); },
+    exit() { stopMusic(audio); stopIdle(); stopVoice(); flushLive(); services.save.flush(); },
     resize: layout,
     update(dt) {
       const started = performance.now();
       time += dt; sceneT += dt;
+      // The engine clears its pointer on focus loss without sending a release; the press ends with it.
+      if (pointerDown && !input.pointer.down) endGesture();
       syncSoundIcon(sound, services);
       const buttons = buttonsFor();
       for (const b of allButtons) { b.visible = buttons.includes(b); b.focused = focus >= 0 && buttons[focus] === b; b.update(dt, input.pointer.x, input.pointer.y); }

@@ -37,11 +37,45 @@ function load(services: AppServices, name: string): Promise<AudioBuffer | undefi
   return p;
 }
 
-/** Say a shape's name if its clip is listed. At most one clip every 0.6 s. */
+/** Whether the workshop is the scene on top; clips are asked for and played only then. */
+let active = false;
+/** Counts clip requests; a loaded clip plays only if no newer request (or a stop) came after it. */
+let request = 0;
+let playing: AudioBufferSourceNode | undefined;
+
+function stopClip(): void {
+  const node = playing;
+  playing = undefined;
+  if (node) try { node.stop(); } catch { /* already ended */ }
+}
+
+/** The workshop is on top (entered, or back after a scene above it closed). */
+export function startVoice(): void { active = true; }
+
+/** The workshop is leaving or covered: drop every clip still loading and stop the one playing. */
+export function stopVoice(): void { active = false; request++; stopClip(); }
+
+/**
+ * Say a shape's name if its clip is listed. At most one request every 0.6 s. When the clip has loaded it
+ * plays only if it is still the latest request and the workshop is still on top, and it cuts off any clip
+ * still playing, so two clips never overlap.
+ */
 export function sayShape(services: AppServices, shape: Shape): void {
-  if (!clips.includes(shape) || services.audio.muted || !services.audio.ready) return;
+  if (!active || !clips.includes(shape) || services.audio.muted || !services.audio.ready) return;
   const now = performance.now();
   if (now - lastAt < 600) return;
   lastAt = now;
-  void load(services, shape).then(buffer => { if (buffer) services.audio.playBuffer(buffer, 0.9); });
+  const mine = ++request;
+  void load(services, shape).then(buffer => {
+    const ctx = services.audio.context, bus = services.audio.sfxBus;
+    if (!buffer || mine !== request || !active || services.audio.muted || !ctx || !bus || ctx.state !== 'running') return;
+    stopClip();
+    const node = ctx.createBufferSource(), gain = ctx.createGain();
+    gain.gain.value = 0.9;
+    node.buffer = buffer;
+    node.connect(gain); gain.connect(bus);
+    node.onended = () => { node.disconnect(); gain.disconnect(); if (playing === node) playing = undefined; };
+    playing = node;
+    node.start();
+  });
 }
