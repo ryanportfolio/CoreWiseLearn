@@ -26,5 +26,9 @@ for (const entry of new Set(entries)) {
   if (!path.startsWith(resolve(root, 'dist') + (process.platform === 'win32' ? '\\' : '/'))) throw new Error('Unexpected precache path');
   bytes += (await stat(path)).size;
 }
-console.log(JSON.stringify({ entries: entries.length, bytes, megabytes: +(bytes / 1_000_000).toFixed(3), missing }, null, 2));
-if (missing.length) process.exitCode = 1;
+// src/app/config.ts reads config.json?fresh=<time> so an adult's edit applies on the
+// next load; the precached copy is only the offline fallback. A precache option that
+// strips query parameters would serve the build-time config.json forever.
+const configBypass = !/ignoreURLParametersMatching/.test(sw);
+console.log(JSON.stringify({ entries: entries.length, bytes, megabytes: +(bytes / 1_000_000).toFixed(3), missing, configBypass }, null, 2));
+if (missing.length || !configBypass) process.exitCode = 1;

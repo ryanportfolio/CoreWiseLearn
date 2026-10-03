@@ -92,4 +92,3 @@ export function createCanvas(element: HTMLCanvasElement, maxDpr: number = MAX_DP
     },
   };
 }
-

@@ -1,5 +1,5 @@
-import { AVATARS, ACCENTS } from '../app/avatar';
-import { sanitizeSavedGames } from '../app/services';
+import { AVATARS, ACCENTS, avatarFor, accentFor } from '../app/avatar';
+import { REWARDS_GAME_ID, sanitizeSavedGames } from '../app/services';
 
 export const SCHEMA_VERSION = 2;
 export const STORAGE_KEY = 'cwl.v1.save';
@@ -64,11 +64,25 @@ function identity(profiles: Profile[]): { avatar: string; accent: string } {
   return { avatar: AVATARS[index % AVATARS.length] ?? 'fox', accent: `hsl(${(index * 137.508) % 360} 70% 65%)` };
 }
 function upgradeProfiles(data: SaveData): SaveData {
-  const profiles: Profile[] = [];
+  // Schema 1 showed each child the animal and colour derived from their name, and
+  // children pick their profile by that animal. Keep it; only a later profile whose
+  // derived pair is already taken gets a new, distinct one.
+  const kept: (Profile | undefined)[] = [];
+  const assigned: Profile[] = [];
   for (const old of data.profiles) {
-    const p = { ...old, id: id(), ...identity(profiles) };
-    profiles.push(p);
+    const avatar = avatarFor(old.name), accent = accentFor(old.name);
+    const taken = assigned.some(p => p.avatar === avatar && p.accent === accent);
+    const p = taken ? undefined : { ...old, id: id(), avatar, accent };
+    kept.push(p);
+    if (p) assigned.push(p);
   }
+  const profiles = data.profiles.map((old, index) => {
+    const existing = kept[index];
+    if (existing) return existing;
+    const p = { ...old, id: id(), ...identity(assigned) };
+    assigned.push(p);
+    return p;
+  });
   const active = profiles.find(p => p.name === data.activeProfile);
   return { ...data, schemaVersion: 2, profiles, ...(active ? { activeProfile: active.id } : {}) };
 }
@@ -142,12 +156,80 @@ export function createSaveStore(options: SaveOptions = {}): SaveStore {
     }
     return structuredClone(local);
   }
+  const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
+  const tally = (list: string[]): Map<string, number> => {
+    const counts = new Map<string, number>();
+    for (const item of list) counts.set(item, (counts.get(item) ?? 0) + 1);
+    return counts;
+  };
+  const amount = (value: unknown): number => Number.isSafeInteger(value) && (value as number) >= 0 ? value as number : 0;
+  /**
+   * Rewards are earned, never edited, so two tabs playing as the same child must
+   * both keep what they earned. `before` is this tab's last persisted bag, `local`
+   * its live bag, `merged` the stored bag after the ordinary field merge.
+   */
+  function mergeRewards(before: Record<string, unknown>, local: Record<string, unknown>, remote: Record<string, unknown>, merged: Record<string, unknown>): void {
+    // Lists: the stored list plus this tab's additions since its last write.
+    for (const field of ['stickers', 'seen']) {
+      if (!(field in local) && !(field in remote)) continue;
+      const result = strings(remote[field]);
+      const had = tally(strings(before[field]));
+      const have = tally(result);
+      for (const [item, n] of tally(strings(local[field]))) {
+        if (n <= (had.get(item) ?? 0)) continue;
+        // Sticker ids may repeat (the book shows counts); seen ids never do.
+        const want = field === 'seen' ? 1 : n;
+        for (let i = have.get(item) ?? 0; i < want; i++) result.push(item);
+        have.set(item, Math.max(want, have.get(item) ?? 0));
+      }
+      merged[field] = result;
+    }
+    // Counts: the stored value plus this tab's change since its last write.
+    merged.stars = Math.max(0, amount(remote.stars) + amount(local.stars) - amount(before.stars));
+    const rounds: Record<string, number> = {};
+    const remoteRounds = record(remote.rounds) ? remote.rounds : {};
+    const localRounds = record(local.rounds) ? local.rounds : {};
+    const beforeRounds = record(before.rounds) ? before.rounds : {};
+    for (const game of new Set([...Object.keys(remoteRounds), ...Object.keys(localRounds)])) {
+      rounds[game] = Math.max(0, amount(remoteRounds[game]) + amount(localRounds[game]) - amount(beforeRounds[game]));
+    }
+    merged.rounds = rounds;
+  }
   function refreshObject(target: Record<string, unknown>, source: Record<string, unknown>): void {
     for (const field of Object.keys(target)) if (!(field in source)) delete target[field];
     for (const [field, value] of Object.entries(source)) {
-      if (record(value) && record(target[field])) refreshObject(target[field], value);
-      else if (!equal(target[field], value)) target[field] = structuredClone(value);
+      const current = target[field];
+      if (record(value) && record(current)) refreshObject(current, value);
+      // Keep live arrays too: a scene may hold the sticker list itself.
+      else if (Array.isArray(value) && Array.isArray(current)) { if (!equal(current, value)) current.splice(0, current.length, ...structuredClone(value)); }
+      else if (!equal(current, value)) target[field] = structuredClone(value);
     }
+  }
+  // Bags this tab created from defaults, with the defaults they started as. Until
+  // the bag is persisted, those defaults stand in for its last persisted state, so
+  // an untouched default never overwrites a bag another tab stored meanwhile.
+  const createdDefaults = new WeakMap<GameDataBag, GameDataBag>();
+  /** The stored document when it is current and readable, else undefined. Never writes. */
+  function stored(): SaveData | undefined {
+    if (status !== 'ready') return undefined;
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw === null) return undefined;
+      const latest: unknown = JSON.parse(raw);
+      return validProfiles(latest) && latest.schemaVersion === SCHEMA_VERSION && validIdentity(latest) ? latest : undefined;
+    } catch { return undefined; }
+  }
+  /** Use the created defaults as the last persisted state of bags another tab has stored since. */
+  function persistedView(before: Profile | undefined, local: Profile, remote: Profile | undefined): Profile | undefined {
+    if (!before || !remote) return before;
+    let view = before;
+    for (const [gameId, bag] of Object.entries(local.games)) {
+      const defaults = createdDefaults.get(bag);
+      if (!defaults || gameId in before.games || !(gameId in remote.games)) continue;
+      if (view === before) view = { ...before, games: { ...before.games } };
+      view.games[gameId] = defaults;
+    }
+    return view;
   }
   function write(): void {
     timer = undefined;
@@ -172,7 +254,15 @@ export function createSaveStore(options: SaveOptions = {}): SaveStore {
         const index = merged.profiles.findIndex(p => p.id === profile.id);
         // A deletion by another tab wins over an edit to an existing profile.
         if (index < 0 && before) continue;
-        const next = mergeChanges(before, profile, merged.profiles[index]) as Profile;
+        const remote = merged.profiles[index];
+        const persisted = persistedView(before, profile, remote);
+        const next = mergeChanges(persisted, profile, remote) as Profile;
+        const localRewards = profile.games[REWARDS_GAME_ID];
+        const remoteRewards = remote?.games[REWARDS_GAME_ID];
+        const beforeRewards = persisted?.games[REWARDS_GAME_ID] ?? {};
+        if (localRewards && remoteRewards && next.games[REWARDS_GAME_ID] && !equal(beforeRewards, localRewards)) {
+          mergeRewards(beforeRewards, localRewards, remoteRewards, next.games[REWARDS_GAME_ID]);
+        }
         if (index < 0) merged.profiles.push(next); else merged.profiles[index] = next;
       }
       if (data.activeProfile !== baseline.activeProfile) {
@@ -214,6 +304,15 @@ export function createSaveStore(options: SaveOptions = {}): SaveStore {
     return data.profiles.find(p => !p.unnamed && normalizeName(p.name) === name) ??
       data.profiles.find(p => p.aliases?.some(a => normalizeName(a) === name));
   }
+  /** Add profiles other tabs stored since, as already persisted. Profiles this tab deleted stay deleted. */
+  function adoptStoredProfiles(): void {
+    for (const p of stored()?.profiles ?? []) {
+      if (data.profiles.some(q => q.id === p.id) || baseline.profiles.some(q => q.id === p.id)) continue;
+      sanitizeSavedGames(p.games, () => store.protect());
+      data.profiles.push(structuredClone(p));
+      baseline.profiles.push(structuredClone(p));
+    }
+  }
   function create(name: string, unnamed = false): Profile {
     const now = Date.now();
     const p: Profile = { id: id(), name, ...identity(data.profiles), createdAt: now, lastPlayedAt: now, games: {}, ...(unnamed ? { unnamed: true } : {}) };
@@ -234,7 +333,13 @@ export function createSaveStore(options: SaveOptions = {}): SaveStore {
     selectProfile(value) {
       if (!normalizeName(value) && !getProfile(value)) return store.createGuestProfile();
       const clean = value.normalize('NFKC').slice(0, 10);
-      const profile = getProfile(value) ?? getProfile(clean) ?? create(clean);
+      let profile = getProfile(value) ?? getProfile(clean);
+      if (!profile) {
+        // Another tab may have created this child since this tab loaded. Use that
+        // profile instead of creating a second one with the same name.
+        adoptStoredProfiles();
+        profile = getProfile(value) ?? getProfile(clean) ?? create(clean);
+      }
       profile.lastPlayedAt = Date.now();
       data.activeProfile = profile.id;
       flush();
@@ -251,6 +356,16 @@ export function createSaveStore(options: SaveOptions = {}): SaveStore {
       const clean = name.normalize('NFKC').slice(0, 10);
       const collision = getProfile(clean);
       if (!profile || !normalizeName(clean) || (collision && collision.id !== profileId)) return false;
+      // Keep the old name as an alias: typing it still finds this child, and a
+      // configured child renamed here is matched again on the next boot.
+      const old = profile.unnamed ? '' : profile.name;
+      if (normalizeName(old) && normalizeName(old) !== normalizeName(clean) && !profile.aliases?.some(a => normalizeName(a) === normalizeName(old))) {
+        (profile.aliases ??= []).push(old);
+      }
+      if (profile.aliases) {
+        profile.aliases = profile.aliases.filter(a => normalizeName(a) !== normalizeName(clean));
+        if (!profile.aliases.length) delete profile.aliases;
+      }
       profile.name = clean;
       delete profile.unnamed;
       flush();
@@ -259,13 +374,22 @@ export function createSaveStore(options: SaveOptions = {}): SaveStore {
     seedProfiles(profiles) {
       // Reserve every configured child's real name before assigning aliases.
       // An alias may never absorb a separately configured child's identity.
+      // An exact current name always wins; a renamed child is found by its old
+      // name only when no configured child holds that profile by current name.
+      const seeds = profiles.map(seed => ({ clean: seed.name.normalize('NFKC').slice(0, 10), aliases: seed.aliases ?? [] }))
+        .filter(seed => normalizeName(seed.clean));
+      const exact = seeds.map(seed => data.profiles.find(p => !p.unnamed && normalizeName(p.name) === normalizeName(seed.clean)));
+      const claimed = new Set(exact.filter((p): p is Profile => !!p).map(p => p.id));
       const seeded: { profile: Profile; aliases: string[] }[] = [];
-      for (const seed of profiles) {
-        const clean = seed.name.normalize('NFKC').slice(0, 10);
-        if (!normalizeName(clean)) continue;
-        const profile = data.profiles.find(p => !p.unnamed && normalizeName(p.name) === normalizeName(clean)) ?? create(clean);
-        seeded.push({ profile, aliases: seed.aliases ?? [] });
-      }
+      seeds.forEach((seed, index) => {
+        let profile = exact[index];
+        if (!profile) {
+          const name = normalizeName(seed.clean);
+          profile = data.profiles.find(p => !p.unnamed && !claimed.has(p.id) && !!p.aliases?.some(a => normalizeName(a) === name)) ?? create(seed.clean);
+          claimed.add(profile.id);
+        }
+        seeded.push({ profile, aliases: seed.aliases });
+      });
       for (const { profile, aliases } of seeded) {
         for (const alias of aliases) {
           const collision = getProfile(alias);
@@ -287,8 +411,28 @@ export function createSaveStore(options: SaveOptions = {}): SaveStore {
       const profile = store.active;
       if (!profile) throw new Error('No active profile; call selectProfile first');
       let bag = profile.games[gameId];
-      if (!bag) { bag = structuredClone(defaults); profile.games[gameId] = bag; save(); }
-      else for (const k of Object.keys(defaults)) if (!(k in bag)) bag[k] = structuredClone(defaults[k]);
+      if (!bag) {
+        // Another tab may have stored this bag since this tab last read or wrote.
+        // Take it as this tab's persisted state rather than starting from defaults.
+        const latest = stored()?.profiles.find(p => p.id === profile.id)?.games[gameId];
+        const persisted = baseline.profiles.find(p => p.id === profile.id);
+        if (latest && persisted) {
+          sanitizeSavedGames({ [gameId]: latest }, () => store.protect());
+          persisted.games[gameId] = structuredClone(latest);
+          bag = profile.games[gameId] = latest;
+        } else {
+          bag = profile.games[gameId] = structuredClone(defaults);
+          createdDefaults.set(bag, structuredClone(defaults));
+          save();
+          return bag as T;
+        }
+      }
+      const created = createdDefaults.get(bag);
+      for (const k of Object.keys(defaults)) {
+        if (k in bag) continue;
+        bag[k] = structuredClone(defaults[k]);
+        if (created && !(k in created)) created[k] = structuredClone(defaults[k]);
+      }
       return bag as T;
     },
     save, flush,

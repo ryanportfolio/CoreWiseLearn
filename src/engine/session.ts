@@ -1,9 +1,12 @@
 /** Visible play time; a due break waits for a round boundary. */
 export interface SessionTimerOptions {
   nudgeAfterSeconds?: number;
-  onNudge?: (elapsedSeconds: number) => void;
+  /** Show the nudge. Return false when it could not be shown; it stays due for the next round boundary. */
+  onNudge?: (elapsedSeconds: number) => void | boolean;
   repeatEverySeconds?: number;
 }
+/** Longer frame gaps (a debugger pause, a sleep with the page visible) are not play time. */
+const MAX_GAP_SECONDS = 1;
 export interface SessionTimer {
   readonly elapsed: number;
   readonly nudged: boolean;
@@ -22,14 +25,15 @@ export function createSessionTimer(options: SessionTimerOptions = {}): SessionTi
     get elapsed() { return elapsed; }, get nudged() { return nudged; },
     get pending() { return elapsed >= nextNudgeAt; },
     tick(dt) {
-      if (document.hidden || !Number.isFinite(dt) || dt <= 0) return;
+      if (document.hidden || !Number.isFinite(dt) || dt <= 0 || dt > MAX_GAP_SECONDS) return;
       elapsed += dt;
     },
     roundBoundary() {
       if (elapsed < nextNudgeAt) return;
+      // Count the nudge as shown only once the app accepted it.
+      if (options.onNudge?.(elapsed) === false) return;
       nudged = true;
       nextNudgeAt = options.repeatEverySeconds && options.repeatEverySeconds > 0 ? elapsed + options.repeatEverySeconds : Infinity;
-      options.onNudge?.(elapsed);
     },
     setNudgeAfter(seconds) {
       if (!Number.isFinite(seconds)) return;

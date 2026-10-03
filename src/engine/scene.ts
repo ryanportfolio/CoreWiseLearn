@@ -40,6 +40,12 @@ export type TransitionHook = (from: Scene | undefined, to: Scene) => void | Prom
 export interface SceneManager {
   readonly current: Scene | undefined;
   readonly depth: number;
+  /**
+   * Seconds the top scene has been updated while on top since it was pushed
+   * or swapped in; 0 when it has not run a frame yet. An overlay reads this to
+   * tell whether the scene it covers has been seen.
+   */
+  readonly shownSeconds: number;
   /** Put a scene on top; the one below keeps its state but stops updating. */
   push(scene: Scene): Promise<void>;
   /** Remove the top scene and resume the one below. */
@@ -57,6 +63,8 @@ const INPUT_EVENTS: InputEventName[] = ['pointerdown', 'pointerup', 'pointermove
 
 export function createSceneManager(input: Input): SceneManager {
   const stack: Scene[] = [];
+  /** Seconds each stacked scene has been updated on top, parallel to `stack`. */
+  const shown: number[] = [];
   let transition: TransitionHook | undefined;
   let changing = false;
   let lastWidth = 0;
@@ -69,17 +77,32 @@ export function createSceneManager(input: Input): SceneManager {
     }),
   );
 
-  async function change(apply: () => void, to: Scene): Promise<void> {
-    if (changing) return;
+  /** Changes asked for while another is in progress (for example from a scene's enter()). */
+  const queued: (() => void)[] = [];
+
+  /**
+   * Run one stack change. `plan` runs when the change starts, so a queued change
+   * sees the stack as the earlier change left it; it returns undefined to skip.
+   */
+  async function change(plan: () => { to: Scene; apply: () => void } | undefined): Promise<void> {
+    if (changing) {
+      // Never drop it: a scene's enter() may push the break nudge mid-change.
+      return new Promise<void>((resolve, reject) => {
+        queued.push(() => { change(plan).then(resolve, reject); });
+      });
+    }
     changing = true;
     try {
+      const step = plan();
+      if (!step) return;
       const from = stack[stack.length - 1];
-      if (transition) await transition(from, to);
+      if (transition) await transition(from, step.to);
       input.reset();
-      if (lastWidth > 0 && lastHeight > 0) to.resize?.(lastWidth, lastHeight);
-      apply();
+      if (lastWidth > 0 && lastHeight > 0) step.to.resize?.(lastWidth, lastHeight);
+      step.apply();
     } finally {
       changing = false;
+      queued.shift()?.();
     }
   }
 
@@ -90,34 +113,57 @@ export function createSceneManager(input: Input): SceneManager {
     get depth() {
       return stack.length;
     },
-    push(scene) {
-      return change(() => {
-        const covered = stack[stack.length - 1];
-        if (covered) (covered.pause ?? covered.exit)?.call(covered);
-        stack.push(scene);
-        scene.enter?.();
-      }, scene);
+    get shownSeconds() {
+      return shown[shown.length - 1] ?? 0;
     },
-    async pop() {
-      const below = stack[stack.length - 2];
-      if (!below) return;
-      await change(() => {
-        stack.pop()?.exit?.();
-        (below.resume ?? below.enter)?.call(below);
-      }, below);
+    push(scene) {
+      return change(() => ({
+        to: scene,
+        apply: () => {
+          const covered = stack[stack.length - 1];
+          if (covered) (covered.pause ?? covered.exit)?.call(covered);
+          stack.push(scene);
+          shown.push(0);
+          scene.enter?.();
+        },
+      }));
+    },
+    pop() {
+      return change(() => {
+        const below = stack[stack.length - 2];
+        if (!below) return undefined;
+        return {
+          to: below,
+          apply: () => {
+            stack.pop()?.exit?.();
+            shown.pop();
+            (below.resume ?? below.enter)?.call(below);
+          },
+        };
+      });
     },
     replace(scene) {
-      return change(() => {
-        stack.pop()?.exit?.();
-        stack.push(scene);
-        scene.enter?.();
-      }, scene);
+      return change(() => ({
+        to: scene,
+        apply: () => {
+          stack.pop()?.exit?.();
+          shown.pop();
+          stack.push(scene);
+          shown.push(0);
+          scene.enter?.();
+        },
+      }));
     },
     setTransition(hook) {
       transition = hook;
     },
     update(dt) {
-      stack[stack.length - 1]?.update(dt);
+      const top = stack.length - 1;
+      const scene = stack[top];
+      if (!scene) return;
+      scene.update(dt);
+      // The update may have changed the stack; count the frame only if the scene is still on top.
+      if (stack.length - 1 === top && stack[top] === scene) shown[top] = (shown[top] ?? 0) + dt;
     },
     render(view, alpha) {
       stack[stack.length - 1]?.render(view, alpha);
@@ -129,7 +175,9 @@ export function createSceneManager(input: Input): SceneManager {
     },
     destroy() {
       for (const off of unsubscribe) off();
+      queued.length = 0;
       while (stack.length) stack.pop()?.exit?.();
+      shown.length = 0;
     },
   };
 }

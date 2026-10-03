@@ -22,6 +22,10 @@ let reloadPending = false;
 let workerReloadReady = false;
 let route: 'loading' | 'name' | 'hub' | 'book' | 'game' = 'loading';
 const RELOAD_KEY = 'cwl.v1.chunk-reload';
+/** Time of this tab's last reload into an update; stops a reload loop if a worker never activates. */
+const UPDATE_RELOAD_KEY = 'cwl.v1.update-reload';
+/** How long the hub waits for the new worker before reloading or giving up. */
+const UPDATE_WAIT_MS = 4000;
 const updateSW = registerSW({
   immediate: true,
   onNeedRefresh() {
@@ -47,7 +51,16 @@ async function applyPendingUpdate(): Promise<void> {
     location.reload();
   } else if (updatePending) {
     try { await updateSW(true); }
-    catch (error) { applyingUpdate = false; console.warn('Update deferred.', error); }
+    catch (error) { applyingUpdate = false; console.warn('Update deferred.', error); return; }
+    if (!navigator.serviceWorker?.controller) {
+      // A tab no worker controls (a first visit) never gets the controlling event
+      // Workbox reloads on. The hub is a safe point: reload once the new worker runs.
+      if (await workerActivated(UPDATE_WAIT_MS)) reloadForUpdate();
+      else skipUpdate();
+    } else {
+      // Normally onNeedReload reloads within moments. Never leave the hub frozen.
+      setTimeout(() => { if (applyingUpdate && !workerReloadReady) reloadForUpdate(); }, UPDATE_WAIT_MS);
+    }
   } else if (reloadPending) {
     // One recovery per tab session. Repeated failures stay on the playable hub.
     try {
@@ -56,6 +69,45 @@ async function applyPendingUpdate(): Promise<void> {
       location.reload();
     } catch { applyingUpdate = false; }
   }
+}
+
+/** Leave this update for the next launch and keep the hub playable. */
+function skipUpdate(): void {
+  updatePending = false;
+  applyingUpdate = false;
+}
+
+/** Reload into the new version from the hub, at most once a minute per tab. */
+function reloadForUpdate(): void {
+  if (route !== 'hub' || nudging) { skipUpdate(); return; }
+  try {
+    const last = Number(sessionStorage.getItem(UPDATE_RELOAD_KEY));
+    if (last && Date.now() - last < 60_000) { skipUpdate(); return; }
+    sessionStorage.setItem(UPDATE_RELOAD_KEY, String(Date.now()));
+  } catch { skipUpdate(); return; }
+  location.reload();
+}
+
+/** Resolve true once the waiting (or installing) worker is active, false on timeout or failure. */
+async function workerActivated(ms: number): Promise<boolean> {
+  let registration: ServiceWorkerRegistration | undefined;
+  try { registration = await navigator.serviceWorker?.getRegistration(); } catch { return false; }
+  const worker = registration?.waiting ?? registration?.installing;
+  if (!worker) return !!registration?.active;
+  return new Promise((resolve) => {
+    const finish = (ok: boolean): void => {
+      clearTimeout(timer);
+      worker.removeEventListener('statechange', check);
+      resolve(ok);
+    };
+    const check = (): void => {
+      if (worker.state === 'activated') finish(true);
+      else if (worker.state === 'redundant') finish(false);
+    };
+    const timer = setTimeout(() => finish(worker.state === 'activated'), ms);
+    worker.addEventListener('statechange', check);
+    check();
+  });
 }
 
 window.addEventListener('vite:preloadError', (event) => {
@@ -103,17 +155,36 @@ async function navigate(next: typeof route, scene: Scene): Promise<void> {
   if (next === 'hub') void applyPendingUpdate();
 }
 
-function showNudge(): void {
-  if (nudging) return;
+/** A nudge the session counted as shown that never reached the screen; retried at the next round end. */
+let nudgeOwed = false;
+
+function showNudge(): boolean {
+  if (nudging) return true;
+  // A reload into an update is under way; the nudge would vanish with the page.
+  if (applyingUpdate) return false;
   nudging = true;
-  void services.scenes.push(createBreakNudgeScene(services)).then(() => {
+  nudgeOwed = false;
+  const nudge = createBreakNudgeScene(services);
+  // A push asked for inside another scene change (a game restoring into its rest
+  // screen) is queued by the scene manager and lands right after that change.
+  void services.scenes.push(nudge).then(() => {
+    if (services.scenes.current !== nudge) {
+      nudging = false;
+      nudgeOwed = true;
+      return;
+    }
     // The nudge pops itself; watch for that so a later nudge can show again.
     const check = (): void => {
       if (services.scenes.depth <= 1) nudging = false;
       else setTimeout(check, 1000);
     };
     setTimeout(check, 1000);
+  }, (error: unknown) => {
+    console.warn('Break nudge could not be shown; retrying at the next round end.', error);
+    nudging = false;
+    nudgeOwed = true;
   });
+  return true;
 }
 
 services = bootApp({
@@ -138,6 +209,7 @@ services = bootApp({
     },
   },
   onNudge: showNudge,
+  onRoundBoundary: () => { if (nudgeOwed) showNudge(); },
 });
 
 void services.scenes.replace(createLoadingScene());

@@ -16,19 +16,47 @@ const defaults: AppConfig = {
 function number(value: unknown, fallback: number, min: number, max: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
 }
-async function loadConfig(): Promise<AppConfig> {
+function parseConfig(value: Record<string, unknown>): AppConfig {
+  return {
+    uiScale: number(value.uiScale, 1, 0.75, 2), masterTrimDb: number(value.masterTrimDb, -6, -40, 0),
+    keyboardLayout: value.keyboardLayout === 'qwerty' ? 'qwerty' : 'abc',
+    profiles: Array.isArray(value.profiles) ? value.profiles.filter((p): p is { name: string; aliases?: string[] } => !!p && typeof p.name === 'string' && (p.aliases === undefined || (Array.isArray(p.aliases) && p.aliases.every((a: unknown) => typeof a === 'string')))) : [],
+    playtestLog: false, rewardsEnabled: value.rewardsEnabled !== false,
+    breakAfterSeconds: number(value.breakAfterSeconds, 1200, 1, 86400),
+  };
+}
+/** The last config.json read from the network, for offline starts. */
+const LAST_CONFIG_KEY = 'cwl.v1.config';
+const configUrl = import.meta.env.BASE_URL + 'config.json';
+async function readJson(url: string, init: RequestInit): Promise<Record<string, unknown> | undefined> {
   try {
-    const response = await fetch(import.meta.env.BASE_URL + 'config.json', { signal: AbortSignal.timeout(5000) });
-    if (!response.ok) return { ...defaults };
-    const value = await response.json() as Record<string, unknown>;
-    return {
-      uiScale: number(value.uiScale, 1, 0.75, 2), masterTrimDb: number(value.masterTrimDb, -6, -40, 0),
-      keyboardLayout: value.keyboardLayout === 'qwerty' ? 'qwerty' : 'abc',
-      profiles: Array.isArray(value.profiles) ? value.profiles.filter((p): p is { name: string; aliases?: string[] } => !!p && typeof p.name === 'string' && (p.aliases === undefined || (Array.isArray(p.aliases) && p.aliases.every((a: unknown) => typeof a === 'string')))) : [],
-      playtestLog: false, rewardsEnabled: value.rewardsEnabled !== false,
-      breakAfterSeconds: number(value.breakAfterSeconds, 1200, 1, 86400),
-    };
-  } catch { return { ...defaults }; }
+    const response = await fetch(url, init);
+    if (!response.ok) return undefined;
+    const value: unknown = await response.json();
+    return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+  } catch { return undefined; }
+}
+function lastConfig(): Record<string, unknown> | undefined {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(LAST_CONFIG_KEY) ?? 'null');
+    return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+  } catch { return undefined; }
+}
+/**
+ * Network first, so an adult's edit to config.json applies on the next load.
+ * The service worker precaches config.json and would serve the build-time copy
+ * forever; the query string makes no precache route match, so this request goes
+ * to the server. Offline, use the last copy read from the network, then the
+ * precached copy, then the defaults.
+ */
+async function loadConfig(): Promise<AppConfig> {
+  const fresh = await readJson(`${configUrl}?fresh=${Date.now()}`, { cache: 'no-store', signal: AbortSignal.timeout(3000) });
+  if (fresh) {
+    try { localStorage.setItem(LAST_CONFIG_KEY, JSON.stringify(fresh)); } catch { /* storage blocked: still use it */ }
+    return parseConfig(fresh);
+  }
+  const fallback = lastConfig() ?? await readJson(configUrl, { signal: AbortSignal.timeout(3000) });
+  return fallback ? parseConfig(fallback) : { ...defaults };
 }
 export const config = await loadConfig();
 export function readDebug(): DebugOptions {

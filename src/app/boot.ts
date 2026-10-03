@@ -21,7 +21,8 @@ export interface BootOptions {
   onRoundBoundary?: () => void;
   nav?: Partial<Nav>;
   nudgeAfterSeconds?: number;
-  onNudge?: (elapsedSeconds: number) => void;
+  /** Return false when the nudge could not be shown; it stays due. */
+  onNudge?: (elapsedSeconds: number) => void | boolean;
 }
 
 function missing(name: string): () => void {
@@ -148,7 +149,7 @@ export function bootApp(options: BootOptions = {}): AppServices {
     profile: () => save.active,
   };
 
-  window.__corewise = { loop, canvas, input, audio, scenes };
+  window.__corewise = { loop, canvas, input, audio, scenes, save, session, config };
   return services;
 }
 
@@ -160,6 +161,10 @@ declare global {
       input: AppServices['input'];
       audio: AppServices['audio'];
       scenes: AppServices['scenes'];
+      // Optional so any other entry that sets this hook still compiles.
+      save?: AppServices['save'];
+      session?: AppServices['session'];
+      config?: AppServices['config'];
     };
   }
 }
