@@ -90,15 +90,14 @@ export function createButton(options: ButtonOptions): Button {
         popT = Math.min(1, popT + dt / POP_SECONDS);
       }
       button.hovered = button.enabled && button.visible && button.contains(pointerX, pointerY);
-      targetScale = pressed ? 1 - 0.1 * 1 : (button.hovered || button.focused) ? 1 + 0.1 * 1 : 1;
-      springStep(spring, targetScale, SPRING_OMEGA, false ? 1 : SPRING_ZETA, dt);
+      targetScale = pressed ? 0.9 : (button.hovered || button.focused) ? 1.1 : 1;
+      springStep(spring, targetScale, SPRING_OMEGA, SPRING_ZETA, dt);
       if (options.wobble) wobbleT += dt * 2.4;
     },
     render(ctx, sprites) {
       if (!button.visible || popDelay > 0) return;
-      const calm = false;
-      const wob = options.wobble && !calm ? Math.sin(wobbleT) * 0.04 : 0;
-      const s = (spring[0] ?? 1) * arriveScale(popT, calm);
+      const wob = options.wobble ? Math.sin(wobbleT) * 0.04 : 0;
+      const s = (spring[0] ?? 1) * arriveScale(popT);
       const alpha = arriveAlpha(popT);
       if (alpha <= 0) return;
       ctx.save();

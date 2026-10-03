@@ -52,6 +52,17 @@ const POP_SECONDS = 0.4;
 /** Tile hover, press and release spring: a small overshoot on release. */
 const TILE_OMEGA = 34;
 const TILE_ZETA = 0.55;
+/** Space between neighbouring buttons in the top row, px. */
+const TOP_GAP = 12;
+/** Smallest avatar and sound button radius, buttonRadius's floor: over 96 px across. */
+const MIN_RADIUS = 52;
+
+/**
+ * The game the hub last launched, until the hub is left some other way. Every
+ * route out of a game leads back to a new hub, which starts its keyboard focus
+ * on this game's tile. Module state, because each visit builds a new hub scene.
+ */
+let launchedGame: string | null = null;
 
 /** Sprite name for a game's icon. */
 export function gameIconName(id: string): string {
@@ -111,6 +122,8 @@ interface Tile {
 
 export interface HubLayout {
   targets: LayoutTarget[];
+  /** Id of the control holding keyboard focus (`tile:<game id>` for a tile). */
+  focus?: () => string | undefined;
 }
 
 function fallbackMeadow(ctx: CanvasRenderingContext2D, w: number, h: number): void {
@@ -156,6 +169,8 @@ export function createHubScene(services: AppServices): Scene {
   let mascotGround = 0;
   let nameX = 0;
   let nameY = 0;
+  /** Widest the name may draw before it reaches the book button; wider names shrink to fit. */
+  let nameMaxW = Infinity;
   let badgeX = 0;
   let badgeY = 0;
   let badgeR = 22;
@@ -177,6 +192,7 @@ export function createHubScene(services: AppServices): Scene {
     iconScale: 0.8,
     onPress: () => {
       if (cooldown > 0) return; cooldown = 0.6;
+      launchedGame = null;
       playSfx(audio, 'button');
       nav.toNameEntry();
     },
@@ -192,19 +208,20 @@ export function createHubScene(services: AppServices): Scene {
     wobble: false,
     onPress: () => {
       if (cooldown > 0) return; cooldown = 0.6;
+      launchedGame = null;
       playSfx(audio, 'button');
       nav.toStickerBook();
     },
   };
   const stickerButton = createButton(stickerOptions);
   const soundButton = createSoundButton(services);
-  const renameButton = createButton({ x: 0, y: 0, radius: 48, fill: '#ffd23f', onPress: () => { if (cooldown > 0) return; const profile = services.profile(); if (profile) { cooldown = 0.6; nav.toNameEntry(profile.id); } } });
+  const renameButton = createButton({ x: 0, y: 0, radius: 48, fill: '#ffd23f', onPress: () => { if (cooldown > 0) return; const profile = services.profile(); if (profile) { cooldown = 0.6; launchedGame = null; nav.toNameEntry(profile.id); } } });
   const buttons: Button[] = [avatarButton, renameButton, stickerButton, soundButton];
   const hoverPrev: boolean[] = [false, false, false];
 
   const tiles: Tile[] = [];
   const tileButtons: Button[] = [];
-  const keyboard = createKeyboardNavigation(() => [...tileButtons, ...buttons]);
+  const keyboard = createKeyboardNavigation(() => [...tileButtons, ...buttons], { anyKey: true, input });
 
   const layoutInfo: HubLayout = { targets: [] };
 
@@ -245,21 +262,40 @@ export function createHubScene(services: AppServices): Scene {
     const h = height;
     margin = Math.max(16, Math.round(h * 0.03));
 
-    const ar = buttonRadius(h, 0.085 * services.config.uiScale, 84);
+    let ar = buttonRadius(h, 0.085 * services.config.uiScale, 84);
+    let br = buttonRadius(h, 0.075 * services.config.uiScale, 72);
+    // The top row holds the avatar, the pencil and the sound button side by side. Where it
+    // is too narrow for them (a tall, narrow window), the margin shrinks first, then the
+    // avatar and sound buttons, never under MIN_RADIUS, so no two buttons overlap.
+    const rowFixed = TOP_GAP + renameButton.radius * 2 + TOP_GAP;
+    const spare = w - 2 * margin - 2 * ar - 2 * br - rowFixed;
+    if (spare < 0) {
+      margin = Math.max(16, margin + spare / 2);
+      const target = Math.max(MIN_RADIUS * 2, (w - 2 * margin - rowFixed) / 2);
+      if (ar + br > target) {
+        br = Math.max(MIN_RADIUS, br - (ar + br - target) / 2);
+        ar = Math.max(MIN_RADIUS, target - br);
+      }
+    }
     avatarButton.radius = ar;
     avatarButton.x = margin + ar;
     avatarButton.y = margin + ar;
-    renameButton.x = avatarButton.x + ar + 60; renameButton.y = avatarButton.y;
+    renameButton.x = avatarButton.x + ar + TOP_GAP + renameButton.radius; renameButton.y = avatarButton.y;
     nameX = renameButton.x + 62;
     nameY = avatarButton.y;
 
-    const br = buttonRadius(h, 0.075 * services.config.uiScale, 72);
     soundButton.radius = br;
     soundButton.x = w - margin - br;
     soundButton.y = margin + br;
     stickerButton.radius = br;
     stickerButton.x = soundButton.x - br * 2 - margin;
     stickerButton.y = soundButton.y;
+    // Too narrow for one row (390 px wide, for example): the book button moves under the sound button.
+    const twoRows = renameButton.x + renameButton.radius + margin > stickerButton.x - br;
+    if (twoRows) {
+      stickerButton.x = soundButton.x;
+      stickerButton.y = soundButton.y + br * 2 + margin;
+    }
     badgeR = Math.max(20, br * 0.36);
     badgeX = stickerButton.x + br * 0.72;
     badgeY = stickerButton.y - br * 0.72;
@@ -270,7 +306,8 @@ export function createHubScene(services: AppServices): Scene {
     mascotGround = h - margin;
 
     // Tile band between the top buttons and the mascot.
-    const bandTop = margin + ar * 2 + h * 0.05 + (w < 1000 ? 50 : 0);
+    let bandTop = margin + ar * 2 + h * 0.05 + (w < 1000 ? 50 : 0);
+    if (twoRows) bandTop = Math.max(bandTop, stickerButton.y + br + margin);
     const bandBottom = h * 0.76;
     const bandH = Math.max(100, bandBottom - bandTop);
     const bandW = w - margin * 4;
@@ -308,6 +345,7 @@ export function createHubScene(services: AppServices): Scene {
 
     tiles.forEach((t, i) => { const b = tileButtons[i]!; b.x = t.x; b.y = t.y; b.radius = t.size / 2; });
     if (w < 1000) { nameX = margin; nameY = avatarButton.y + ar + 30; }
+    nameMaxW = twoRows ? stickerButton.x - br * 1.1 - margin - nameX : Infinity;
     if (import.meta.env.DEV) {
       layoutInfo.targets = [
         circleTarget('avatar', avatarButton),
@@ -372,23 +410,23 @@ export function createHubScene(services: AppServices): Scene {
       return;
     }
     playSfx(audio, 'whoosh');
+    launchedGame = t.id;
     nav.toGame(t.id);
   }
 
   function renderTile(ctx: CanvasRenderingContext2D, t: Tile, i: number): void {
     if (t.delay > 0) return;
-    const calm = false;
     const alpha = arriveAlpha(t.pop);
     if (alpha <= 0) return;
     const s = t.size;
-    const base = (t.scale[0] ?? 1) * arriveScale(t.pop, calm);
-    const squash = (t.squash[0] ?? 0) * 1;
+    const base = (t.scale[0] ?? 1) * arriveScale(t.pop);
+    const squash = t.squash[0] ?? 0;
     const sx = base * (1 + 0.08 * squash);
     const sy = base * (1 - 0.12 * squash);
     // Idle sway on its own phase, running from the pop-in on; a quicker wobble while hovered.
-    const sway = calm ? 0 : Math.cos(time * 1.1 + i * 1.5);
-    const rot = calm ? 0 : Math.sin(t.wobble * 9) * 0.045 * t.hover + sway * 0.02;
-    const bob = calm ? 0 : Math.cos(time * 1.3 + i * 1.5 + 0.8) * s * 0.012;
+    const sway = Math.cos(time * 1.1 + i * 1.5);
+    const rot = Math.sin(t.wobble * 9) * 0.045 * t.hover + sway * 0.02;
+    const bob = Math.cos(time * 1.3 + i * 1.5 + 0.8) * s * 0.012;
     ctx.save();
     if (alpha < 1) ctx.globalAlpha = alpha;
     ctx.translate(t.x, t.y + bob);
@@ -428,6 +466,8 @@ export function createHubScene(services: AppServices): Scene {
     },
     resume() {
       cooldown = 0.4;
+      // Drops a modifier pressed before the nudge covered the hub.
+      keyboard.focus(keyboard.selected);
     },
     enter() {
       width = services.canvas.width;
@@ -439,7 +479,10 @@ export function createHubScene(services: AppServices): Scene {
       time = 0;
       mascotT = 0;
       cooldown = 0.4;
-      keyboard.focus(tileButtons[0] ?? avatarButton);
+      // Back from a game, focus waits on that game's tile; otherwise on the first tile.
+      const returned = launchedGame === null ? -1 : tiles.findIndex((t) => t.id === launchedGame);
+      launchedGame = null;
+      keyboard.focus(tileButtons[returned] ?? tileButtons[0] ?? avatarButton);
       avatarButton.popIn(0);
       renameButton.popIn(0.02);
       stickerButton.popIn(0.04);
@@ -487,9 +530,8 @@ export function createHubScene(services: AppServices): Scene {
         t.hovered = over;
         const focused = tileButtons[tiles.indexOf(t)]?.focused ?? false;
         t.hover = approach(t.hover, over || focused ? 1 : 0, 10, dt);
-        const zeta = false ? 1 : TILE_ZETA;
-        springStep(t.scale, (over || focused) && !t.pressed ? 1 + 0.08 * 1 : 1, TILE_OMEGA, zeta, dt);
-        springStep(t.squash, t.pressed ? 1 : 0, TILE_OMEGA * 1.4, zeta, dt);
+        springStep(t.scale, (over || focused) && !t.pressed ? 1.08 : 1, TILE_OMEGA, TILE_ZETA, dt);
+        springStep(t.squash, t.pressed ? 1 : 0, TILE_OMEGA * 1.4, TILE_ZETA, dt);
         t.wobble += dt;
       }
     },
@@ -503,12 +545,11 @@ export function createHubScene(services: AppServices): Scene {
 
       // Mascot behind the tiles: pops in waving, then idle (or point at a lone game). The bob runs
       // from enter so the pose swap does not jump, and every pose is drawn from its feet.
-      const calm = false;
       const pose = mascotT < WAVE_SECONDS ? WAVE : singleGame ? POINT : IDLE;
-      const lift = calm ? 0 : (Math.sin(time * 2.2) + 1) * mascotSize * 0.025;
-      const rot = mascotT < WAVE_SECONDS && !calm ? Math.sin(mascotT * 6) * 0.06 * (1 - mascotT / WAVE_SECONDS) : 0;
+      const lift = (Math.sin(time * 2.2) + 1) * mascotSize * 0.025;
+      const rot = mascotT < WAVE_SECONDS ? Math.sin(mascotT * 6) * 0.06 * (1 - mascotT / WAVE_SECONDS) : 0;
       const pop = mascotT / POP_SECONDS;
-      const ms = arriveScale(pop, calm);
+      const ms = arriveScale(pop);
       const malpha = arriveAlpha(pop);
       ctx.globalAlpha = malpha;
       groundShadow(ctx, mascotX, mascotGround, (mascotSize * 0.3 - lift * 0.6) * ms, mascotSize * 0.055 * ms, 0.2 * malpha);
@@ -521,9 +562,15 @@ export function createHubScene(services: AppServices): Scene {
       ctx.save(); ctx.translate(renameButton.x, renameButton.y); ctx.rotate(-Math.PI / 4);
       chunkyPanel(ctx, -10, -26, 20, 45, '#fff4dc', OUTLINE, 4, 4);
       ctx.beginPath(); ctx.moveTo(-10, 19); ctx.lineTo(0, 34); ctx.lineTo(10, 19); ctx.closePath(); ctx.fillStyle = OUTLINE; ctx.fill(); ctx.restore();
-      if (nameSprite) drawTextSprite(ctx, nameSprite, nameX, nameY, 'left');
+      if (nameSprite) {
+        if (nameSprite.w <= nameMaxW) drawTextSprite(ctx, nameSprite, nameX, nameY, 'left');
+        else {
+          const k = nameMaxW / nameSprite.w;
+          ctx.drawImage(nameSprite.canvas, nameX, nameY - (nameSprite.h * k) / 2, nameSprite.w * k, nameSprite.h * k);
+        }
+      }
       if (badgeSprite && badgeCount > 0 && badgeDelay <= 0) {
-        const s = arriveScale(badgePop, false);
+        const s = arriveScale(badgePop);
         const a = arriveAlpha(badgePop);
         if (a > 0) {
           ctx.save();
@@ -548,6 +595,8 @@ export function createHubScene(services: AppServices): Scene {
         dispatchUp(buttons, event.info.x, event.info.y);
       } else if (event.type === 'keydown' && !event.info.repeat) {
         keyboard.key(event.info.key);
+      } else if (event.type === 'keyup') {
+        keyboard.keyUp(event.info.key);
       }
     },
     resize(w: number, h: number) {
@@ -557,6 +606,13 @@ export function createHubScene(services: AppServices): Scene {
       refreshProfile();
     },
   };
-  if (import.meta.env.DEV) scene.layout = layoutInfo;
+  if (import.meta.env.DEV) {
+    layoutInfo.focus = () => {
+      const i = tileButtons.findIndex((b) => b.focused);
+      if (i >= 0) return `tile:${tiles[i]?.id ?? 'placeholder'}`;
+      return ['avatar', 'rename', 'sticker-book', 'sound'][buttons.findIndex((b) => b.focused)];
+    };
+    scene.layout = layoutInfo;
+  }
   return scene;
 }

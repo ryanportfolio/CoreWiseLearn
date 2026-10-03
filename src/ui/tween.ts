@@ -30,10 +30,10 @@ export function approach(current: number, target: number, rate: number, dt: numb
 
 /**
  * Arrival scale for pop-ins: starts at 0.9 (never 0) and springs to 1 with a
- * small overshoot (about 1.065). `calm` drops the overshoot when an effect explicitly needs a still pose.
+ * small overshoot (about 1.065).
  */
-export function arriveScale(t: number, calm = false): number {
-  return calm ? 1 : 0.9 + 0.1 * easeOutBack(t, 6);
+export function arriveScale(t: number): number {
+  return 0.9 + 0.1 * easeOutBack(t, 6);
 }
 
 /** Fade-in alpha for an arrival: fully opaque by 40 percent of the way through. */
@@ -45,10 +45,10 @@ export const SLAM_CONTACT = 1 / (SLAM_BACK + 1);
 
 /**
  * A slam: starts at 1 + amount and comes down to 1, dipping a little below
- * on contact before it settles. `calm` lands without the dip.
+ * on contact before it settles.
  */
-export function slamScale(t: number, amount: number, calm = false): number {
-  return calm ? 1 : 1 + amount * (1 - easeOutBack(t, SLAM_BACK));
+export function slamScale(t: number, amount: number): number {
+  return 1 + amount * (1 - easeOutBack(t, SLAM_BACK));
 }
 
 /**

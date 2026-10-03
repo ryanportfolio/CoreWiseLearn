@@ -4,7 +4,7 @@
  */
 
 import { bootApp } from '../../app/boot';
-import { rewards, type AppServices } from '../../app/services';
+import { rewards, type AppServices, type Nav } from '../../app/services';
 import { artReport } from './shared';
 
 type DevWindow = Window & {
@@ -13,8 +13,11 @@ type DevWindow = Window & {
   __art?: () => { found: string[]; missing: string[] };
 };
 
-/** Boot with navigation stubs that log and record each call on window.__navCalls. */
-export function bootDev(): AppServices {
+/**
+ * Boot with navigation stubs that log and record each call on window.__navCalls.
+ * `after` runs a dev page's own action after a call is logged.
+ */
+export function bootDev(after: Partial<Nav> = {}): AppServices {
   const w = window as DevWindow;
   const calls: string[] = [];
   w.__navCalls = calls;
@@ -24,10 +27,10 @@ export function bootDev(): AppServices {
   };
   const services = bootApp({
     nav: {
-      toNameEntry: () => log('toNameEntry()'),
-      toHub: () => log('toHub()'),
-      toGame: (id) => log(`toGame(${id})`),
-      toStickerBook: () => log('toStickerBook()'),
+      toNameEntry: (profileId) => { log('toNameEntry()'); after.toNameEntry?.(profileId); },
+      toHub: () => { log('toHub()'); after.toHub?.(); },
+      toGame: (id) => { log(`toGame(${id})`); after.toGame?.(id); },
+      toStickerBook: () => { log('toStickerBook()'); after.toStickerBook?.(); },
     },
   });
   w.__art = artReport;

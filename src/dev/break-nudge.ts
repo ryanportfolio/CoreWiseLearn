@@ -3,6 +3,10 @@
  * underneath (an orbiting ball and a counter of its updates, exposed as
  * window.__belowUpdates) so a check can confirm it freezes under the
  * overlay and resumes after. Press N on the stand-in to open the nudge again.
+ *
+ * `?fresh` pushes the nudge before the stand-in has drawn a frame, as when a
+ * game restores straight into its rest screen: the stand-in then runs live
+ * under the dim for about a second before the snapshot freezes it.
  */
 
 import type { Scene } from '../engine/scene';
@@ -41,6 +45,6 @@ await loadBreakNudgeAssets(services);
 instrumentWork(services);
 await services.scenes.push(createStandIn());
 services.loop.start();
-// Let the stand-in draw a few frames so the overlay's snapshot has something to dim.
-await new Promise((resolve) => setTimeout(resolve, 300));
+// Without ?fresh, let the stand-in run past the nudge's settle time so the snapshot is taken at once.
+if (!new URLSearchParams(location.search).has('fresh')) await new Promise((resolve) => setTimeout(resolve, 1200));
 await services.scenes.push(createBreakNudgeScene(services));

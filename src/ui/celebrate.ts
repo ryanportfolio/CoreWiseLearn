@@ -8,18 +8,17 @@ const CONFETTI_HUES = [0, 35, 55, 130, 200, 280, 320];
 
 /** Confetti shower from a point. Big and slow so it reads for a small child. */
 export function confettiBurst(particles: ParticleSystem, x: number, y: number, count = 80, speed = 420): void {
-  const movement = 1;
-  particles.burst(Math.min(count, movement ? 80 : 12), (p: ParticleSpawn, i: number) => {
+  particles.burst(Math.min(count, 80), (p: ParticleSpawn, i: number) => {
     const angle = Math.random() * Math.PI * 2;
     const v = speed * (0.4 + Math.random() * 0.6);
     p.x = x;
     p.y = y;
-    p.vx = Math.cos(angle) * v * movement;
-    p.vy = (Math.sin(angle) * v - speed * 0.5) * movement;
+    p.vx = Math.cos(angle) * v;
+    p.vy = Math.sin(angle) * v - speed * 0.5;
     p.life = 1.4 + Math.random() * 0.8;
     p.size = 7 + Math.random() * 7;
     p.endSize = 3;
-    p.gravity = 700 * movement;
+    p.gravity = 700;
     p.drag = 0.35;
     p.hue = CONFETTI_HUES[i % CONFETTI_HUES.length] ?? 0;
     p.saturation = 90;
@@ -30,16 +29,15 @@ export function confettiBurst(particles: ParticleSystem, x: number, y: number, c
 
 /** Full-width confetti rain from the top edge. */
 export function confettiRain(particles: ParticleSystem, width: number, count = 40): void {
-  const movement = 1;
   particles.burst(count, (p: ParticleSpawn, i: number) => {
     p.x = Math.random() * width;
     p.y = -20;
-    p.vx = (Math.random() - 0.5) * 120 * movement;
-    p.vy = (80 + Math.random() * 160) * movement;
+    p.vx = (Math.random() - 0.5) * 120;
+    p.vy = 80 + Math.random() * 160;
     p.life = 2.5 + Math.random();
     p.size = 6 + Math.random() * 8;
     p.endSize = 4;
-    p.gravity = 180 * movement;
+    p.gravity = 180;
     p.drag = 0.2;
     p.hue = CONFETTI_HUES[i % CONFETTI_HUES.length] ?? 0;
     p.saturation = 90;
@@ -90,7 +88,6 @@ function glintPath(ctx: CanvasRenderingContext2D, x: number, y: number, r: numbe
  */
 export function drawStarRow(ctx: CanvasRenderingContext2D, cx: number, cy: number, radius: number, earned: number, t: number, time = 0): void {
   const gap = radius * 2.6;
-  const calm = false;
   ctx.lineJoin = 'round';
   const count = Math.max(0, Math.min(3, earned));
   for (let i = 0; i < count; i++) {
@@ -100,10 +97,10 @@ export function drawStarRow(ctx: CanvasRenderingContext2D, cx: number, cy: numbe
     const local = t - i * STAR_GAP_SECONDS;
     if (i >= earned || local <= 0) continue;
     const k = local / STAR_SLAM_SECONDS;
-    const s = slamScale(k, 0.7, calm);
+    const s = slamScale(k, 0.7);
     const alpha = clamp01(local / STAR_HIT_SECONDS);
     const landed = k >= 1;
-    const sway = landed && !calm ? Math.cos(time * 1.1 + i * 1.5) * 0.05 : 0;
+    const sway = landed ? Math.cos(time * 1.1 + i * 1.5) * 0.05 : 0;
     ctx.save();
     if (alpha < 1) ctx.globalAlpha *= alpha;
     ctx.translate(x, cy);
@@ -176,7 +173,7 @@ function glyphsFor(sizePx: number): Glyph[] {
  * digit glyphs with drawImage and allocates nothing per frame.
  */
 export function drawCounter(ctx: CanvasRenderingContext2D, value: number, x: number, y: number, sizePx: number, sinceChange: number): void {
-  const s = 1 + 0.35 * 1 * pulse(Math.min(1, sinceChange / 0.3));
+  const s = 1 + 0.35 * pulse(Math.min(1, sinceChange / 0.3));
   const glyphs = glyphsFor(Math.round(sizePx));
   const n = Math.max(0, Math.floor(value));
   // Total advance first, so the number stays centred on x.

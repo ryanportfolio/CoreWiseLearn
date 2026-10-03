@@ -138,4 +138,3 @@ export function emptyLayout(): NameEntryLayout {
     mascotX: 0, mascotGroundY: 0, mascotSize: 0,
   };
 }
-
