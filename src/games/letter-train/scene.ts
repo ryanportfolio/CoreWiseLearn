@@ -158,7 +158,8 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
   /** Keyboard highlights show only after keyboard input; pointer input hides them again. */
   let kbActive = false;
   /**
-   * Scene time of the last key press; whether the arrows moved a highlight since the last placement (a pair the child
+   * Wall-clock time (performance.now(), ms) of the last key press, so slow frames that clamp scene time cannot
+   * make calm presses look like mashing; whether the arrows moved a highlight since the last placement (a pair the child
    * chose, not the default); and whether the keyboard attempt keyPress is making may count as learning evidence.
    */
   let lastKeyAt = -Infinity, kbChose = false, keyEvidence = false;
@@ -755,11 +756,11 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     if (b.y < platformTop) { if (car >= 0) motorHits++; else motorMisses++; }
     if (car >= 0) attempt(index, car, 'pointer'); else sendHome(b);
   }
-  function keyPress(key: string, code: string): void {
+  function keyPress(key: string, code: string, now: number): void {
     // The highlights are hidden until a key arrives (and again after any pointer press).
     const first = !kbActive;
     // Mashing still plays, but a key that comes too soon after the previous one is never learning evidence.
-    const calm = time - lastKeyAt >= KEY_CALM; lastKeyAt = time;
+    const calm = now - lastKeyAt >= KEY_CALM * 1000; lastKeyAt = now;
     idleT = 0; nextHintAt = IDLE_FIRST; hintT = -1; kbActive = true;
     if (demoT >= 0) endDemo();
     // Between trains a key gets a puff from the chimney.
@@ -1253,7 +1254,7 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
       if (now < inputAfter) return;
       if (playable()) {
         if (event.type === 'pointerdown') pointerDown(event.info.x, event.info.y);
-        else keyPress(event.info.key, event.info.code);
+        else keyPress(event.info.key, event.info.code, now);
         return;
       }
       if (!menu) return;
