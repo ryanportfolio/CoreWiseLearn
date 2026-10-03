@@ -105,8 +105,28 @@ export function sanitizeRewardsData(bag: Record<string, unknown>, protect: () =>
   }
 }
 
+/**
+ * Checks one game's saved bag. Replace anything invalid with a safe value in
+ * place and call `protect()` when you do, so the stored bytes are never overwritten.
+ */
+export type SaveBagValidator = (bag: Record<string, unknown>, protect: () => void) => void;
+
+const saveValidators = new Map<string, SaveBagValidator>();
+
+/**
+ * Register a game's save-bag validator. Call it before the save store is
+ * created (bootApp does this for every registry game with `validateSave`).
+ * A later call for the same id replaces the earlier validator.
+ */
+export function registerSaveValidator(gameId: string, validator: SaveBagValidator): void {
+  saveValidators.set(gameId, validator);
+}
+
+/** Run each registered game's validator, then the rewards check. Bags with no validator are left as they are. */
 export function sanitizeSavedGames(games: Record<string, Record<string, unknown>>, protect: () => void): void {
-  if (games['bubble-pop']) sanitizeBubbleData(games['bubble-pop'], protect);
+  for (const [gameId, validate] of saveValidators) {
+    if (games[gameId]) validate(games[gameId], protect);
+  }
   if (games[REWARDS_GAME_ID]) sanitizeRewardsData(games[REWARDS_GAME_ID], protect);
 }
 

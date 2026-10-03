@@ -11,6 +11,7 @@ import { createInput } from '../engine/input';
 import { createAudio } from '../engine/audio';
 import { createSceneManager, type SceneContext } from '../engine/scene';
 import { createSaveStore } from '../engine/save';
+import { registerSaveValidators } from '../engine/registry';
 import { createSpriteStore } from '../engine/sprites';
 import { createSessionTimer } from '../engine/session';
 import type { AppServices, Nav } from './services';
@@ -38,6 +39,8 @@ export function bootApp(options: BootOptions = {}): AppServices {
   const input = createInput(element);
   const audio = createAudio(config.masterTrimDb);
   const scenes = createSceneManager(input);
+  // Every game's save check must be in place before the stored save is read.
+  registerSaveValidators();
   const save = createSaveStore();
   save.seedProfiles(config.profiles);
   const sprites = createSpriteStore();
