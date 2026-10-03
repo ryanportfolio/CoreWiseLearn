@@ -16,7 +16,7 @@ import { artName, artRequest, bakeBackground, createSoundButton, loadAllArt, sou
 import { PAPER, SHAPES, SWATCHES, TRAY_ASPECT, bakeShape, drawBaked, paintShape, setGrain, tracePath, type Baked, type Shape } from './paper';
 import { ALIVE_SECONDS, PICTURES, PICTURE_IDS, partPose, picturePose, pictureById, resetPose, shelfPose, type Face, type Part, type Picture, type PictureId, type Pose } from './pictures';
 import { FX_BUBBLE, FX_PUFF, createFx } from './fx';
-import { MAX_STAMPS, SHEET_COUNT, STAMP_STRIDE, defaults, sanitize, type Wip, type WorkshopData } from './save';
+import { MAX_STAMPS, SHEET_COUNT, STAMP_STRIDE, TALLY_LENGTH, defaults, sanitize, type Wip, type WorkshopData } from './save';
 import { loadVoiceList, sayShape } from './voice';
 
 export const GAME_ID = 'shape-workshop';
@@ -463,7 +463,11 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     for (let i = pieces.length - 1; i > 0; i--) { const j = Math.floor(random() * (i + 1)); const t = pieces[i]!; pieces[i] = pieces[j]!; pieces[j] = t; }
     pieces.forEach((p, i) => { p.cell = i; });
     keyPiece = 0;
-    learnHits = learnMisses = motorHits = motorMisses = pointerPlacements = keyPlacements = 0;
+    // A half-built picture resumes with its attempts so far and its pieces' first-try state (older saves: none).
+    const t = wip.tally;
+    learnHits = t?.[0] ?? 0; learnMisses = t?.[1] ?? 0; motorHits = t?.[2] ?? 0; motorMisses = t?.[3] ?? 0;
+    pointerPlacements = t?.[4] ?? 0; keyPlacements = t?.[5] ?? 0;
+    for (const p of pieces) p.tried = p.part >= 0 && !!wip.tried?.includes(p.part);
     held = undefined; hintAt = -99; hinted = false; lastHint = time; lastPlace = time;
     // A ring on a top button belongs to the celebration just ended; play keys must not press it.
     phase = 'deal'; phaseT = 0; boardSlide = 0; cue = 0; focus = -1;
@@ -575,7 +579,9 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     lastHint = time;
     if (m >= 0) {
       motorHits++;
-      if (!snapped && !assisted(p) && !p.tried) { learnHits++; evidence(p.shape, 0); }
+      // Learning credit needs the drop inside the credited outline itself, not only in its tolerance rim
+      // or centre reach: where outlines nest, a drop there may have been aimed at the outline around it.
+      if (!snapped && !assisted(p) && !p.tried && insideOutline(spots[m]!, x, y, 0)) { learnHits++; evidence(p.shape, 0); }
       pointerPlacements++;
       place(p, m, HOW_POINTER);
       return;
@@ -584,12 +590,21 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
       // Wrong outline: gentle no, back to the tray. Learning evidence only, never motor.
       if (!assisted(p)) { learnMisses++; evidence(p.shape, 1); }
       p.tried = true; p.state = 'nope'; p.t = 0; p.fromX = x; p.fromY = y; p.x = x; p.y = y; p.drag = false; p.selected = false;
+      if (p.part >= 0) { const tried = wip.tried ?? (wip.tried = []); if (!tried.includes(p.part)) tried.push(p.part); }
       if (held === p) held = undefined;
       sfx('miss', 'D', 0, 0.8);
+      keepTally();
       return;
     }
-    if (near >= 0 && dm <= spots[near]!.reach * 2.5) motorMisses++;
+    if (near >= 0 && dm <= spots[near]!.reach * 2.5) { motorMisses++; keepTally(); }
     if (drag) returnPiece(p);
+  }
+
+  /** Copy this picture's attempt counts into its saved unfinished picture, so leaving and coming back keeps them. */
+  function keepTally(): void {
+    const t = wip.tally ?? (wip.tally = new Array<number>(TALLY_LENGTH).fill(0));
+    t[0] = learnHits; t[1] = learnMisses; t[2] = motorHits; t[3] = motorMisses; t[4] = pointerPlacements; t[5] = keyPlacements;
+    save();
   }
 
   function evidence(shape: Shape, slot: 0 | 1): void {
@@ -620,7 +635,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     sayShape(services, p.shape);
     fx.sparkleRing(s.x, s.y, Math.max(s.w, s.h) * 0.5 + 10 * u, 9, random);
     if (pieces.indexOf(p) === keyPiece) moveKeyPiece(1);
-    if (wip.placed.length >= wip.open.length) completePicture(); else save();
+    if (wip.placed.length >= wip.open.length) completePicture(); else keepTally();
   }
 
   /** Move the keyboard ring to the next piece that fits an outline; spares are skipped (only arrows reach them). */
@@ -727,6 +742,9 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   function stamps(): number[] { return data.sheets[sheetIndex]!; }
 
   function stamp(x: number, y: number): void {
+    // Stamping again (a full sheet's sparkle too) is play: a break point still waiting is dropped, and
+    // the next one needs another full quiet spell after this stamp.
+    boundaryAt = -1; lastStampAt = time; stampedSincePause = true;
     const list = stamps();
     if (list.length >= MAX_STAMPS * STAMP_STRIDE) { fx.sparkleRing(x, y, 30 * u, 6, random); sfx('tick', undefined, 0, 0.6); return; }
     let slot: Stamp | undefined;
@@ -736,7 +754,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     const nx = Math.round(clamp01((x - freeX) / freeW) * 1000), ny = Math.round(clamp01((y - freeY) / freeH) * 1000);
     list.push(selShape, selColor, nx, ny, size, rot);
     slot.active = true; slot.shape = selShape; slot.color = selColor; slot.x = nx; slot.y = ny; slot.size = size; slot.rot = rot; slot.t = 0;
-    lastStampX = x; lastStampY = y; lastStampAt = time; stampedSincePause = true;
+    lastStampX = x; lastStampY = y;
     sfx('pop', 'C', selShape * 2 + (selColor % 2));
     fx.sparkleRing(x, y, freeW * size / 1000 * 0.4, 5, random);
     sayShape(services, SHAPES[selShape]!);

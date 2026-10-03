@@ -1,5 +1,6 @@
 import type { GameDefinition } from '../../engine/registry';
 import { createShapeWorkshopScene, GAME_ID } from './scene';
+import { sanitize } from './save';
 
 export const shapeWorkshop: GameDefinition = {
   id: GAME_ID,
@@ -8,5 +9,6 @@ export const shapeWorkshop: GameDefinition = {
   themes: ['shapes', 'creative', 'workshop'],
   mode: 'creative',
   learning: ['shapes'],
+  validateSave: (bag, protect) => sanitize(bag, protect),
   createScene: services => createShapeWorkshopScene(services),
 };

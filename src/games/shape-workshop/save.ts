@@ -1,4 +1,7 @@
-/** Per-profile save bag for Shape Workshop, validated on entry. */
+/**
+ * Per-profile save bag for Shape Workshop. The game definition registers `sanitize` as its save check,
+ * so the save store runs it at load and before every write; the scene runs it again on entry.
+ */
 
 import { PICTURE_IDS, PICTURES } from './pictures';
 import { SHAPES } from './paper';
@@ -8,7 +11,14 @@ export const SHEET_COUNT = 6;
 export const STAMP_STRIDE = 6;
 export const MAX_STAMPS = 160;
 
-export interface Wip { open: number[]; placed: number[] }
+/**
+ * An unfinished picture: its open and placed part indices; its attempt tally so far (learning hits,
+ * learning misses, motor hits, motor misses, pointer placements, keyboard placements); and the open
+ * parts whose piece already tried a wrong outline. Saves from before the tally have neither field and
+ * resume with zeros and no tried parts.
+ */
+export interface Wip { open: number[]; placed: number[]; tally?: number[]; tried?: number[] }
+export const TALLY_LENGTH = 6;
 
 export interface WorkshopData extends Record<string, unknown> {
   tier: number; motorStreak: number;
@@ -40,7 +50,9 @@ function validWip(id: string, w: unknown): w is Wip {
   const n = pic.parts.length;
   const open = w.open as unknown[];
   return open.length > 0 && open.every(i => range(i, n - 1)) && new Set(open).size === open.length &&
-    w.placed.every(i => open.includes(i)) && new Set(w.placed).size === w.placed.length && w.placed.length < w.open.length;
+    w.placed.every(i => open.includes(i)) && new Set(w.placed).size === w.placed.length && w.placed.length < w.open.length &&
+    (w.tally === undefined || (Array.isArray(w.tally) && w.tally.length === TALLY_LENGTH && w.tally.every(count))) &&
+    (w.tried === undefined || (Array.isArray(w.tried) && w.tried.every(i => open.includes(i)) && new Set(w.tried).size === w.tried.length));
 }
 
 function validSheet(s: unknown): s is number[] {
