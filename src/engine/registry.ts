@@ -4,7 +4,7 @@
  */
 
 import type { Scene } from './scene';
-import type { AppServices } from '../app/services';
+import { registerSaveValidator, type AppServices, type SaveBagValidator } from '../app/services';
 import { bubblePop } from '../games/bubble-pop';
 import { letterTrain } from '../games/letter-train';
 
@@ -26,6 +26,12 @@ export interface GameDefinition {
   learning?: readonly ('letters' | 'sounds' | 'words' | 'counting' | 'shapes' | 'colors')[];
   /** Optional future bundle loader. Failure is recovered once at a safe hub boundary. */
   load?: () => Promise<void>;
+  /**
+   * Optional check for this game's saved bag. bootApp registers it before the
+   * save loads, so a malformed bag is caught before any write, even if the game is never opened.
+   * Keep it in cheap code: this definition is imported at startup.
+   */
+  validateSave?: SaveBagValidator;
   /** Build a fresh scene for a play session. */
   createScene(services: GameServices): Scene;
 }
@@ -42,6 +48,11 @@ export function allGames(): readonly GameDefinition[] {
 
 export function findGame(id: string): GameDefinition | undefined {
   return games.find((g) => g.id === id);
+}
+
+/** Register every listed game's save validator. bootApp calls this before creating the save store. */
+export function registerSaveValidators(): void {
+  for (const game of games) if (game.validateSave) registerSaveValidator(game.id, game.validateSave);
 }
 
 export function gamesWithTheme(theme: string): GameDefinition[] {

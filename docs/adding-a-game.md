@@ -26,6 +26,8 @@ export const myGame: GameDefinition = {
 
 An optional `load()` can preload a later bundle. The app catches a failed load and permits one reload at a safe hub boundary. Asset URLs use `services.art()` or `services.base`; the deployed base is `/CoreWiseLearn/`.
 
+A game that keeps a save bag should also set `validateSave: (bag, protect) => ...`. `bootApp` registers it (through `registerSaveValidator` in `src/app/services.ts`) before the save is read, and the save store runs it on this game's bag in every profile when the save loads, before each write merges with what another tab stored, and when it adopts a bag or profile another tab stored. So a damaged bag is caught even if the child never opens the game. The validator replaces each invalid value in place with a safe one and calls `protect()` when it does; the store then never overwrites the stored bytes on this visit. Filling a missing field with its default needs no `protect()`; leave valid values alone. Keep it in cheap code (the definition file or a small module it imports, not the scene) because every definition loads at startup. Bubble Bay's is `sanitizeBubbleData`. Games without a validator have their bags left as stored.
+
 ## Shared services
 
 - Implement the `Scene` lifecycle. Add pause/resume handlers so a break overlay does not restart play. The break nudge can arrive before your scene has been on top for 1 s (`services.scenes.shownSeconds`), for example when it restores straight into its rest screen; the nudge then keeps calling your scene's `update` and `render` after it is covered (after `pause()`, or after `exit()` for a scene with no `pause()`; see `src/engine/scene.ts`) until that second is up, then keeps a still copy of it. Your scene must keep drawing correctly in that time.
