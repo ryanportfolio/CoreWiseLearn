@@ -16,7 +16,7 @@ import { bakeBall, bakePoint, bakeSign, RIMS } from './bake';
 import { playClip, prepareClips } from './voice';
 import {
   CATCHES_PER_ROUND, catchRange, clipName, connectCount, DEFAULT_DATA, GAME_ID, glyph, heartAt, keyMatches, nextLevel, nextTier,
-  PICTURES, picturePoints, sanitizeData, signDots, signGlyph, TIERS, toLevel, toTier,
+  PICTURES, picturePoints, sanitizeData, signDots, signGlyph, stepNeedsGlyph, TIERS, toLevel, toTier,
   type GameData, type Level, type Mode, type PendingRound, type TierParams,
 } from './content';
 
@@ -39,6 +39,12 @@ const HOMES: Readonly<Record<number, readonly number[]>> = {
   4: [0.12, 0.3, 0.4, 0.75, 0.64, 0.22, 0.9, 0.68],
   5: [0.08, 0.62, 0.28, 0.18, 0.5, 0.7, 0.72, 0.22, 0.93, 0.62],
 };
+/** Narrow views (the ball field is under 2.5 balls wide): three balls in a zigzag column. */
+const NARROW_HOMES: readonly number[] = [0, 0, 1, 0.5, 0, 1];
+const NARROW_BALLS = 3;
+const MIN_DISC = 100;
+/** Hand offset in the shoot pose, as fractions of the sprite from its centre. */
+const AIM_X = SHOOT_HAND[0] - 0.5, AIM_Y = SHOOT_HAND[1] - 0.5;
 type Phase = 'swingIn' | 'catch' | 'swing' | 'connect' | 'complete' | 'celebration' | 'choice' | 'sticker' | 'rest';
 type CatchStep = 'ask' | 'shoot' | 'wait';
 type How = 'click' | 'key-match' | 'key-other' | 'demo';
@@ -89,6 +95,7 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
   const ballCache = new Map<string, HTMLCanvasElement>();
   const caught = new Int8Array(CATCHES_PER_ROUND), caughtCanvas: (HTMLCanvasElement | undefined)[] = [];
   const unit = new Float32Array(MAX_POINTS * 2), pts = new Float32Array(MAX_POINTS * 2), outline = new Float32Array(96 * 2);
+  const curveT = new Float32Array(MAX_POINTS);
   const pointCanvas: (HTMLCanvasElement | undefined)[] = Array.from({ length: MAX_POINTS }, () => undefined);
   const pointWiggle = new Float32Array(MAX_POINTS), pointJoined = new Float32Array(MAX_POINTS);
   const puffs = Array.from({ length: PUFFS }, () => ({ active: false, x: 0, y: 0, t: 0 }));
@@ -111,6 +118,7 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
   let workHead = 0, workCount = 0, updateMs = 0;
   // Layout.
   let parapetY = 0, feetY = 0, heroX = 0, heroSize = 250, signW = 230, signH = 236, signX = 0, signY = 0;
+  let narrow = false, aimRot = 0, aimX = 0, aimY = 0;
   let ax0 = 0, ay0 = 0, ax1 = 0, ay1 = 0, ballD = 150, pointD = 124, picX = 0, picY = 0, picR = 200;
   let stringX0 = 0, stringX1 = 0, stringY = 0, miniD = 56, starY = 0, starR = 30;
   let badgeSize = 300, badgeY = 0, restSize = 260, restY = 0, controlsY = 0, controlsRadius = 60;
@@ -140,14 +148,17 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     signW = Math.max(150, 230 * u); signH = (mode === 'numbers' ? 236 : 176) * Math.max(0.65, u);
     signX = heroX + 34 * u;
     signY = Math.max(cornerY + cornerRadius + 10 + signH / 2, feetY - heroSize - signH * 0.6 - 26 * u);
-    ballD = Math.max(96 / tierP.hitScale, Math.max(96, tierP.ball * u));
-    pointD = Math.max(96, Math.min(tierP.point, nPoints >= 10 ? 104 : tierP.point) * u);
+    // Floors of 100 keep the drawn disc at least 96 px even after edge anti-aliasing.
+    ballD = Math.max(MIN_DISC, tierP.ball * u);
+    pointD = Math.max(MIN_DISC, Math.min(tierP.point, nPoints >= 10 ? 104 : tierP.point) * u);
     ax0 = Math.max(heroX + heroSize * 0.6, signX + signW / 2 + 20 * u, W * 0.3) + ballD / 2;
     ax1 = W - 40 * u - ballD / 2;
     ay0 = cornerY + cornerRadius + 26 * u + ballD / 2;
     ay1 = Math.max(ay0 + 10, parapetY - 12 * u - ballD / 2);
+    narrow = ax1 - ax0 < ballD * 2.5;
     for (const b of balls) if (b.active) placeHome(b);
-    const top = cornerY + cornerRadius + 12 * u, bottom = feetY - 40 * u, left = heroX + heroSize * 0.55;
+    // Narrow views have no room beside the hero, so the picture uses the full width above him.
+    const top = cornerY + cornerRadius + 12 * u, bottom = narrow ? feetY - heroSize * 0.8 : feetY - 40 * u, left = narrow ? 12 * u : heroX + heroSize * 0.55;
     picX = (left + W - 30 * u) / 2; picY = (top + bottom) / 2;
     picR = Math.max(60, Math.min((W - 30 * u - left) / 2 - pointD / 2, (bottom - top) / 2 - pointD / 2));
     placePoints();
@@ -163,7 +174,7 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     caughtCanvas.length = 0; signCanvas = undefined; bgDay = bgDusk = undefined;
   }
   function placeHome(b: Ball): void {
-    const homes = HOMES[tierP.balls] ?? HOMES[3]!;
+    const homes = narrow ? NARROW_HOMES : HOMES[tierP.balls] ?? HOMES[3]!;
     const nx = homes[b.slot * 2] ?? 0.5, ny = homes[b.slot * 2 + 1] ?? 0.5;
     b.homeX = lerp(ax0, Math.max(ax0, ax1), nx); b.homeY = lerp(ay0, ay1, ny);
   }
@@ -200,7 +211,7 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     correct = wrong = alone = attempts = hits = padded = caughtCount = requestIndex = requested = 0;
     lastRequest = -1; hint = false; target = undefined; keyboardUsed = false; demoDone = false; flightT = 1;
     stars = 1; starsPlayed = 0; ticks = 0;
-    nPoints = connectCount(level); picturePoints(PICTURES[picture]!, nPoints, unit);
+    nPoints = connectCount(level); picturePoints(PICTURES[picture]!, nPoints, unit, curveT);
     for (const b of balls) b.active = false;
     particles.clear(); for (const p of puffs) p.active = false;
     setPhase('swingIn'); pose = 'swing';
@@ -210,16 +221,18 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
   function setPhase(next: Phase): void { phase = next; phaseT = 0; }
   function beginCatch(): void {
     setPhase('catch'); pose = 'wave';
-    const n = Math.min(tierP.balls, values());
+    const n = Math.min(narrow ? NARROW_BALLS : tierP.balls, values());
     let used = 0;
     for (let i = 0; i < n; i++) { const v = freshValue(used); used |= 1 << v; spawnBall(balls[i]!, v, i * 0.12); }
     newRequest();
   }
   function onScreen(): number { let m = 0; for (const b of balls) if (b.active && !b.pulled) m |= 1 << b.value; return m; }
-  function freshValue(exclude: number): number {
+  /** A value not in exclude, avoiding soft too when possible (soft: the value just caught). */
+  function freshValue(exclude: number, soft = 0): number {
     const lo = mode === 'numbers' ? 1 : 0, n = values();
     let choice = -1, seen = 0;
-    for (let v = lo; v < lo + n; v++) if (!(exclude & (1 << v))) { seen++; if (random() * seen < 1) choice = v; }
+    for (let v = lo; v < lo + n; v++) if (!((exclude | soft) & (1 << v))) { seen++; if (random() * seen < 1) choice = v; }
+    if (choice < 0 && soft) return freshValue(exclude);
     return choice >= 0 ? choice : lo + Math.floor(random() * n);
   }
   function spawnBall(b: Ball, value: number, delay: number): void {
@@ -295,10 +308,10 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
         flightT = 0; flightX = hx; flightY = hy; friendHopT = 0;
         const slot = target, freed = slot.value;
         slot.active = false; target = undefined;
-        if (caughtCount < CATCHES_PER_ROUND) spawnBall(slot, freshValue(onScreen() | (1 << freed)), 0.15);
+        if (caughtCount < CATCHES_PER_ROUND) spawnBall(slot, freshValue(onScreen(), 1 << freed), 0.15);
         step = 'wait'; stepT = 0;
       }
-    } else if (step === 'wait' && stepT >= 0.35) {
+    } else if (step === 'wait' && stepT >= 0.12) {
       pose = 'wave';
       if (caughtCount >= CATCHES_PER_ROUND) { if (flightT >= 1) beginSwing(); }
       else { requestIndex++; newRequest(); }
@@ -314,9 +327,17 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     requestT = 0; hint = intro; hintAt = 0; demoDone = false; placePoints();
     playClip(services, clipName(mode, pointValue(1)));
   }
+  /**
+   * Connect evidence: a matching key always names the glyph; a click counts
+   * only when the layout does not give the answer away (stepNeedsGlyph).
+   */
+  function joinEvidence(how: How): boolean {
+    if (hint) return false;
+    return how === 'key-match' || (how === 'click' && stepNeedsGlyph(unit, nPoints, nextPoint));
+  }
   function joinPoint(how: How): void {
     if (phase !== 'connect' || nextPoint >= nPoints) return;
-    if ((how === 'click' || how === 'key-match') && !hint) { correct++; alone++; }
+    if (joinEvidence(how)) { correct++; alone++; }
     pointJoined[nextPoint] = time; threadT = 0; pose = 'shoot'; poseT = 0;
     playSfx(audio, 'pop', { index: nextPoint });
     burst(pts[nextPoint * 2]!, pts[nextPoint * 2 + 1]!, 48, 8); pow(pts[nextPoint * 2]!, pts[nextPoint * 2 + 1]!, pointD * 0.62);
@@ -375,10 +396,13 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
   }
   function enterRest(): void {
     setPhase('rest'); menuSelected = -1; guard(REST_GUARD_MS); particles.clear(); pose = 'wave';
-    if (!pending?.restEntered) {
-      if (pending) pending.restEntered = true;
-      services.save.flush(); services.roundBoundary();
-    }
+    // Everything is awarded by now, so the stored round is cleared: leaving the
+    // rest by any route (Again, Home, Escape, the corner, a reload) starts a new round next time.
+    // The scene keeps its copy to show the chosen sticker.
+    const first = !pending?.restEntered;
+    if (pending) pending.restEntered = true;
+    data.pending = null; services.save.flush();
+    if (first) services.roundBoundary();
   }
   function chooseSticker(index: number): void {
     if (phase !== 'choice' || !pending || pending.chosen || !pending.rewardEnabled || !services.config.rewardsEnabled) return;
@@ -474,13 +498,48 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     }
     const hop = hopT < 0.5 ? Math.sin(hopT / 0.5 * Math.PI) * 26 * u : 0;
     const cheer = phase === 'complete' || phase === 'celebration' ? Math.abs(Math.sin(time * 4.2)) * 20 * u : 0;
-    heroPos[0] = heroX; heroPos[1] = standY - hop - cheer; heroPos[2] = 0;
+    pointing = hintTarget();
+    let reach = 0;
+    aimRot = 0;
+    if (pointing) {
+      // Turn the shooting pose so its outstretched hand aims at the target, and reach towards it in a slow pulse.
+      const img = sprites.get(spriteName(HERO.shoot)), w = heroSize * (img ? img.naturalWidth / img.naturalHeight : 1);
+      const want = Math.atan2(aimY - standY, aimX - heroX) - Math.atan2(AIM_Y * heroSize, AIM_X * w);
+      aimRot = Math.max(-0.28, Math.min(0.2, want));
+      reach = (0.5 - 0.5 * Math.cos(time * 4)) * 18 * u;
+    }
+    heroPos[0] = heroX + reach * Math.cos(aimRot); heroPos[1] = standY - hop - cheer + reach * Math.sin(aimRot); heroPos[2] = aimRot;
+  }
+  let pointing = false;
+  /** While the hero points: a trail of sunny dots marching from his outstretched hand to the target. */
+  function drawGuide(ctx: CanvasRenderingContext2D): void {
+    const hp = hand(); if (!pointing) return;
+    const hx = hp[0], hy = hp[1], dx = aimX - hx, dy = aimY - hy, len = Math.hypot(dx, dy);
+    const stop = len - (phase === 'catch' ? ballD : pointD) * 0.72, gap = 34 * Math.max(0.8, u), r = 8.5 * Math.max(0.8, u);
+    if (stop <= gap) return;
+    const ux = dx / len, uy = dy / len, shift = (time * 70 * Math.max(0.7, u)) % gap;
+    ctx.beginPath();
+    for (let d = gap * 0.6 + shift; d < stop; d += gap) { const x = hx + ux * d, y = hy + uy * d; ctx.moveTo(x + r, y); ctx.arc(x, y, r, 0, Math.PI * 2); }
+    ctx.fillStyle = '#fff27a'; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = OUTLINE; ctx.stroke();
+  }
+  /** While a hint shows, the ball or point the hero points at goes in aimX, aimY. */
+  function hintTarget(): boolean {
+    if (!hint) return false;
+    if (phase === 'catch' && step === 'ask') {
+      const b = wantedBall(); if (!b || b.enter < 1) return false;
+      aimX = b.x; aimY = b.y; return true;
+    }
+    if (phase === 'connect' && closeT === 0 && threadT >= 1 && nextPoint < nPoints) {
+      aimX = pts[nextPoint * 2]!; aimY = pts[nextPoint * 2 + 1]!; return true;
+    }
+    return false;
   }
   function drawHero(ctx: CanvasRenderingContext2D): void {
     heroAt();
     let p: Pose = pose;
     if (roping) p = 'swing';
     else if (phase === 'swingIn' || phase === 'swing') p = 'wave';
+    else if (pointing) p = 'shoot';
     const land = phase === 'swingIn' && phaseT >= SWING_IN ? phaseT - SWING_IN : phase === 'swing' && phaseT >= SWING_OUT + SWING_ACROSS_IN ? phaseT - SWING_OUT - SWING_ACROSS_IN : 9;
     const squash = land < 0.25 ? Math.sin(land / 0.25 * Math.PI) * 0.12 : 0;
     if (roping) web(ctx, ropeX, ropeY, swingOut[0]!, swingOut[1]!, 0, 3.2 * u);
@@ -513,7 +572,9 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     for (const b of balls) {
       if (!b.active || b.delay > 0 || !b.canvas) continue;
       const size = b.canvas.width / dpr(), wig = b.wiggle > 0 ? Math.sin(b.wiggle * 40) * 0.18 * (b.wiggle / 0.45) : 0;
-      const shrink = b.pulled ? lerp(1, 0.55, clamp01((stepT - 0.15) / 0.3)) : 1;
+      const pointed = b === wanted && b.enter >= 1 && hint;
+      const shrink = b.pulled ? lerp(1, 0.55, clamp01((stepT - 0.15) / 0.3)) : pointed ? hintBounce() : 1;
+      if (pointed) halo(ctx, b.x, b.y, ballD / 2);
       if (wig || shrink !== 1) {
         ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(wig); ctx.scale(shrink, shrink);
         ctx.drawImage(b.canvas, -size / 2, -size / 2, size, size); ctx.restore();
@@ -524,13 +585,22 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
       }
     }
   }
+  /** Hint bounce for the pointed-at ball or point: a springy scale pulse about twice a second. */
+  function hintBounce(): number { return 1 + Math.abs(Math.sin(time * 6.5)) * 0.12; }
+  /** Wide flat sunny halo behind the hinted target, pulsing in size. */
+  function halo(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
+    const k = 0.5 + 0.5 * Math.sin(time * 6);
+    ctx.globalAlpha = 0.5 + 0.2 * k; ctx.beginPath(); ctx.arc(x, y, r + (22 + k * 14) * Math.max(0.7, u), 0, Math.PI * 2);
+    ctx.fillStyle = '#fff27a'; ctx.fill(); ctx.globalAlpha = 1;
+  }
+  /** Thick pulsing ring and a big bouncing arrow over the hinted target. */
   function glow(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
-    const pulseK = 0.5 + 0.5 * Math.sin(time * 6);
-    ctx.beginPath(); ctx.arc(x, y, r + 8 + pulseK * 8 * u, 0, Math.PI * 2);
-    ctx.strokeStyle = OUTLINE; ctx.lineWidth = 9; ctx.stroke(); ctx.strokeStyle = '#fff27a'; ctx.lineWidth = 5; ctx.stroke();
-    const ay = y - r - 22 * u - Math.abs(Math.sin(time * 5)) * 12 * u;
-    ctx.beginPath(); ctx.moveTo(x - 15 * u, ay - 14 * u); ctx.lineTo(x + 15 * u, ay - 14 * u); ctx.lineTo(x, ay + 6 * u); ctx.closePath();
-    ctx.fillStyle = '#fff27a'; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = OUTLINE; ctx.stroke();
+    const pulseK = 0.5 + 0.5 * Math.sin(time * 6), s = Math.max(0.7, u);
+    ctx.beginPath(); ctx.arc(x, y, r * 1.12 + 8 + pulseK * 10 * s, 0, Math.PI * 2);
+    ctx.strokeStyle = OUTLINE; ctx.lineWidth = 14; ctx.stroke(); ctx.strokeStyle = '#fff27a'; ctx.lineWidth = 8; ctx.stroke();
+    const ay = Math.max(30 * s, y - r * 1.12 - 30 * s - Math.abs(Math.sin(time * 5)) * 18 * s);
+    ctx.beginPath(); ctx.moveTo(x - 26 * s, ay - 30 * s); ctx.lineTo(x + 26 * s, ay - 30 * s); ctx.lineTo(x, ay + 6 * s); ctx.closePath();
+    ctx.fillStyle = '#fff27a'; ctx.fill(); ctx.lineJoin = 'round'; ctx.lineWidth = 5; ctx.strokeStyle = OUTLINE; ctx.stroke();
   }
   function focusRing(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
     ctx.beginPath(); ctx.arc(x, y, r + 8, 0, Math.PI * 2); ctx.strokeStyle = OUTLINE; ctx.lineWidth = 10; ctx.stroke();
@@ -543,18 +613,25 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     ctx.save(); ctx.translate(signX, signY); ctx.rotate(wob - 0.03); ctx.scale(s, s);
     ctx.drawImage(signCanvas, -w / 2, -h / 2, w, h); ctx.restore();
   }
+  /** The caught string. The ball still flying to it is left for drawFlight, which runs above the sign. */
   function drawString(ctx: CanvasRenderingContext2D): void {
     const sag = 26 * u;
     web(ctx, stringX0, stringY, stringX1, stringY, sag * 2, 2.4 * u);
     for (let i = 0; i < caughtCount; i++) {
-      const c = caughtCanvas[i]; if (!c) continue;
-      const k = (i + 1) / (CATCHES_PER_ROUND + 1), x = lerp(stringX0, stringX1, k), y = stringY + sag * 4 * k * (1 - k) + miniD * 0.42;
-      const flying = i === caughtCount - 1 && flightT < 1;
-      const e = flying ? easeOutCubic(flightT) : 1;
-      const px = lerp(flightX, x, e), py = lerp(flightY, y, e) - (flying ? Math.sin(flightT * Math.PI) * 60 * u : 0);
-      const size = c.width / dpr();
-      ctx.drawImage(c, px - size / 2, py - size / 2, size, size);
+      if (i === caughtCount - 1 && flightT < 1) continue;
+      drawCaught(ctx, i, 1);
     }
+  }
+  function drawFlight(ctx: CanvasRenderingContext2D): void {
+    if (caughtCount > 0 && flightT < 1) drawCaught(ctx, caughtCount - 1, flightT);
+  }
+  function drawCaught(ctx: CanvasRenderingContext2D, i: number, f: number): void {
+    const c = caughtCanvas[i]; if (!c) return;
+    const sag = 26 * u, k = (i + 1) / (CATCHES_PER_ROUND + 1), x = lerp(stringX0, stringX1, k), y = stringY + sag * 4 * k * (1 - k) + miniD * 0.42;
+    const e = easeOutCubic(f);
+    const px = lerp(flightX, x, e), py = lerp(flightY, y, e) - (f < 1 ? Math.sin(f * Math.PI) * 60 * u : 0);
+    const size = c.width / dpr();
+    ctx.drawImage(c, px - size / 2, py - size / 2, size, size);
   }
   function drawPuffs(ctx: CanvasRenderingContext2D): void {
     for (const p of puffs) {
@@ -594,17 +671,25 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
       ctx.globalAlpha = 1;
     }
   }
+  /** Thread from point a towards point b, k of the way. Heart threads follow the heart curve. */
+  function thread(ctx: CanvasRenderingContext2D, a: number, b: number, k: number): void {
+    const x0 = pts[a * 2]!, y0 = pts[a * 2 + 1]!;
+    if (PICTURES[picture] !== 'heart') { web(ctx, x0, y0, lerp(x0, pts[b * 2]!, k), lerp(y0, pts[b * 2 + 1]!, k), 0, 3 * u); return; }
+    const t0 = curveT[a]!, t1 = b === 0 ? Math.PI * 2 : curveT[b]!, steps = 14;
+    ctx.beginPath(); ctx.moveTo(x0, y0);
+    for (let s = 1; s <= steps; s++) {
+      heartAt(lerp(t0, t1, k * s / steps), outline, 0);
+      ctx.lineTo(picX + outline[0]! * picR, picY + outline[1]! * picR);
+    }
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.strokeStyle = OUTLINE; ctx.lineWidth = 3 * u * 2.3; ctx.stroke();
+    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3 * u; ctx.stroke();
+  }
   function drawThreads(ctx: CanvasRenderingContext2D): void {
     const joined = Math.min(nextPoint, nPoints);
-    for (let i = 1; i < joined; i++) {
-      const x0 = pts[(i - 1) * 2]!, y0 = pts[(i - 1) * 2 + 1]!, x1 = pts[i * 2]!, y1 = pts[i * 2 + 1]!;
-      const k = i === joined - 1 ? easeOutCubic(threadT) : 1;
-      web(ctx, x0, y0, lerp(x0, x1, k), lerp(y0, y1, k), 0, 3 * u);
-    }
+    for (let i = 1; i < joined; i++) thread(ctx, i - 1, i, i === joined - 1 ? easeOutCubic(threadT) : 1);
     if (closeT > 0 || phase === 'complete' || phase === 'celebration') {
-      const k = phase === 'connect' ? easeOutCubic(clamp01(closeT / 0.3)) : 1;
-      const x0 = pts[(nPoints - 1) * 2]!, y0 = pts[(nPoints - 1) * 2 + 1]!;
-      web(ctx, x0, y0, lerp(x0, pts[0]!, k), lerp(y0, pts[1]!, k), 0, 3 * u);
+      thread(ctx, nPoints - 1, 0, phase === 'connect' ? easeOutCubic(clamp01(closeT / 0.3)) : 1);
     }
   }
   function drawPoints(ctx: CanvasRenderingContext2D): void {
@@ -612,14 +697,16 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
       const c = pointCanvas[i]; if (!c) continue;
       const x = pts[i * 2]!, y = pts[i * 2 + 1]!, size = c.width / dpr();
       const since = pointJoined[i]! >= 0 ? time - pointJoined[i]! : -1;
-      const pop = since >= 0 && since < 0.3 ? 1 + Math.sin(since / 0.3 * Math.PI) * 0.22 : 1;
+      const pointed = phase === 'connect' && i === nextPoint && closeT === 0 && hint;
+      const pop = since >= 0 && since < 0.3 ? 1 + Math.sin(since / 0.3 * Math.PI) * 0.22 : pointed ? hintBounce() : 1;
       const wig = pointWiggle[i]! > 0 ? Math.sin(pointWiggle[i]! * 40) * 0.2 : 0;
-      if (since >= 0) { chunkyCircle(ctx, x, y, pointD * 0.5 * pop, i % 2 ? '#2f6fe4' : '#e8413b', OUTLINE, 4); }
+      if (pointed) halo(ctx, x, y, pointD / 2);
+      if (since >= 0) { chunkyCircle(ctx, x, y, (pointD * 0.5 + 9 * u) * pop, i % 2 ? '#2f6fe4' : '#e8413b', OUTLINE, 4); }
       if (pop !== 1 || wig) { ctx.save(); ctx.translate(x, y); ctx.rotate(wig); ctx.scale(pop, pop); ctx.drawImage(c, -size / 2, -size / 2, size, size); ctx.restore(); }
       else ctx.drawImage(c, x - size / 2, y - size / 2, size, size);
       if (phase === 'connect' && i === nextPoint && closeT === 0) {
-        if (hint) glow(ctx, x, y, pointD * 0.43);
-        if (keyboardUsed) focusRing(ctx, x, y, pointD * 0.43 + 4);
+        if (hint) glow(ctx, x, y, pointD / 2);
+        if (keyboardUsed) focusRing(ctx, x, y, pointD / 2 + 4);
       }
     }
   }
@@ -649,11 +736,11 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     const still = phase === 'rest';
     drawStarRow(ctx, W / 2, starY, starR, stars, phase === 'celebration' ? Math.max(0, phaseT - 0.3) : 9, still ? 0 : time);
     if (phase === 'celebration') {
-      // Count the caught balls out along the string.
-      // Count the caught balls out in a row under the stars.
+      // Count the caught balls out in a row under the stars; the counter rides just right of the last one counted.
       const shown = Math.min(caughtCount, ticks), gap = miniD * 1.12, left = W / 2 - (caughtCount * gap) / 2 - 30 * u, y = starY + starR + 24 * u + miniD / 2;
+      const counterPx = Math.round(Math.max(36, 50 * u));
       for (let i = 0; i < shown; i++) { const c = caughtCanvas[i]; if (c) { const size = c.width / dpr(); ctx.drawImage(c, left + (i + 0.5) * gap - size / 2, y - size / 2, size, size); } }
-      drawCounter(ctx, shown, left + caughtCount * gap + 40 * u, y, Math.round(Math.max(36, 50 * u)), phaseT - (shown / Math.max(1, caughtCount)) * 1.6);
+      drawCounter(ctx, shown, left + shown * gap + counterPx * 0.45, y, counterPx, phaseT - (shown / Math.max(1, caughtCount)) * 1.6);
       return;
     }
     if (phase === 'choice' && pending) {
@@ -674,10 +761,16 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
 
   // ---- input ----
   function pointerPlay(x: number, y: number): void {
-    if (phase === 'catch' && step === 'ask') {
+    if (phase === 'catch' && step !== 'ask') {
+      // A catch is still flying in: answer the click with a puff and a ball wiggle, record nothing.
+      for (const b of balls) if (b.active && !b.pulled && b.delay <= 0 && Math.hypot(x - b.x, y - b.y) <= hitRadius(ballD / 2)) b.wiggle = 0.3;
+      puff(x, y); return;
+    }
+    if (phase === 'catch') {
       let best: Ball | undefined, dist = Infinity;
       for (const b of balls) {
-        if (!b.active || b.pulled || b.enter < 0.6) continue;
+        // A ball still dropping in is catchable as soon as it shows.
+        if (!b.active || b.pulled || b.delay > 0) continue;
         const d = Math.hypot(x - b.x, y - b.y);
         if (d <= hitRadius(ballD / 2) && d < dist) { best = b; dist = d; }
       }
@@ -687,7 +780,8 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
       if (best.value === request) catchBall(best, 'click'); else wrongBall(best);
       return;
     }
-    if (phase === 'connect' && closeT === 0 && threadT >= 0.6) {
+    if (phase === 'connect' && (closeT > 0 || threadT < 0.6)) { puff(x, y); return; }
+    if (phase === 'connect') {
       let best = -1, dist = Infinity;
       for (let i = 0; i < nPoints; i++) {
         const d = Math.hypot(x - pts[i * 2]!, y - pts[i * 2 + 1]!);
@@ -697,21 +791,27 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
       if (best < 0) { puff(x, y); return; }
       padded++; if (dist <= pointD / 2) hits++;
       if (best === nextPoint) joinPoint('click');
-      else if (best > nextPoint) { pointWiggle[best] = 0.45; playSfx(audio, 'hover', { volume: 0.6 }); if (!hint) { wrong++; showHint(); } hopT = 0; }
+      else if (best > nextPoint) { pointWiggle[best] = 0.45; playSfx(audio, 'hover', { volume: 0.6 }); if (!hint) { if (joinEvidence('click')) wrong++; showHint(); } hopT = 0; }
       else { pointWiggle[best] = 0.3; hopT = 0; }
     }
   }
   function keyPlay(key: string): void {
     keyboardUsed = true;
-    if (phase === 'catch' && step === 'ask') {
-      const b = wantedBall(); if (!b || b.enter < 0.6) return;
+    if (phase === 'catch') {
+      const b = step === 'ask' ? wantedBall() : undefined;
+      // While a catch is still flying in, the hero hops and the sign wobbles so the key is seen.
+      if (!b || b.delay > 0) { hopT = 0; return; }
       catchBall(b, keyMatches(mode, request, key) ? 'key-match' : 'key-other');
-    } else if (phase === 'connect' && closeT === 0 && threadT >= 0.6) {
+    } else if (phase === 'connect') {
+      if (closeT > 0 || threadT < 0.6) { hopT = 0; return; }
       joinPoint(keyMatches(mode, pointValue(nextPoint), key) ? 'key-match' : 'key-other');
     }
   }
   function puff(x: number, y: number): void {
-    for (const p of puffs) if (!p.active) { p.active = true; p.x = x; p.y = y; p.t = 0; return; }
+    // Reuse the oldest puff when all are busy, so every click shows one.
+    let slot = puffs[0]!;
+    for (const p of puffs) { if (!p.active) { slot = p; break; } if (p.t > slot.t) slot = p; }
+    slot.active = true; slot.x = x; slot.y = y; slot.t = 0;
   }
 
   const stats: WebPlaygroundStats = {
@@ -808,7 +908,8 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
         web(ctx, hx, hy, lerp(hx, target.x, k), lerp(hy, target.y, k), 0, 3 * u);
       }
       if (phase !== 'choice' && phase !== 'sticker') drawHero(ctx);
-      if (phase === 'catch') drawSign(ctx);
+      if (phase === 'catch' || phase === 'connect') drawGuide(ctx);
+      if (phase === 'catch') { drawSign(ctx); drawFlight(ctx); }
       particles.render(ctx); drawPuffs(ctx); drawPows(ctx);
       if (phase === 'celebration' || phase === 'choice' || phase === 'sticker' || phase === 'rest') drawReward(ctx);
       drawCorners(ctx); drawEnterFade(ctx, W, H, sceneT);
@@ -841,6 +942,11 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
         return;
       }
       if (performance.now() < inputAfter) return;
+      if (phase === 'swingIn' || phase === 'swing' || phase === 'complete') {
+        // Transitions run on their own; a click still leaves a web puff.
+        if (event.type === 'pointerdown') puff(event.info.x, event.info.y); else hopT = 0;
+        return;
+      }
       if (playing()) {
         if (event.type === 'pointerdown') pointerPlay(event.info.x, event.info.y); else keyPlay(event.info.key);
         return;

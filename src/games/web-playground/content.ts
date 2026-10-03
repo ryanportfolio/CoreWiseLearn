@@ -50,9 +50,10 @@ export function clipName(mode: Mode, value: number): string {
 
 /**
  * Connect points around a picture, in unit coordinates (radius 1, y down),
- * listed in the order the child joins them.
+ * listed in the order the child joins them. For the heart, curveT receives
+ * each point's heartAt() parameter so threads can follow the curve.
  */
-export function picturePoints(kind: PictureKind, n: number, out: Float32Array): void {
+export function picturePoints(kind: PictureKind, n: number, out: Float32Array, curveT?: Float32Array): void {
   if (kind === 'star') {
     if (n === 10) {
       for (let i = 0; i < 10; i++) {
@@ -83,7 +84,9 @@ export function picturePoints(kind: PictureKind, n: number, out: Float32Array): 
       const want = len[samples]! * k / n;
       while (j < samples && len[j + 1]! < want) j++;
       const seg = len[j + 1]! - len[j]!, f = seg > 0 ? (want - len[j]!) / seg : 0;
-      heartAt((j + f) / samples * Math.PI * 2, out, k * 2);
+      const t = (j + f) / samples * Math.PI * 2;
+      heartAt(t, out, k * 2);
+      if (curveT) curveT[k] = t;
     }
     return;
   }
@@ -98,6 +101,23 @@ export function picturePoints(kind: PictureKind, n: number, out: Float32Array): 
     const parts = edges[e]! + 1;
     for (let k = 0; k < parts; k++) { out[i * 2] = ax + (bx - ax) * k / parts; out[i * 2 + 1] = ay + (by - ay) * k / parts; i++; }
   }
+}
+/**
+ * Whether choosing point `next` needs its numeral or letter. Points are
+ * listed in join order (x, y pairs). When the next point is clearly the
+ * nearest unjoined point to the last joined one, a child can follow the
+ * outline without reading, so the step is play, not learning evidence.
+ * It needs the glyph when some other unjoined point is about as near
+ * (within 15 percent) or nearer.
+ */
+export function stepNeedsGlyph(points: Float32Array, n: number, next: number): boolean {
+  if (next < 1 || next >= n) return false;
+  const lx = points[(next - 1) * 2]!, ly = points[(next - 1) * 2 + 1]!;
+  const want = Math.hypot(points[next * 2]! - lx, points[next * 2 + 1]! - ly);
+  for (let i = next + 1; i < n; i++) {
+    if (Math.hypot(points[i * 2]! - lx, points[i * 2 + 1]! - ly) <= want * 1.15) return true;
+  }
+  return false;
 }
 /** Classic heart curve, scaled to radius about 1 with t = 0 at the top dip and t = pi at the tip. */
 export function heartAt(t: number, out: Float32Array, index: number): void {

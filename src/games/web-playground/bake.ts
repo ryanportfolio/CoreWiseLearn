@@ -60,16 +60,19 @@ export function bakeBall(text: string, d: number, rim: string, dpr: number): HTM
   return canvas;
 }
 
-/** A connect point: a paper knot with its glyph. Joined points get a ring drawn over it at runtime. */
+/**
+ * A connect point: a paper knot with its glyph, the visible disc d across
+ * (outline included). Joined points get a coloured ring behind it at runtime.
+ */
 export function bakePoint(text: string, d: number, dpr: number): HTMLCanvasElement {
-  const size = d + PAD * 2, c = size / 2, r = d / 2;
+  const size = d + PAD * 2, c = size / 2, line = Math.max(3, d * 0.05), r = d / 2 - line / 2;
   const [canvas, ctx] = canvasFor(size, size, dpr);
   if (!ctx) return canvas;
-  ctx.beginPath(); ctx.arc(c + 2, c + 4, r * 0.86, 0, Math.PI * 2); ctx.fillStyle = 'rgba(20, 16, 50, 0.3)'; ctx.fill();
-  ctx.beginPath(); ctx.arc(c, c, r * 0.86, 0, Math.PI * 2); ctx.fillStyle = PAPER; ctx.fill();
-  webPattern(ctx, c, r * 0.86, Math.max(1.2, d * 0.012));
-  ctx.lineWidth = Math.max(3, d * 0.05); ctx.strokeStyle = OUTLINE;
-  ctx.beginPath(); ctx.arc(c, c, r * 0.86, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(c + 2, c + 4, r, 0, Math.PI * 2); ctx.fillStyle = 'rgba(20, 16, 50, 0.3)'; ctx.fill();
+  ctx.beginPath(); ctx.arc(c, c, r, 0, Math.PI * 2); ctx.fillStyle = PAPER; ctx.fill();
+  webPattern(ctx, c, r, Math.max(1.2, d * 0.012));
+  ctx.lineWidth = line; ctx.strokeStyle = OUTLINE;
+  ctx.beginPath(); ctx.arc(c, c, r, 0, Math.PI * 2); ctx.stroke();
   glyph(ctx, text, c, c, d * (text.length > 1 ? 0.42 : 0.5), d * 0.6);
   return canvas;
 }

@@ -9,18 +9,21 @@ Registry: `id: 'web-playground'`, `mode: 'round'`, `learning: ['counting', 'lett
 ## One round
 
 1. **Swing in** (about 1.7 s). The hero swings into the day city on a web line and lands on the rooftop at the left. This shows the web before the child does anything.
-2. **Catch** (6 catches). Three to five round web balls float gently over the sky, each with a numeral or a capital letter. The hero holds up a comic sign with the wanted glyph; for numbers the sign also shows that many dots in a ten-frame (two rows of five). The child clicks the matching ball. The hero shoots a web (a short "thwip"), the ball is pulled in, pops into a small burst and flies to a string of caught balls at the top. A new ball floats in to replace it, and the sign changes.
+2. **Catch** (6 catches). Three to five round web balls float gently over the sky, each with a numeral or a capital letter. The hero holds up a comic sign with the wanted glyph; for numbers the sign also shows that many dots in a ten-frame (two rows of five). The child clicks the matching ball. The hero shoots a web (a short "thwip"), the ball is pulled in, pops into a small burst and flies to a string of caught balls at the top. A new ball floats in to replace it, and the sign changes. The new ball never repeats a glyph already floating; when every value is in use (five values, five balls) it takes the value just caught.
 3. **Swing across** (about 1.6 s, automatic). The hero swings off to the right while the city pans from day to dusk. Nothing to press; it always succeeds.
-4. **Connect** (5, 7 or 10 points). Web points with numerals 1, 2, 3 ... or letters A, B, C ... sit around a hidden picture: a star, a heart or a kite, taking turns by round. Point 1 (or A) starts lit. Each click on the next point shoots a web thread to it with a climbing note. After the last point the thread closes the shape, the picture fills with colour and sparkles.
+4. **Connect** (5, 7 or 10 points). Web points with numerals 1, 2, 3 ... or letters A, B, C ... sit around a hidden picture: a star, a heart or a kite, taking turns by round. Point 1 (or A) starts lit. Each click on the next point shoots a web thread to it with a climbing note. After the last point the thread closes the shape, the picture fills with colour and sparkles. The threads always make the picture that fills in: star and kite threads are straight and the star and kite are exactly those polygons; heart threads curve along the heart outline between points, so five points already spin a heart, not a pentagon.
 5. **Celebration**, then the **sticker choice**, then the **still rest** with Again and Home.
 
 Rounds alternate numbers and letters: the first round, and every second one after, uses numbers.
 
 ## Immediate response to every action
 
-- Matching ball: hero switches to the shooting pose, web line extends in 0.15 s, the ball is pulled to the hero's hand in 0.35 s, pops (pooled particles), a pitched pop that climbs with each catch, and the ball flies to the caught string.
-- A different ball: it wiggles and makes a soft low boop. The wanted ball starts to glow with a pulsing ring and a bouncing arrow, and the hero points at it. Nothing is lost; the count never goes down.
+- Matching ball: hero switches to the shooting pose, web line extends in 0.15 s, the ball is pulled to the hero's hand in 0.35 s, pops (pooled particles), a pitched pop that climbs with each catch, and the ball flies to the caught string, drawn above the sign.
+- A different ball: it wiggles and makes a soft low boop, and the hint starts (below). Nothing is lost; the count never goes down.
 - Empty sky: a small white web puff where the pointer landed. No sound, no penalty.
+- A ball still dropping in can be caught as soon as it shows.
+- A click while a catch is still flying in (about 0.6 s): a web puff, and the ball under the pointer wiggles. Nothing is recorded. A key in that moment makes the hero hop and the sign wobble. The next request comes 0.12 s after the pop.
+- A click during the swing-in, the swing across or the picture filling in: a web puff.
 - Next connect point: a thread shoots from the last point; the point bounces and its note rises one step on the pentatonic scale.
 - Any other connect point: wiggle and soft boop, and the next point glows.
 
@@ -29,7 +32,7 @@ Rounds alternate numbers and letters: the first round, and every second one afte
 - The swing-in shows the web.
 - First round of a profile: the hero holds up the first sign, waits 1.2 s, then catches the matching ball himself. The next request shows its glow from the start. From the third request on, the glow waits.
 - First connect of a profile: the hero draws the thread from point 1 to point 2 himself, then point 3 glows.
-- Idle: after a few seconds without input the wanted ball (or next point) glows; the hero bounces and points again every 8 s. Nothing times out and nothing happens without the child, apart from the two first-round demonstrations.
+- The hint (after a few seconds without input, or after a different ball or point): the hero switches to his outstretched-arm pose, turns so his hand aims at the wanted ball or next point and reaches towards it in a slow pulse, for as long as the hint lasts. The target bounces (scale pulse), sits on a wide pulsing yellow halo, wears a thick yellow ring and has a big bouncing arrow above it. The hero also hops every 8 s. Nothing times out and nothing happens without the child, apart from the two first-round demonstrations.
 
 ## Learning progression (separate from motor tiers)
 
@@ -45,8 +48,9 @@ Level 2 asks for a real skill: count the dots and find the numeral, or pair a sm
 
 **What counts as learning evidence:**
 
-- A click on a ball or point before its glow appeared: correct if it matches, wrong if not.
-- A key whose character matches the wanted glyph (digit keys for numbers, letter keys for letters) before the glow: correct.
+- A click on a ball before its glow appeared: correct if it matches, wrong if not.
+- A click on a connect point before its glow appeared, but only when the step needs the glyph: the next point is not clearly the nearest unjoined point to the last joined one (some other unjoined point is no more than 15 percent farther away, or nearer). When the next point is plainly the nearest neighbour along the outline, a child can follow the shape without reading, so the click joins the thread as usual and records nothing, right or wrong. With the current layouts: the five- and seven-point stars need the glyph on every step but the last; the ten-point star on about half its steps; a heart on its first step only (both neighbours of point 1 are equally near); a kite on one or two steps. The rest of a walk round a heart or kite records nothing. `stepNeedsGlyph()` in `content.ts` holds the rule.
+- A key whose character matches the wanted glyph (digit keys for numbers, letter keys for letters) before the glow: correct, in both activities, because choosing that key names the glyph.
 - Anything after the glow, any non-matching key, and the hero's own demonstrations: assisted, not evidence.
 - Ten has no single key, so a keyboard catch of 10 is always assisted.
 
@@ -62,7 +66,7 @@ Three hidden tiers, changed only between rounds.
 | 1 | 130 px | 4 | 16 px | 1.15 | 112 px |
 | 2 | 112 px | 5 | 26 px | 1.08 | 100 px |
 
-Sizes are at 1366x768 and scale with the view; nothing goes below 96 px across. A motor attempt is a pointer press during catch or connect while input is open. It is a hit when it lands inside the visible ball or point, and near when only the padding catches it. Keys are not motor attempts. Up one tier after two rounds in a row with at least 10 attempts and at least 90 percent hits; down one tier when a round has at least 6 attempts and fewer than 70 percent land inside the padded area.
+Sizes are at 1366x768 and scale with the view; balls and points never go below 100 px across, so the drawn disc still measures at least 96 px after edge smoothing. The connect point's visible paper disc is the full point diameter, outline included. When the ball area is less than 2.5 balls wide (a narrow window such as 390x600), the catch uses three balls in a zigzag column so none overlap. A motor attempt is a pointer press during catch or connect while input is open. It is a hit when it lands inside the visible ball or point, and near when only the padding catches it. Keys are not motor attempts. Up one tier after two rounds in a row with at least 10 attempts and at least 90 percent hits; down one tier when a round has at least 6 attempts and fewer than 70 percent land inside the padded area.
 
 ## Stars and rewards
 
@@ -74,7 +78,7 @@ Every finished round earns at least one star:
 
 The first round of a profile earns three stars. Stars, the round count and the pending gift are saved in one immediate write before the celebration shows them (`pending` in the game bag, then `save.flush()`); re-entering with a pending round resumes at the sticker choice or the rest and never awards again.
 
-**Celebration** (4 s): the hero cheers in front of the finished picture, the stars land one by one with the shared star sound, and the caught balls are counted out with a ticking numeral. A tap or key skips it, but not in the first 1.5 s or before the stars have appeared.
+**Celebration** (4 s): the hero cheers in front of the finished picture, the stars land one by one with the shared star sound, and the caught balls are counted out in a row with a ticking numeral that sits just right of the last ball counted. A tap or key skips it, but not in the first 1.5 s or before the stars have appeared.
 
 **Sticker choice** (while uncollected stickers remain and `rewardsEnabled` is true): two comic badges show two of this game's six stickers. Input is ignored for 1.2 s. Nothing is focused at first; the first key only shows focus, arrows move it, any other key chooses. Clicking a badge chooses it. The last remaining sticker is offered alone.
 
@@ -88,7 +92,7 @@ The first round of a profile earns three stars. Stars, the round count and the p
 
 ## Pause, resume and leaving
 
-`pause()` stops music and flushes; `resume()` restarts music and blocks input for 0.35 s so the click that closed the break overlay cannot catch a ball. Play continues where it was. Home during play leaves without awarding; Home during the celebration or choice keeps the pending gift.
+`pause()` stops music and flushes; `resume()` restarts music and blocks input for 0.35 s so the click that closed the break overlay cannot catch a ball. Play continues where it was. Home during play leaves without awarding; Home during the celebration or choice keeps the pending gift, and the next entry resumes at the choice exactly once. Reaching the rest clears the stored round (everything is awarded by then), so leaving the rest by any route (Again, Home, the corner Home, Escape, a reload) starts a new round on the next entry.
 
 ## Art
 
@@ -165,3 +169,14 @@ Checked in headed Chrome on the real GPU, window parked offscreen, against the p
 - Two profiles in one browser keep separate rounds, stars and stickers.
 - Hub with five tiles (three temporary stub entries, not committed) at 1366x768, 800x600 and 390x600.
 - Work time at 1366x768: game ring `workMax` 0.2 to 0.6 ms, loop `workMax` 0.3 to 0.6 ms. Zero console errors or warnings.
+
+## Verification notes, round G2 fixes (2026-10-03)
+
+Production build served by `vite preview` on port 5224, headed Chrome on the real GPU with the window parked offscreen, `?debug` (and `&tier=2` for the size checks). Script: `.tmp/verify/g2.mjs` (not committed). Captures: `D:/screenshots/CoreWiseLearn/games/web-playground/g2/`.
+
+- Disc sizes measured on the canvas (outline edge to outline edge on the row through the centre): tier 2 at 1366x768, balls 111 to 112 px and points 99 to 100 px; at 800x600 and 390x600, balls and points 99 to 100 px.
+- Heart threads curve along the outline and match the filled heart (`m12`, `m13`). The hint shows the hero aiming his outstretched arm, a dotted trail to the target, halo, ring, arrow and bounce (`m02`, `m06`, `m11`).
+- A click during a catch leaves a puff and a wiggle and records nothing; a click on a ball still dropping in counts as a click on that ball (`m03`, `m05`). The flying ball draws over the sign (`m04a`). The counter sits beside the last counted ball (`m07`, `m08`).
+- Leaving the rest by the corner Home and by Escape stores no pending round; re-entry starts a new round. Leaving during the choice resumes at the choice with the same stars; choosing adds one sticker, and Again adds nothing.
+- Learning evidence on a five-point heart: step 1 recorded, steps 2 to 4 not. On a five-point kite, a wrong click at step 1 recorded one wrong.
+- Mouse and keyboard rounds end to end, zero console errors or warnings. Keyboard round work time at 1366x768: game ring mean 0.07 ms, max 1.3 ms; loop work max 1.3 ms.
