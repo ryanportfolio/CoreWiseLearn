@@ -20,7 +20,7 @@ Any pull request that crosses one of these is wrong, whatever else it improves.
 4. No autoplay. Round games end on a still screen with Again and Home of equal size and brightness; nothing starts by itself. Creative games save creations when the child leaves and need no forced round or score.
 5. No streaks, timers that punish, daily quotas, countdowns, or anything that rewards coming back on a schedule. The break nudge is the one asymmetry, and it leans toward stopping.
 6. No random reward drops, no rarity, no gambling shapes. A sticker is a gift for finishing a round while uncollected stickers remain; the child chooses between two visible stickers. Offers come from the first sticker page (8 stickers per page) that still has uncollected stickers, so when only one sticker on that page is left, the child is offered that one sticker alone and still picks it. A completed collection remains playable without an endless upgrade ladder.
-7. All games stay open. Unlocks come from book and page completion, never from star thresholds, so the hidden tier can never split the siblings' collections.
+7. Everything to play is open from the start: every game, picture and mode. Nothing unlocks, so stars and the hidden tier never decide what a child can play.
 8. Every interactive target is at least 96 CSS px on its shortest side, checked with a ruler on the real laptop (`uiScale` in config).
 9. Mouse, trackpad and any key all work; there is no wrong button; any mouse button counts as a click.
 10. Nothing leaves the device: no network calls at runtime except fetching the app's own files (no third-party requests, no analytics, nothing about the child sent anywhere), no external links. Play time is never tracked beyond the session nudge.
