@@ -72,7 +72,8 @@
       .slider.unused { opacity: 0.35; }
       .slider input { width: 100%; accent-color: var(--accent); }
       .slider .value { text-align: right; font-variant-numeric: tabular-nums; color: var(--dim); }
-      .hint { color: var(--dim); font-size: 13px; }
+      .hint { color: var(--dim); font-size: 13px; margin: 0; }
+      .round2 { margin: 0; color: var(--accent); font-size: 13px; }
       input[type='file'] { display: none; }
     </style>
   </head>
@@ -84,6 +85,7 @@
       <button id="mute" class="ghost">Mute</button>
       <button id="export" class="secondary">Export</button>
       <button id="import" class="ghost">Import</button>
+      <button id="owner" class="ghost">Load owner ratings</button>
       <input id="import-file" type="file" accept="application/json,.json" />
       <span id="status">Click anything to turn sound on.</span>
     </header>

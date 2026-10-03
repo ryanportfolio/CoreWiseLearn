@@ -9,7 +9,7 @@
 import { bootApp } from '../app/boot';
 import type { Audio } from '../engine/audio';
 import type { Scene } from '../engine/scene';
-import { SFX_DURATION, SFX_NAMES, activeSfxVoices, playSfx, type SfxName, type SfxOptions } from '../audio/sfx';
+import { SFX_DURATION, SFX_NAMES, activeSfxVoices, playSfx, sfxDuration, type SfxName, type SfxOptions, type SfxVariant } from '../audio/sfx';
 import { MUSIC_TRACKS, currentMusic, setMusicFolder, startMusic, stopMusic, type MusicTrack } from '../audio/music';
 import { createButton, dispatchDown, dispatchUp, type Button } from '../ui/button';
 import { DISPLAY_FONT } from '../ui/draw';
@@ -175,20 +175,20 @@ function stats(buf: AudioBuffer): { seconds: number; peak: number; rms: number }
 }
 
 async function renderSfx(name: SfxName, options: SfxOptions = {}): Promise<{ base64: string; seconds: number; peak: number; rms: number }> {
-  const ctx = new OfflineAudioContext(1, Math.ceil((SFX_DURATION[name] + 0.25) * RATE), RATE);
+  const ctx = new OfflineAudioContext(1, Math.ceil((sfxDuration(name, options.variant) + 0.25) * RATE), RATE);
   playSfx(offlineAudio(ctx), name, options);
   const buf = await ctx.startRendering();
   return { base64: toBase64(encodeWav(buf)), ...stats(buf) };
 }
 
 /** Combo-style sequence (pop index 0..n) rendered as one file. */
-async function renderSequence(name: SfxName, count: number, gapSeconds: number): Promise<{ base64: string; seconds: number; peak: number; rms: number }> {
-  const total = count * gapSeconds + SFX_DURATION[name] + 0.25;
+async function renderSequence(name: SfxName, count: number, gapSeconds: number, variant?: SfxVariant): Promise<{ base64: string; seconds: number; peak: number; rms: number }> {
+  const total = count * gapSeconds + sfxDuration(name, variant) + 0.25;
   const ctx = new OfflineAudioContext(1, Math.ceil(total * RATE), RATE);
   const fake = offlineAudio(ctx);
   for (let i = 0; i < count; i++) {
     ctx.suspend(i * gapSeconds).then(() => {
-      playSfx(fake, name, { index: i });
+      playSfx(fake, name, variant ? { index: i, variant } : { index: i });
       void ctx.resume();
     }, () => {});
   }

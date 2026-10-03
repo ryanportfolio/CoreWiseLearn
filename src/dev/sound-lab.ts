@@ -1,43 +1,34 @@
 /**
- * Sound lab: an adult tool for auditioning every sound effect, trying preset
+ * Sound lab: an adult tool for auditioning every sound effect and its A to D
  * variants, tuning the patch with sliders, rating each sound, and exporting
  * the result as JSON for whoever retunes the palette. State is kept in
- * localStorage. See docs/sound-lab.md.
+ * localStorage; a first visit starts from the owner's saved ratings
+ * (docs/audio/sound-lab-2026-10-03.json). See docs/sound-lab.md.
  */
 
 import { createAudio } from '../engine/audio';
-import { SFX_DURATION, SFX_NAMES, SFX_PATCHES, playSfx, type SfxName } from '../audio/sfx';
+import { SFX_NAMES, SFX_PATCHES, SFX_VARIANT_IDS, playSfx, sfxDuration, sfxVariantDef, type SfxName, type SfxVariant } from '../audio/sfx';
 import type { Patch } from '../audio/voices';
+import ownerPreset from '../../docs/audio/sound-lab-2026-10-03.json';
 
 const audio = createAudio();
-const STORAGE_KEY = 'corewise.soundlab.v1';
-
-type VariantId = 'A' | 'B' | 'C' | 'D';
-const VARIANT_IDS: readonly VariantId[] = ['A', 'B', 'C', 'D'];
-
-const VARIANT_INFO: Record<VariantId, string> = {
-  A: 'Current: the sound as shipped today.',
-  B: 'Deeper: one octave down and darker.',
-  C: 'Woody: more knock and noise, more overtone, shorter decay.',
-  D: 'Soft and round: slower attack, longer decay, darker, fewer overtones and less noise.',
-};
+// v2: round 2 redesigned some sounds, so everyone starts again from the owner's saved ratings.
+const STORAGE_KEY = 'corewise.soundlab.v2';
 
 /** The shipped patches, captured before anything changes them. */
 const DEFAULTS = Object.fromEntries(SFX_NAMES.map((n) => [n, { ...SFX_PATCHES[n] }])) as Record<SfxName, Patch>;
 
-function variantPatch(name: SfxName, id: VariantId): Patch {
-  const d = DEFAULTS[name];
-  switch (id) {
-    case 'A':
-      return { ...d };
-    case 'B':
-      return { ...d, register: d.register - 12, brightness: clampBright(d.brightness * 0.55) };
-    case 'C':
-      return { ...d, noise: 2.5, overtone: 1.6, decay: 0.6, brightness: clampBright(d.brightness * 0.85), shape: 0.25 };
-    case 'D':
-      return { ...d, attack: 2.5, decay: 1.6, brightness: clampBright(d.brightness * 0.5), overtone: 0.4, noise: 0.4, level: 0.9 };
-  }
-}
+/** What changed in round 2 because of the owner's ratings, shown on the row. */
+const ROUND2: Partial<Record<SfxName, string>> = {
+  button: 'Round 2: four new designs (A bloop, B tok, C boing, D bu-dum). Your earlier slider edit was for the old click, so the sliders start from the new default.',
+  hover: 'Round 2: twice as loud by default and a little longer (about 70 ms instead of 30).',
+  tick: 'Round 2: twice as loud by default and a little lower.',
+  star: 'Round 2: C is a new idea, a soft bell over a low note that glides up.',
+  whoosh: 'Round 2: D is louder, to match the others.',
+};
+
+/** Effects whose design changed since the owner's ratings; their saved sliders are not reapplied. */
+const REDESIGNED: readonly SfxName[] = ['button'];
 
 // ---------------------------------------------------------------------------
 // Sliders.
@@ -65,7 +56,7 @@ function clampBright(v: number): number {
 const SLIDERS: readonly SliderDef[] = [
   { key: 'register', label: 'Pitch', min: -24, max: 12, step: 1, format: (v) => `${v > 0 ? '+' : ''}${v} st`, help: 'Pitch shift in semitones. -12 is one octave lower.' },
   { key: 'brightness', label: 'Brightness', min: BRIGHT_MIN, max: BRIGHT_MAX, step: 50, log: true, format: (v) => `${Math.round(v)} Hz`, help: 'Cuts everything above this frequency. Lower is darker and softer.' },
-  { key: 'level', label: 'Level', min: 0, max: 2, step: 0.05, format: (v) => `${Math.round(v * 100)}%`, help: 'Loudness of this sound.' },
+  { key: 'level', label: 'Level', min: 0, max: 3, step: 0.05, format: (v) => `${Math.round(v * 100)}%`, help: 'Loudness of this sound.' },
   { key: 'attack', label: 'Attack', min: 0.25, max: 4, step: 0.05, format: (v) => `x${v.toFixed(2)}`, help: 'How fast the sound starts. Higher is a softer, slower start.' },
   { key: 'decay', label: 'Decay', min: 0.25, max: 3, step: 0.05, format: (v) => `x${v.toFixed(2)}`, help: 'How long the sound rings. Higher rings longer.' },
   { key: 'shape', label: 'Waveform', min: -1, max: 1, step: 0.05, format: (v) => `${v > 0 ? '+' : ''}${v.toFixed(2)}`, help: 'Toward + is a reedier triangle tone, toward - a purer sine.' },
@@ -100,8 +91,9 @@ function fromSlider(def: SliderDef, x: number): number {
 interface EffectState {
   rating: number | null;
   notes: string;
-  chosenVariant: VariantId | null;
-  /** True once a slider moved after the chosen variant was applied. */
+  /** The variant the row's Play uses; null means A. */
+  chosenVariant: SfxVariant | null;
+  /** True once a slider moved away from the shipped settings. */
   edited: boolean;
   patch: Patch;
   updatedAt: string | null;
@@ -125,20 +117,38 @@ function sanitizePatch(raw: unknown, fallback: Patch): Patch {
   return out;
 }
 
-function sanitizeEffect(name: SfxName, raw: unknown): EffectState {
+function sameAsShipped(name: SfxName, patch: Patch): boolean {
+  return SLIDERS.every((d) => Math.abs(patch[d.key] - DEFAULTS[name][d.key]) < 1e-9);
+}
+
+function sanitizeEffect(name: SfxName, raw: unknown, keepPatch = true): EffectState {
   const base = freshEffect(name);
   if (!raw || typeof raw !== 'object') return base;
   const r = raw as Record<string, unknown>;
   const rating = Number(r.rating);
   const variant = r.chosenVariant;
   // Accept both the stored shape (patch) and the export shape (settings).
+  const patch = keepPatch ? sanitizePatch(r.patch ?? r.settings, base.patch) : base.patch;
   return {
     rating: Number.isInteger(rating) && rating >= 1 && rating <= 5 ? rating : null,
     notes: typeof r.notes === 'string' ? r.notes.slice(0, 500) : '',
-    chosenVariant: typeof variant === 'string' && (VARIANT_IDS as readonly string[]).includes(variant) ? (variant as VariantId) : null,
-    edited: r.edited === true || r.editedAfterVariant === true,
-    patch: sanitizePatch(r.patch ?? r.settings, base.patch),
+    chosenVariant: typeof variant === 'string' && (SFX_VARIANT_IDS as readonly string[]).includes(variant) ? (variant as SfxVariant) : null,
+    edited: !sameAsShipped(name, patch),
+    patch,
     updatedAt: typeof r.updatedAt === 'string' ? r.updatedAt : null,
+  };
+}
+
+function effectsOf(parsed: unknown): Record<string, unknown> | undefined {
+  const effects = parsed && typeof parsed === 'object' ? (parsed as { effects?: unknown }).effects : undefined;
+  return effects && typeof effects === 'object' ? (effects as Record<string, unknown>) : undefined;
+}
+
+/** The owner's ratings and notes, with their saved settings except on redesigned sounds. */
+function presetState(): LabState {
+  const effects = effectsOf(ownerPreset);
+  return {
+    effects: Object.fromEntries(SFX_NAMES.map((n) => [n, sanitizeEffect(n, effects?.[n], !REDESIGNED.includes(n))])) as Record<SfxName, EffectState>,
   };
 }
 
@@ -149,8 +159,9 @@ function loadState(): LabState {
   } catch {
     parsed = null;
   }
-  const effects = (parsed && typeof parsed === 'object' ? (parsed as { effects?: unknown }).effects : undefined) as Record<string, unknown> | undefined;
-  return { effects: Object.fromEntries(SFX_NAMES.map((n) => [n, sanitizeEffect(n, effects?.[n])])) as Record<SfxName, EffectState> };
+  const effects = effectsOf(parsed);
+  if (!effects) return presetState();
+  return { effects: Object.fromEntries(SFX_NAMES.map((n) => [n, sanitizeEffect(n, effects[n])])) as Record<SfxName, EffectState> };
 }
 
 let state = loadState();
@@ -162,6 +173,7 @@ function save(): void {
     /* storage full or blocked: the lab keeps working in memory */
   }
 }
+save();
 
 function applyPatches(): void {
   for (const n of SFX_NAMES) Object.assign(SFX_PATCHES[n], state.effects[n].patch);
@@ -197,16 +209,17 @@ async function ready(): Promise<void> {
   if (!audio.ready) await audio.unlock();
 }
 
-function playCurrent(name: SfxName, index = PLAY_INDEX[name] ?? 0): void {
-  playSfx(audio, name, { index });
+function chosen(name: SfxName): SfxVariant {
+  return state.effects[name].chosenVariant ?? 'A';
 }
 
-/** Play a preset variant without changing the live patch. */
-function playVariant(name: SfxName, id: VariantId): void {
-  const live = { ...SFX_PATCHES[name] };
-  Object.assign(SFX_PATCHES[name], variantPatch(name, id));
-  playSfx(audio, name, { index: PLAY_INDEX[name] ?? 0 });
-  Object.assign(SFX_PATCHES[name], live);
+/** Play the row's chosen variant with the row's sliders. */
+function playCurrent(name: SfxName, index = PLAY_INDEX[name] ?? 0): void {
+  playSfx(audio, name, { index, variant: chosen(name) });
+}
+
+function playVariant(name: SfxName, variant: SfxVariant): void {
+  playSfx(audio, name, { index: PLAY_INDEX[name] ?? 0, variant });
 }
 
 function playSequence(name: SfxName): void {
@@ -220,7 +233,7 @@ function playAll(): void {
   let t = 0;
   for (const n of SFX_NAMES) {
     later(t, () => playCurrent(n));
-    t += SFX_DURATION[n] + 0.35;
+    t += sfxDuration(n, chosen(n)) + 0.35;
   }
 }
 
@@ -267,36 +280,34 @@ function playGameplay(): void {
 // ---------------------------------------------------------------------------
 // Export and import.
 
-interface ExportFile {
-  app: string;
-  version: 1;
-  exportedAt: string;
-  variants: Record<VariantId, string>;
-  sliders: Record<PatchKey, string>;
-  effects: Record<SfxName, {
-    rating: number | null;
-    notes: string;
-    chosenVariant: VariantId | null;
-    editedAfterVariant: boolean;
-    settings: Patch;
-    defaults: Patch;
-    updatedAt: string | null;
-  }>;
+function variantLabels(name: SfxName): Record<SfxVariant, string> {
+  return Object.fromEntries(SFX_VARIANT_IDS.map((id) => [id, sfxVariantDef(name, id).label])) as Record<SfxVariant, string>;
 }
 
-function exportData(): ExportFile {
+function exportData(): object {
   return {
     app: 'CoreWiseLearn sound lab',
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
-    variants: VARIANT_INFO,
-    sliders: Object.fromEntries(SLIDERS.map((d) => [d.key, d.help])) as Record<PatchKey, string>,
+    sliders: Object.fromEntries(SLIDERS.map((d) => [d.key, d.help])),
     effects: Object.fromEntries(
       SFX_NAMES.map((n) => {
         const e = state.effects[n];
-        return [n, { rating: e.rating, notes: e.notes, chosenVariant: e.chosenVariant, editedAfterVariant: e.edited, settings: { ...e.patch }, defaults: { ...DEFAULTS[n] }, updatedAt: e.updatedAt }];
+        return [
+          n,
+          {
+            rating: e.rating,
+            notes: e.notes,
+            chosenVariant: e.chosenVariant,
+            edited: e.edited,
+            settings: { ...e.patch },
+            defaults: { ...DEFAULTS[n] },
+            variants: variantLabels(n),
+            updatedAt: e.updatedAt,
+          },
+        ];
       }),
-    ) as ExportFile['effects'],
+    ),
   };
 }
 
@@ -322,6 +333,14 @@ async function exportFile(): Promise<string> {
   return json;
 }
 
+function replaceState(next: LabState, message: string): void {
+  state = next;
+  save();
+  applyPatches();
+  render();
+  setStatus(message);
+}
+
 function importJson(text: string): boolean {
   let parsed: unknown;
   try {
@@ -330,16 +349,15 @@ function importJson(text: string): boolean {
     setStatus('That file is not valid JSON.');
     return false;
   }
-  const effects = (parsed && typeof parsed === 'object' ? (parsed as { effects?: unknown }).effects : undefined) as Record<string, unknown> | undefined;
-  if (!effects || typeof effects !== 'object') {
+  const effects = effectsOf(parsed);
+  if (!effects) {
     setStatus('That file has no effects in it.');
     return false;
   }
-  state = { effects: Object.fromEntries(SFX_NAMES.map((n) => [n, effects[n] === undefined ? state.effects[n] : sanitizeEffect(n, effects[n])])) as Record<SfxName, EffectState> };
-  save();
-  applyPatches();
-  render();
-  setStatus('Imported.');
+  replaceState(
+    { effects: Object.fromEntries(SFX_NAMES.map((n) => [n, effects[n] === undefined ? state.effects[n] : sanitizeEffect(n, effects[n])])) as Record<SfxName, EffectState> },
+    'Imported.',
+  );
   return true;
 }
 
@@ -398,18 +416,18 @@ function renderRow(name: SfxName): HTMLElement {
   if (seq) head.append(button(seq.label, () => playSequence(name), 'secondary'));
   head.append(stars, notes);
 
-  const chosen = el('span', { className: 'chosen' });
+  const chosenEl = el('span', { className: 'chosen' });
   const drawChosen = (): void => {
-    chosen.textContent = e.chosenVariant ? `Current is ${e.chosenVariant}${e.edited ? ', edited' : ''}` : e.edited ? 'Current is edited' : 'Current is A';
+    chosenEl.textContent = `Plays ${chosen(name)}${e.edited ? ', sliders edited' : ''}`;
   };
-  let selected: VariantId = e.chosenVariant ?? 'A';
-  const variantButtons = VARIANT_IDS.map((id) => {
+  let selected: SfxVariant = chosen(name);
+  const variantButtons = SFX_VARIANT_IDS.map((id) => {
     const b = button(`${id} ▶`, () => {
       selected = id;
-      variantButtons.forEach((vb, i) => vb.classList.toggle('selected', VARIANT_IDS[i] === id));
+      variantButtons.forEach((vb, i) => vb.classList.toggle('selected', SFX_VARIANT_IDS[i] === id));
       playVariant(name, id);
     }, `variant${id === selected ? ' selected' : ''}`);
-    b.title = VARIANT_INFO[id];
+    b.title = sfxVariantDef(name, id).label;
     b.dataset.variant = id;
     return b;
   });
@@ -426,7 +444,7 @@ function renderRow(name: SfxName): HTMLElement {
       e.patch[def.key] = v;
       SFX_PATCHES[name][def.key] = v;
       value.textContent = def.format(v);
-      e.edited = true;
+      e.edited = !sameAsShipped(name, e.patch);
       drawChosen();
       touch(name);
     });
@@ -447,18 +465,33 @@ function renderRow(name: SfxName): HTMLElement {
   drawChosen();
 
   const makeCurrent = button('Make selected variant current', () => {
-    e.patch = variantPatch(name, selected);
-    Object.assign(SFX_PATCHES[name], e.patch);
     e.chosenVariant = selected;
-    e.edited = false;
-    drawSliders();
     drawChosen();
     touch(name);
     playCurrent(name);
   }, 'ghost');
   makeCurrent.dataset.action = 'make-current';
 
-  row.append(head, el('div', { className: 'variants' }, ...variantButtons, makeCurrent, chosen), sliderBox);
+  const reset = button('Reset to shipped', () => {
+    e.patch = { ...DEFAULTS[name] };
+    Object.assign(SFX_PATCHES[name], e.patch);
+    e.chosenVariant = null;
+    e.edited = false;
+    selected = 'A';
+    variantButtons.forEach((vb, i) => vb.classList.toggle('selected', SFX_VARIANT_IDS[i] === 'A'));
+    drawSliders();
+    drawChosen();
+    touch(name);
+    playCurrent(name);
+  }, 'ghost');
+  reset.dataset.action = 'reset';
+
+  const variantHelp = el('p', { className: 'hint', textContent: SFX_VARIANT_IDS.map((id) => `${id}: ${sfxVariantDef(name, id).label}`).join('  ') });
+  const parts: HTMLElement[] = [head, el('div', { className: 'variants' }, ...variantButtons, makeCurrent, reset, chosenEl), variantHelp];
+  const note = ROUND2[name];
+  if (note) parts.push(el('p', { className: 'round2', textContent: note }));
+  parts.push(sliderBox);
+  row.append(...parts);
   return row;
 }
 
@@ -466,7 +499,7 @@ const rowsEl = document.getElementById('rows');
 function render(): void {
   if (!rowsEl) return;
   rowsEl.replaceChildren(
-    el('p', { className: 'hint', textContent: 'Variants: ' + VARIANT_IDS.map((id) => `${id}, ${VARIANT_INFO[id]}`).join(' ') + ' Sliders play the sound when you let go. Dimmed sliders do nothing for that sound.' }),
+    el('p', { className: 'hint', textContent: 'Each row: Play uses the variant marked current and the sliders. A to D play the four versions; "Make selected variant current" picks one. Sliders play the sound when you let go; dimmed sliders do nothing for that sound.' }),
     ...SFX_NAMES.map(renderRow),
   );
 }
@@ -488,6 +521,7 @@ function wireHeader(): void {
     drawMute();
   });
   on('export', () => void exportFile());
+  on('owner', () => replaceState(presetState(), 'Loaded the owner ratings from 2026-10-03.'));
   const fileInput = document.getElementById('import-file') as HTMLInputElement | null;
   document.getElementById('import')?.addEventListener('click', () => fileInput?.click());
   fileInput?.addEventListener('change', () => {
@@ -549,7 +583,7 @@ function peakAfter(fn: () => void, ms: number): Promise<number> {
 const soundLab = {
   audio,
   names: SFX_NAMES,
-  variants: VARIANT_IDS,
+  variants: SFX_VARIANT_IDS,
   rms,
   peakAfter,
   exportData,

@@ -7,6 +7,10 @@
  * sines, sine/triangle blends and filtered noise: no square or sawtooth buzz.
  * Everything rolls off above about 3 kHz, and no lead voice goes above C6.
  * At most MAX_SFX_VOICES sound at once; a new one fades out the oldest.
+ *
+ * Every effect comes in variants A to D (SFX_VARIANTS). A is the default; a
+ * game or theme picks its family with setSfxVariants, or one call passes
+ * { variant }. See docs/audio/README.md.
  */
 
 import type { Audio } from '../engine/audio';
@@ -45,11 +49,17 @@ export type SfxName =
   | 'whoosh' // scene transition
   | 'tick'; // counter increments
 
+export type SfxVariant = 'A' | 'B' | 'C' | 'D';
+
+export const SFX_VARIANT_IDS: readonly SfxVariant[] = ['A', 'B', 'C', 'D'];
+
 export interface SfxOptions {
   /** 0-based index for pitch climbs (combo count, letter index). */
   index?: number;
   /** 0..1 volume scale. Default 1. */
   volume?: number;
+  /** Which version of the sound. Default: the one set with setSfxVariants, else 'A'. */
+  variant?: SfxVariant;
 }
 
 export const SFX_NAMES: readonly SfxName[] = [
@@ -77,8 +87,8 @@ export const SFX_DURATION: Readonly<Record<SfxName, number>> = {
   key: 0.52,
   backspace: 0.16,
   go: 0.95,
-  button: 0.18,
-  hover: 0.04,
+  button: 0.22,
+  hover: 0.075,
   star: 0.75,
   fanfare: 1.2,
   sticker: 0.6,
@@ -103,15 +113,108 @@ export const SFX_PATCHES: Record<SfxName, Patch> = {
   key: makePatch(),
   backspace: makePatch({ brightness: 2000 }),
   go: makePatch(),
-  button: makePatch(),
-  hover: makePatch({ brightness: 2400 }),
+  button: makePatch({ brightness: 2200, level: 0.7 }),
+  hover: makePatch({ brightness: 2400, level: 2 }),
   star: makePatch(),
   fanfare: makePatch(),
   sticker: makePatch(),
   yawn: makePatch({ brightness: 1800 }),
   whoosh: makePatch(),
-  tick: makePatch(),
+  tick: makePatch({ level: 2 }),
 };
+
+// ---------------------------------------------------------------------------
+// Variants. One table: shared transforms that apply to every effect, and
+// per-effect entries that replace them (a different design, or a level fix).
+// To add a variant E, add 'E' to SfxVariant and SFX_VARIANT_IDS, then an E
+// entry under shared (and under byEffect where a sound needs its own take).
+
+export interface SfxVariantDef {
+  /** Plain description, shown in the sound lab and the docs. */
+  label: string;
+  /** Turns the effect's live patch into this variant's patch. */
+  patch(base: Patch): Patch;
+  /** Seconds until silent, relative to SFX_DURATION (ignored when `duration` is set). */
+  durationScale: number;
+  /** Seconds until silent, for variants with their own design. */
+  duration?: number;
+  /** A different sound design for this effect (see the design names in playSfx). */
+  design?: string;
+}
+
+const same = (base: Patch): Patch => ({ ...base });
+const bright = (v: number): number => Math.max(300, Math.min(6000, v));
+
+export const SFX_VARIANTS: {
+  shared: Record<SfxVariant, SfxVariantDef>;
+  byEffect: Partial<Record<SfxName, Partial<Record<SfxVariant, SfxVariantDef>>>>;
+} = {
+  shared: {
+    A: { label: 'As designed.', patch: same, durationScale: 1 },
+    B: {
+      label: 'Deeper: one octave down and darker.',
+      patch: (b) => ({ ...b, register: b.register - 12, brightness: bright(b.brightness * 0.55) }),
+      durationScale: 1,
+    },
+    C: {
+      label: 'Woody: more knock and noise, more overtone, shorter.',
+      patch: (b) => ({ ...b, noise: b.noise * 2.5, overtone: b.overtone * 1.6, decay: b.decay * 0.6, brightness: bright(b.brightness * 0.85), shape: b.shape + 0.25 }),
+      durationScale: 0.8,
+    },
+    D: {
+      label: 'Soft and round: slower start, longer ring, darker.',
+      patch: (b) => ({ ...b, attack: b.attack * 2.5, decay: b.decay * 1.6, brightness: bright(b.brightness * 0.5), overtone: b.overtone * 0.4, noise: b.noise * 0.4, level: b.level * 0.9 }),
+      durationScale: 1.7,
+    },
+  },
+  byEffect: {
+    button: {
+      A: { label: 'Bloop: a quick cartoon pitch-up with a tiny wobble.', patch: same, durationScale: 1, duration: 0.2, design: 'bloop' },
+      B: { label: 'Tok: a wooden knock with a low body thump.', patch: same, durationScale: 1, duration: 0.14, design: 'tok' },
+      C: { label: 'Boing: a rubbery dip and spring back up.', patch: same, durationScale: 1, duration: 0.3, design: 'boing' },
+      D: { label: 'Bu-dum: two soft low notes with a gentle knock.', patch: same, durationScale: 1, duration: 0.32, design: 'budum' },
+    },
+    star: {
+      C: { label: 'Glide: a soft bell over a low note that slides gently up.', patch: same, durationScale: 1, duration: 0.95, design: 'glide-bell' },
+    },
+    whoosh: {
+      // The shared D was too quiet on the noise-only whoosh; keep its softness, match the level.
+      D: {
+        label: 'Soft and round, at the same loudness as the others.',
+        patch: (b) => ({ ...SFX_VARIANTS.shared.D.patch(b), noise: b.noise, level: b.level * 1.3 }),
+        durationScale: 1,
+      },
+    },
+  },
+};
+
+export function sfxVariantDef(name: SfxName, variant: SfxVariant): SfxVariantDef {
+  return SFX_VARIANTS.byEffect[name]?.[variant] ?? SFX_VARIANTS.shared[variant];
+}
+
+/** Seconds until silent for an effect's variant, at the default patch. */
+export function sfxDuration(name: SfxName, variant: SfxVariant = 'A'): number {
+  const def = sfxVariantDef(name, variant);
+  return def.duration ?? SFX_DURATION[name] * def.durationScale;
+}
+
+const chosenVariants: Partial<Record<SfxName, SfxVariant>> = {};
+
+/**
+ * Pick the variant each effect plays by default, for example
+ * setSfxVariants({ pop: 'B' }) for a deeper ocean pop. Merges with earlier
+ * calls; pass 'A' to go back to the default.
+ */
+export function setSfxVariants(map: Partial<Record<SfxName, SfxVariant>>): void {
+  for (const name of SFX_NAMES) {
+    const v = map[name];
+    if (v && SFX_VARIANT_IDS.includes(v)) chosenVariants[name] = v;
+  }
+}
+
+export function getSfxVariant(name: SfxName): SfxVariant {
+  return chosenVariants[name] ?? 'A';
+}
 
 interface SfxKit {
   pool: VoicePool;
@@ -133,7 +236,7 @@ function kitFor(ctx: BaseAudioContext, bus: AudioNode): SfxKit {
     pool: new VoicePool(MAX_SFX_VOICES),
     last: new Map(),
     popBand: makeFilter(ctx, 'bandpass', 1800, 1.0, roll),
-    wood: makeFilter(ctx, 'bandpass', 1500, 3, roll),
+    wood: makeFilter(ctx, 'bandpass', 1200, 3, roll),
   };
   kits.set(bus, kit);
   return kit;
@@ -151,7 +254,10 @@ export function playSfx(audio: Audio, name: SfxName, options: SfxOptions = {}): 
   const ctx = audio.context;
   const bus = audio.sfxBus;
   if (!ctx || !bus || !audio.ready || audio.muted) return;
-  const p = SFX_PATCHES[name];
+  const variant = options.variant && SFX_VARIANT_IDS.includes(options.variant) ? options.variant : getSfxVariant(name);
+  const def = sfxVariantDef(name, variant);
+  const p = def.patch(SFX_PATCHES[name]);
+  const design = def.design;
   const volume = Math.min(1, finite(options.volume ?? 1, 1, 0)) * finite(p.level, 1, 0);
   if (volume <= 0) return;
   const index = finite(options.index ?? 0, 0, 0);
@@ -159,7 +265,7 @@ export function playSfx(audio: Audio, name: SfxName, options: SfxOptions = {}): 
   const t = ctx.currentTime + 0.002;
   // The same sound at the same pitch twice within DEDUPE_SECONDS would add up
   // in phase and double the level, so the repeat is dropped.
-  const key = `${name}:${Math.floor(index)}`;
+  const key = `${name}:${variant}:${Math.floor(index)}`;
   const prev = kit.last.get(key);
   if (prev !== undefined && t - prev < DEDUPE_SECONDS) return;
   kit.last.set(key, t);
@@ -224,20 +330,101 @@ export function playSfx(audio: Audio, name: SfxName, options: SfxOptions = {}): 
       break;
     }
     case 'button': {
-      v.noise(t, 0.001, dc(0.025), 0.3 * p.noise, kit.wood);
-      const tone = shaped(p, { attack: 0.001, decay: 0.04, shape: 0, overtone: 1, noise: 0 });
-      const body = v.tone(tone.shape, hz(81), t, tone.attack, tone.decay, 0.14, out); // A5 wood body
-      body.frequency.exponentialRampToValueAtTime(hz(78), t + 0.04);
-      bell(v, t + 0.012, hz(79), 0.045 * tone.overtone, out, shaped(p, { ...BELL, decay: 0.15 })); // G5
+      switch (design) {
+        case 'tok': {
+          // Wooden knock: a short wood-band click, a hollow body note, a low thump.
+          v.noise(t, 0.001, dc(0.02), 0.35 * p.noise, kit.wood);
+          const body = v.tone(0.3 + p.shape, hz(69), t, at(0.001), dc(0.06), 0.16, out); // A4
+          body.frequency.exponentialRampToValueAtTime(hz(66), t + 0.05);
+          const thump = v.tone(0, hz(45), t, at(0.002), dc(0.1), 0.22, out); // A2 falling
+          thump.frequency.exponentialRampToValueAtTime(hz(38), t + 0.09);
+          if (p.overtone > 0) v.tone('sine', hz(69) * 2.76, t, 0.001, dc(0.025), 0.03 * p.overtone, out);
+          break;
+        }
+        case 'boing': {
+          // Rubbery: triangle dips, then springs up past the start, with a wobble.
+          const env = v.gain(out);
+          const end = t + at(0.006) + dc(0.28);
+          env.gain.setValueAtTime(0, t);
+          env.gain.linearRampToValueAtTime(0.2, t + at(0.006));
+          env.gain.setValueAtTime(0.2, t + 0.12);
+          env.gain.exponentialRampToValueAtTime(0.0001, end);
+          const o = v.osc(Math.min(1, 1 + p.shape), hz(52), t, end + 0.01, env); // E3
+          o.frequency.exponentialRampToValueAtTime(hz(43), t + 0.05); // down to G2
+          o.frequency.exponentialRampToValueAtTime(hz(57), t + 0.16); // up to A3
+          const lfo = ctx.createOscillator();
+          lfo.frequency.value = 9;
+          const depth = ctx.createGain();
+          depth.gain.setValueAtTime(0, t);
+          depth.gain.linearRampToValueAtTime(9, t + 0.15);
+          lfo.connect(depth);
+          depth.connect(o.frequency);
+          v.own(depth);
+          v.ownSource(lfo, t, end + 0.01);
+          if (p.noise > 0) v.noise(t, 0.001, 0.012, 0.08 * p.noise, kit.wood);
+          break;
+        }
+        case 'budum': {
+          // Two soft low notes, G3 then C4, each with a gentle knock.
+          const tone = shaped(p, { attack: 0.004, decay: 0.16, shape: 0.35, overtone: 0.2, noise: 0 });
+          marimba(v, t, hz(55), 0.2, out, tone);
+          marimba(v, t + 0.1, hz(60), 0.24, out, { ...tone, decay: tone.decay * 1.3 });
+          v.noise(t, 0.001, 0.015, 0.12 * p.noise, kit.wood);
+          v.noise(t + 0.1, 0.001, 0.015, 0.12 * p.noise, kit.wood);
+          break;
+        }
+        default: {
+          // Bloop: a sine that leaps up an octave fast, with a tiny vibrato.
+          const tone = shaped(p, { attack: 0.004, decay: 0.17, shape: 0, overtone: 0.25, noise: 0 });
+          const env = v.gain(out);
+          const end = t + tone.attack + tone.decay;
+          env.gain.setValueAtTime(0, t);
+          env.gain.linearRampToValueAtTime(0.24, t + tone.attack);
+          env.gain.setValueAtTime(0.24, t + 0.05);
+          env.gain.exponentialRampToValueAtTime(0.0001, end);
+          const o = v.osc(tone.shape, hz(55), t, end + 0.01, env); // G3 up to G4
+          o.frequency.exponentialRampToValueAtTime(hz(67), t + 0.06);
+          const lfo = ctx.createOscillator();
+          lfo.frequency.value = 14;
+          const depth = ctx.createGain();
+          depth.gain.setValueAtTime(0, t);
+          depth.gain.linearRampToValueAtTime(10, t + 0.08);
+          lfo.connect(depth);
+          depth.connect(o.frequency);
+          v.own(depth);
+          v.ownSource(lfo, t, end + 0.01);
+          if (tone.overtone > 0) {
+            const top = v.tone('sine', hz(55) * 2, t, tone.attack, Math.min(0.08, tone.decay), 0.24 * tone.overtone, out);
+            top.frequency.exponentialRampToValueAtTime(hz(67) * 2, t + 0.06);
+          }
+          if (tone.noise > 0) v.noise(t, 0.001, 0.01, 0.24 * tone.noise, out);
+          break;
+        }
+      }
       break;
     }
     case 'hover': {
-      const tone = shaped(p, { attack: 0.002, decay: 0.03, shape: 0, overtone: 0, noise: 0 });
-      v.tone(tone.shape, hz(76), t, tone.attack, Math.min(0.035, tone.decay), 0.07, out); // E5
+      // Soft E5 tick, about 70 ms to silence (about 50 ms clearly audible).
+      const tone = shaped(p, { attack: 0.004, decay: 0.065, shape: 0, overtone: 0, noise: 0 });
+      v.tone(tone.shape, hz(76), t, tone.attack, Math.min(0.08, tone.decay), 0.07, out);
       break;
     }
     case 'star': {
       const note = STAR_NOTES[Math.min(STAR_NOTES.length - 1, Math.max(0, Math.floor(index)))] ?? 72;
+      if (design === 'glide-bell') {
+        // A low body note slides gently up a fourth into the star's pitch,
+        // then a soft, slow-starting bell blooms on top.
+        const body = shaped(p, { attack: 0.03, decay: 0.75, shape: 0.2, overtone: 0, noise: 0 });
+        const env = v.gain(out);
+        env.gain.setValueAtTime(0, t);
+        env.gain.linearRampToValueAtTime(0.19, t + body.attack);
+        env.gain.exponentialRampToValueAtTime(0.0001, t + body.attack + body.decay);
+        const o = v.osc(body.shape, hz(note - 17), t, t + body.attack + body.decay + 0.01, env);
+        o.frequency.exponentialRampToValueAtTime(hz(note - 12), t + 0.22);
+        bell(v, t + 0.12, hz(note), 0.16, out, shaped(p, { ...BELL, attack: 0.02, decay: 0.75, overtone: 0.12 }));
+        v.tone(0, hz(48), t, at(0.02), dc(0.7), 0.06, out); // C3 floor
+        break;
+      }
       bell(v, t, hz(note), 0.2, out, shaped(p, { ...BELL, decay: 0.7 }));
       marimba(v, t, hz(note - 12), 0.08, out, shaped(p, { ...MARIMBA, decay: 0.4 }));
       v.tone(0, hz(48), t, at(0.01), dc(0.6), 0.07, out); // warm C3 sub
@@ -320,10 +507,10 @@ export function playSfx(audio: Audio, name: SfxName, options: SfxOptions = {}): 
       break;
     }
     case 'tick': {
-      // Tiny wood block near 1.5 kHz.
-      const tone = shaped(p, { attack: 0.001, decay: 0.03, shape: 0, overtone: 0, noise: 1 });
-      const o = v.tone(tone.shape, hz(79) * 1.9, t, tone.attack, tone.decay, 0.12, out);
-      o.frequency.exponentialRampToValueAtTime(hz(79) * 1.6, t + 0.03);
+      // Tiny wood block near 1.1 kHz.
+      const tone = shaped(p, { attack: 0.001, decay: 0.035, shape: 0, overtone: 0, noise: 1 });
+      const o = v.tone(tone.shape, hz(79) * 1.4, t, tone.attack, tone.decay, 0.12, out);
+      o.frequency.exponentialRampToValueAtTime(hz(79) * 1.2, t + 0.035);
       v.noise(t, 0.001, dc(0.015), 0.12 * tone.noise, kit.wood);
       break;
     }
