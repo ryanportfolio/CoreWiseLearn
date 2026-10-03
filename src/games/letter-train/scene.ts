@@ -7,6 +7,7 @@ import type { Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
 import { playSfx, prepareSfxStep, type SfxOptions } from '../../audio/sfx';
 import { startMusic, stopMusic } from '../../audio/music';
 import { chunkyCircle, chunkyPanel, drawSprite, DISPLAY_FONT, OUTLINE, roundedRect } from '../../ui/draw';
+import { BOOK_GLIDE, BOOK_ICON, BOOK_ICON_PATH, createStickerOffers, leaveAlpha, leaveDrop, PICK_FLY, PICK_LIFT, PICK_SECONDS, placeBook } from '../../ui/sticker-offer';
 import { confettiRain } from '../../ui/celebrate';
 import { drawEnterFade } from '../../ui/motion';
 import { clamp01, easeInCubic, easeInOutSine, easeOutBack, easeOutCubic, lerp, slamScale } from '../../ui/tween';
@@ -107,7 +108,7 @@ function artList(): { name: string; path: string }[] {
   const paths = ['town.webp', 'engine.webp', 'star.webp', 'hand.webp', ...WAGONS.map(w => `${w}.webp`), ...BLOCKS.map(b => `${b}.webp`),
     ...WORDS.map(w => `words/${w}.webp`)];
   return [...paths.map(p => ({ name: sprite(p.replace('.webp', '')), path: ART + p })),
-    { name: SPR_PLAY, path: BUTTON_PLAY }, { name: SPR_HOME, path: BUTTON_HOME },
+    { name: SPR_PLAY, path: BUTTON_PLAY }, { name: SPR_HOME, path: BUTTON_HOME }, { name: BOOK_ICON, path: BOOK_ICON_PATH },
     ...STICKERS.filter(s => s.game === GAME_ID).map(s => ({ name: stickerSpriteName(s.id), path: s.path }))];
 }
 export async function loadLetterTrainArt(services: AppServices): Promise<string[]> {
@@ -175,6 +176,11 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
   let pending: Pending | null = null, menuSelected = -1, inputAfter = 0, focusAt = 0;
   let cornerRadius = 48, cornerY = 60, homeX = 60, soundX = 1306, cornerFocus = -1, starRowY = 60, starSize = 64;
   let choiceW = 360, choiceY = 400, restY = 380, restW = 360, controlsY = 680, controlsR = 62;
+  // The offers drawn as stickers and the small sticker book they go into: its height beside the offers and in the
+  // middle of the rest screen, its centre beside the offers (bookAt), and bookGlide when the rest screen came from a
+  // pick, so the book moves from there to the middle.
+  const offers = createStickerOffers(sprites), bookAt = new Float32Array(2);
+  let bookH = 150, restBookH = 300, restBookY = 380, bookGlide = false;
   let workHead = 0, workCount = 0, updateMs = 0;
   let celebrationHops = 0, warmed = false, artLoaded = false;
   /** Index of the queued image prepared this update; render draws it once under the backdrop so its upload is done before it shows. */
@@ -235,6 +241,10 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     controlsY = H - controlsR - 22;
     restW = Math.max(150, Math.min(choiceW * 1.05, W * 0.6, (controlsY - controlsR - 14 - top) / 0.88));
     restY = top + restW * 0.64;
+    bookH = Math.round(Math.max(72, Math.min(190, choiceW * 0.34)));
+    // The rest book fills the room the chosen rider had: from under the stars to above Again and Home.
+    restBookH = Math.round(Math.max(110, Math.min(restW * 0.8, controlsY - controlsR - 14 - top - 16)));
+    restBookY = (top + controlsY - controlsR - 14) / 2;
     if (plan) fitTrain();
   }
   /** Block size and train position for the current plan at the current view size. */
@@ -389,11 +399,9 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
       queuePrep(WAGON_SPRITES[wagon % WAGONS.length]!, width);
       queuePrep(passengerSprite(passenger), Math.round(Math.round(width) * 0.62 * PASSENGER_PAD));
     };
-    if (phase === 'choice') {
-      for (let i = 0; i < p.choices.length; i++) add(passengerOf(p.choices[i]!), i + 1, choiceW);
-      for (let i = 0; i < p.choices.length; i++) add(passengerOf(p.choices[i]!), i + 1, restW);
-    } else if (p.chosen) add(passengerOf(p.chosen), Math.max(0, p.choices.indexOf(p.chosen)) + 1, restW);
-    else add(p.passengers[0] ?? 0, 2, restW);
+    // The offers ride in wagons as stickers (their look is baked by warmOffers); a chosen sticker rests on the book.
+    if (phase === 'choice') { for (let i = 0; i < p.choices.length; i++) queuePrep(WAGON_SPRITES[(i + 1) % WAGONS.length]!, choiceW); warmOffers(); }
+    else if (!p.chosen) add(p.passengers[0] ?? 0, 2, restW);
     queuePrep(SPR_PLAY, Math.round(controlsR * 1.3)); queuePrep(SPR_HOME, Math.round(controlsR * 1.3));
     holdResult = true;
   }
@@ -410,19 +418,15 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     const owned = rewards(services).stickers;
     const offered = PASSENGER_IDS.some(id => !owned.includes(id)) && services.config.rewardsEnabled;
     for (let w = 1; w <= 2; w++) { queuePrep(WAGON_SPRITES[w]!, Math.round(choiceW)); queuePrep(WAGON_SPRITES[w]!, Math.round(restW)); }
-    for (let i = 0; i < PASSENGERS.length; i++) {
-      const fresh = !owned.includes(PASSENGER_IDS[i]!);
-      if (offered ? fresh : riders.includes(i)) {
-        queuePrep(PASSENGER_SPRITES[i]!, Math.round(Math.round(choiceW) * 0.62 * PASSENGER_PAD));
-        queuePrep(PASSENGER_SPRITES[i]!, Math.round(Math.round(restW) * 0.62 * PASSENGER_PAD));
-      }
-    }
+    // Offers are drawn as stickers (warmOffers bakes them once the round has ended); without one, the rest screen shows
+    // a rider of the round in its wagon.
+    if (!offered) for (let i = 0; i < PASSENGERS.length; i++) if (riders.includes(i)) queuePrep(PASSENGER_SPRITES[i]!, Math.round(Math.round(restW) * 0.62 * PASSENGER_PAD));
     queuePrep(SPR_PLAY, Math.round(controlsR * 1.3)); queuePrep(SPR_HOME, Math.round(controlsR * 1.3));
   }
 
   // ---------------------------------------------------------------- round flow
   function startRound(): void {
-    pending = null; data.pending = null;
+    pending = null; data.pending = null; bookGlide = false;
     tier = services.debug.tier ?? toTier(data.tier);
     stage = options.stage ?? toStage(data.stage);
     hits = misses = motorHits = motorMisses = placements = 0; starsEarned = 0; starFlight = -1; roundPassengers.length = 0;
@@ -580,6 +584,7 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     pending.chosen = id;
     // The chosen id and the owned sticker save together, so repeats and reloads are idempotent.
     services.save.flush(); phase = 'sticker'; phaseT = 0; playSfx(audio, 'sticker');
+    offers.pick(index); bookGlide = true;
   }
   /** A finished round is done once its rest screen is left by any route (Again, Home, Escape, the corner Home, the break nudge's Home). */
   function closeFinishedRound(): void {
@@ -944,7 +949,9 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
         if (phaseT >= land && phaseT - dt < land) { starOpt.index = i; playSfx(audio, 'star', starOpt); }
       }
       if (phaseT >= CELEBRATION_SECONDS) finishCelebration();
-    } else if (phase === 'sticker' && phaseT >= 0.7) enterRest();
+    } else if (phase === 'sticker' && phaseT >= PICK_SECONDS) enterRest();
+    if (phase === 'celebration' || phase === 'choice' || phase === 'sticker') warmOffers();
+    offers.update(dt, phase === 'choice' ? menuSelected : -1);
   }
 
   // ---------------------------------------------------------------- render
@@ -1113,6 +1120,31 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     return W / 2 + (i - (n - 1) / 2) * (choiceW + Math.max(24, choiceW * 0.12));
   };
   const controlX = (i: number) => W / 2 + (i - 0.5) * controlsR * 3.2;
+  /**
+   * Offer `index` as a sticker riding its wagon, standing on the wagon's top edge in front of it (the animal's whole
+   * sticker shows, so it is a little smaller than the rider it replaces). `sticker` false leaves the wagon empty.
+   */
+  function drawOffer(ctx: CanvasRenderingContext2D, index: number, x: number, y: number, alpha = 1, sticker = true): void {
+    if (alpha < 1) ctx.globalAlpha = alpha;
+    drawSprite(ctx, sprites, WAGON_SPRITES[(index + 1) % WAGONS.length]!, x, y, Math.round(choiceW));
+    ctx.globalAlpha = 1;
+    if (sticker && pending) offers.drawOffer(ctx, index, passengerSprite(passengerOf(pending.choices[index]!)), x, y - offerRise(), offerSize(), 1, alpha);
+  }
+  const offerSize = () => Math.round(Math.round(choiceW) * 0.52 * PASSENGER_PAD);
+  /** Sticker centre above the wagon centre: half the wagon's height plus a tenth of its width. */
+  const offerRise = () => choiceW * 211 / 480 / 2 + Math.round(choiceW) * 0.1;
+  const offerY = () => choiceY - offerRise();
+  /** The book beside the offers, in bookAt: right of their tap areas, else under them, clear of the corner buttons. */
+  function placeChoiceBook(): void {
+    const n = pending?.choices.length ?? 1, wh = choiceW * 211 / 480;
+    placeBook(bookAt, W, H, choiceX(n - 1) + choiceW / 2 + 12, choiceY, choiceY + wh / 2 + 16, bookH, cornerY + cornerRadius + 10);
+  }
+  /** Bakes the offers' sticker look and both book sizes in idle periods before they first show. */
+  function warmOffers(): void {
+    if (!pending?.choices.length || !pending.rewardEnabled) return;
+    for (const id of pending.choices) offers.warm(passengerSprite(passengerOf(id)), offerSize());
+    offers.warmBook(bookH); offers.warmBook(restBookH);
+  }
   function renderResult(ctx: CanvasRenderingContext2D): void {
     // Stars: during the celebration they slam in one by one; afterwards they sit still.
     const gap = starSize * 1.25;
@@ -1137,23 +1169,32 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     // A restored choice or rest shows its riders and buttons once their art is prepared (planRestoredArt).
     if (holdResult) return;
     if (phase === 'choice' && pending) {
+      placeChoiceBook(); offers.drawBook(ctx, bookAt[0]!, bookAt[1]!, bookH, '', -1);
       for (let i = 0; i < pending.choices.length; i++) {
-        const passenger = passengerOf(pending.choices[i]!);
         const x = choiceX(i), focused = menuSelected === i, wh = choiceW * 211 / 480;
         if (focused) {
           roundedRect(ctx, x - choiceW / 2 - 12, choiceY - choiceW * 0.64, choiceW + 24, choiceW * 0.64 + wh / 2 + 16, 28);
           ctx.lineWidth = 10; ctx.strokeStyle = OUTLINE; ctx.stroke(); ctx.lineWidth = 5; ctx.strokeStyle = '#fff8da'; ctx.stroke();
         }
-        drawRider(ctx, passenger, i + 1, x, choiceY, choiceW);
+        drawOffer(ctx, i, x, choiceY);
       }
       return;
     }
-    const chosen = pending?.chosen ? passengerOf(pending.chosen) : -1;
-    if (chosen >= 0) {
-      const index = Math.max(0, pending!.choices.indexOf(pending!.chosen));
-      const e = phase === 'sticker' ? easeOutCubic(clamp01(phaseT / 0.65)) : 1;
-      const x = lerp(choiceX(index), W / 2, e), y = lerp(choiceY, restY, e);
-      drawRider(ctx, chosen, index + 1, x, y, restW, lerp(choiceW, restW, e) / restW);
+    if (pending?.chosen) {
+      const index = Math.max(0, pending.choices.indexOf(pending.chosen)), name = passengerSprite(passengerOf(pending.chosen));
+      placeChoiceBook();
+      if (phase === 'sticker') {
+        // The chosen sticker flies from its wagon into the book, which bounces as it lands; both wagons and the other
+        // offer drop and fade.
+        const a = leaveAlpha(phaseT), drop = leaveDrop(phaseT) * choiceW * 0.6;
+        if (a > 0) for (let i = 0; i < pending.choices.length; i++) drawOffer(ctx, i, choiceX(i), choiceY + drop, a, i !== index);
+        offers.drawBook(ctx, bookAt[0]!, bookAt[1]!, bookH, name, phaseT - PICK_LIFT - PICK_FLY);
+        offers.drawFlight(ctx, phaseT, name, choiceX(index), offerY(), offerSize(), bookAt[0]!, bookAt[1]!, bookH);
+      } else {
+        // The rest screen shows the book with the new sticker on its cover, in the middle.
+        const k = bookGlide ? easeOutCubic(clamp01(phaseT / BOOK_GLIDE)) : 1;
+        offers.drawBook(ctx, lerp(bookAt[0]!, W / 2, k), lerp(bookAt[1]!, restBookY, k), lerp(bookH, restBookH, k), name, 9, restBookH);
+      }
     } else {
       // Rewards off or the set is complete: the round's first passenger rides along, offered nothing.
       drawRider(ctx, pending?.passengers[0] ?? 0, 2, W / 2, restY, restW);
@@ -1218,7 +1259,7 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
       data = services.save.gameData<GameData>(GAME_ID, { tier: 0, qualifyingRounds: 0, rounds: 0, stage: 0, learn: [], recentWords: [], pending: null });
       sanitizeLetterTrainData(data, () => services.save.protect());
       data.rounds = Math.max(data.rounds, rewards(services).rounds[GAME_ID] ?? 0);
-      sceneT = 0; startMusic(audio, 'letter-train');
+      sceneT = 0; bookGlide = false; startMusic(audio, 'letter-train');
       layout(services.canvas.width, services.canvas.height);
       // A return visit has the art decoded already: scale it now, before the first frame.
       if (sprites.get(SPR_TOWN)) warm();
