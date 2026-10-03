@@ -10,10 +10,20 @@ const MOVES: Readonly<Record<string, readonly [number, number]>> = {
 
 /**
  * Keys that usually change another key. With `anyKey` they act when released,
- * and only if no other key went down meanwhile, so Shift+Tab moves focus
- * without also pressing the focused control.
+ * and only if no other key went down meanwhile and no other modifier was held,
+ * so Shift+Tab moves focus and Shift+Control presses nothing.
  */
 const MODIFIERS = new Set(['Shift', 'Control', 'Alt', 'AltGraph', 'Meta', 'OS']);
+/** Physical keys (KeyboardEvent.code) behind each modifier key value. */
+const MODIFIER_CODES: Readonly<Record<string, readonly string[]>> = {
+  Shift: ['ShiftLeft', 'ShiftRight'],
+  Control: ['ControlLeft', 'ControlRight'],
+  Alt: ['AltLeft', 'AltRight'],
+  AltGraph: ['AltRight', 'ControlLeft'],
+  Meta: ['MetaLeft', 'MetaRight', 'OSLeft', 'OSRight'],
+  OS: ['MetaLeft', 'MetaRight', 'OSLeft', 'OSRight'],
+};
+const ALL_MODIFIER_CODES = [...new Set(Object.values(MODIFIER_CODES).flat())];
 
 export interface KeyboardNavigationOptions {
   /** Every key except the arrows and Tab presses the focused control, as Enter does. Default: only Enter and Space. */
@@ -42,6 +52,11 @@ export function createKeyboardNavigation(getButtons: () => readonly Button[], op
   }
   function shiftHeld(): boolean {
     return !!options.input && (options.input.isKeyDown('ShiftLeft') || options.input.isKeyDown('ShiftRight'));
+  }
+  /** True when a modifier other than `key` is held down. */
+  function otherModifierHeld(key: string): boolean {
+    const own = MODIFIER_CODES[key] ?? [];
+    return !!options.input && ALL_MODIFIER_CODES.some((code) => !own.includes(code) && options.input!.isKeyDown(code));
   }
   return {
     focus,
@@ -83,7 +98,10 @@ export function createKeyboardNavigation(getButtons: () => readonly Button[], op
         return true;
       }
       if (options.anyKey && MODIFIERS.has(key)) {
-        armed = key;
+        // Windows sends AltGr as Control then AltGraph: still one key on its own.
+        if (key === 'AltGraph' && armed === 'Control') armed = key;
+        // A second key while one is armed, or a modifier pressed while another is held, is a chord: no release acts.
+        else armed = armed || otherModifierHeld(key) ? '' : key;
         return true;
       }
       if (key !== 'Enter' && key !== ' ' && !options.anyKey) return false;

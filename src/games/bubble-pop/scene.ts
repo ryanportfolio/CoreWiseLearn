@@ -30,6 +30,8 @@ const GUARD_MS = 350, CELEBRATION_SECONDS = 4, INTRO_POPS = 8;
 const MENU_GUARD_MS = 1200, FOCUS_HOLD_MS = 250;
 // The celebration cannot be skipped before this, nor before every earned star has appeared.
 const CELEBRATION_LOCK = 1.5;
+// Smallest size of the art at rest (the chosen sticker or the round's catch), however short the screen.
+const REST_MIN = 72;
 // The closed shell squashes for the first OPEN_SWAP of the opening, then pops into the open shell behind a gold ring
 // (the sticker rises in front of it), a burst of outlined gold and coral stars and a low pop.
 const OPEN_SECONDS = 0.3, OPEN_SWAP = 0.4, FLASH_SECONDS = 0.3, SPARKLES = 12, REVEAL_SECONDS = 0.65, BUMP_SECONDS = 0.3, LEAVE_SECONDS = 0.25, GROUP_MAX = 5;
@@ -70,6 +72,8 @@ interface Bubble {
 }
 interface Flight { active: boolean; x: number; y: number; t: number; creature: number; slot: number; r: number }
 interface PendingRound {
+  /** Names this round across tabs; rounds stored by older builds have none. */
+  id?: string;
   count: number; stars: number; choices: string[]; chosen: string; variant: number;
   tally: number[]; tier: Tier; rewardEnabled: boolean; restEntered: boolean;
 }
@@ -195,7 +199,9 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
     controlsRadius = Math.max(48, Math.min(Math.max(48 * services.config.uiScale, 62 * u), W / 5));
     controlsY = H - controlsRadius - 22;
     restY = (trayBottom + controlsY - controlsRadius) / 2;
-    restSize = Math.min(restSize, controlsY - controlsRadius - trayBottom - 26);
+    // Short screens leave little or no room between the tray and the controls (none at 390x400 with a total above
+    // ten). The rest art keeps REST_MIN and overlaps them; the controls draw over it.
+    restSize = Math.max(REST_MIN, Math.min(restSize, controlsY - controlsRadius - trayBottom - 26));
     // Where Again and Home fit beside the offer-sized shell, the chosen shell keeps its size and place height.
     // Otherwise (narrow screens) it rests above the controls; where that space is smaller than the offer size,
     // the offers take the rest size, so the chosen shell never gets smaller between choice and rest.
@@ -203,8 +209,9 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
     flankOffset = shellSize / 2 + gap + controlsRadius;
     flank = W / 2 - flankOffset - controlsRadius >= 8;
     if (!flank) shellSize = Math.min(shellSize, restSize);
-    shellY = Math.max(trayBottom + 22 + shellSize / 2, H * 0.64);
     choiceRadius = Math.max(48, shellSize * 0.51);
+    // The offers stay whole on screen, over the tray when the screen is that short.
+    shellY = Math.min(Math.max(trayBottom + 22 + shellSize / 2, H * 0.64), H - Math.max(choiceRadius, shellSize / 2) - 8);
     if (flank) { restY = shellY; restSize = shellSize; controlsY = Math.min(controlsY, shellY + shellSize / 2 - controlsRadius); }
     groupD = Math.min(restSize * 0.5, (flank ? shellSize + 2 * gap : W - 40) / 3.3);
     cornerRadius = Math.max(48, Math.min(60 * u, W / 8, H / 6));
@@ -366,7 +373,8 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
     stars = intro ? 3 : count >= 10 ? 3 : count >= 5 ? 2 : 1; adjustTier();
     variant = data.lastCelebration < 0 ? Math.floor(random() * 4) : (data.lastCelebration + 1 + Math.floor(random() * 3)) % 4;
     data.lastCelebration = variant; data.rounds++; data.bestCount = Math.max(data.bestCount, count);
-    pending = { count, stars, choices: chooseOffers(), chosen: '', variant, tally: Array.from(tally.slice(0, Math.min(count, tally.length))), tier, rewardEnabled: services.config.rewardsEnabled, restEntered: false };
+    const id = globalThis.crypto?.randomUUID?.() ?? `round-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    pending = { id, count, stars, choices: chooseOffers(), chosen: '', variant, tally: Array.from(tally.slice(0, Math.min(count, tally.length))), tier, rewardEnabled: services.config.rewardsEnabled, restEntered: false };
     data.pending = pending;
     const bag = rewards(services); bag.rounds[GAME_ID] = (bag.rounds[GAME_ID] ?? 0) + 1;
     if (services.config.rewardsEnabled) bag.stars += stars;
@@ -764,7 +772,7 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
       const trayHalf = trayWidth * 0.386 / 2, narrowTotal = W < 550 && count > 10;
       return { width: W, height: H, count, flank, starTop: starY - starSize / 2, starBottom: starY + starSize / 2,
         totalTop: narrowTotal ? starY + starSize / 2 + 10 : 0, totalBottom: narrowTotal ? starY + starSize / 2 + 78 : 0,
-        trayTop: trayY - trayHalf, trayBottom: trayY + trayHalf, shellY, shellSize, restY, restSize, controlsY, controlsRadius,
+        trayTop: trayY - trayHalf, trayBottom: trayY + trayHalf, shellY, shellSize, restY, restSize, groupD, controlsY, controlsRadius,
         controlsLeft: controlX(0) - controlsRadius, controlsRight: controlX(1) + controlsRadius,
         cornerRadius, cornerY, homeX, soundX, choiceRadius, backdropRatio: bgCanvas ? artRatio : 0,
         backdropLeft: bgX, backdropTop: bgY, backdropWidth: bgCanvas ? bgCanvas.width / sprites.pixelRatio : 0, backdropHeight: bgCanvas ? bgCanvas.height / sprites.pixelRatio : 0 };
