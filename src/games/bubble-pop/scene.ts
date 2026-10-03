@@ -189,7 +189,10 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
     jarW = Math.min(W * 0.55, 290 * u); jarH = Math.max(83, 132 * u); jarX = W / 2; jarY = jarH / 2 + 20 * u;
     placeResult();
   }
-  /** End-of-round layout. Depends on the count on narrow screens, where a total above ten pushes the tray down. */
+  /**
+   * End-of-round layout. Depends on the count: a total above ten pushes the tray down on narrow screens and limits the
+   * tray's width on wider ones, so the total bubble beside it stays on screen.
+   */
   function placeResult(): void {
     const headerScale = Math.min(1.25, Math.max(0.74, Math.min(W / 1366, H / 768)));
     starSize = W < 550 ? 36 : 72 * headerScale;
@@ -444,8 +447,9 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
     combo = Math.min(10, time - lastPop <= COMBO_WINDOW ? combo + 1 : 1);
     bestCombo = Math.max(bestCombo, combo); lastPop = time; lastInput = elapsed;
     count++; if (count <= tally.length) tally[count - 1] = b.creature;
-    // Narrow screens lay the result out differently above ten; prepare that layout's sizes too.
-    if (count === 11 && W < 550) placeResult();
+    // A total above ten changes the result layout at any width (the tray moves down on narrow screens and makes room
+    // for the total bubble beside it on wider ones); plan that layout now so play prepares its sizes.
+    if (count === 11) placeResult();
     if (keyAssisted || b.assisted) assisted++;
     if (!b.recycled && !b.excluded && !b.assisted && !keyAssisted && elapsed >= 5 && b.visible) hits++;
     else excluded++;
