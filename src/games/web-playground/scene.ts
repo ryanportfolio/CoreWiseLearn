@@ -12,7 +12,7 @@ import { drawCounter, drawStarRow, starPath, STAR_GAP_SECONDS, STAR_HIT_SECONDS 
 import { drawEnterFade } from '../../ui/motion';
 import { clamp01, easeInCubic, easeInOutSine, easeOutBack, easeOutCubic, lerp } from '../../ui/tween';
 import { bakeBackground, coverRect, createSoundButton, soundArt, syncSoundIcon, type Rect } from '../../scenes/hub/shared';
-import { bakeBall, bakePoint, bakeSign, RIMS } from './bake';
+import { bakeBall, bakePoint, bakeSign, PAD, RIMS } from './bake';
 import { playClip, prepareClips } from './voice';
 import {
   CATCHES_PER_ROUND, catchRange, clipName, connectCount, DEFAULT_DATA, GAME_ID, glyph, heartAt, keyMatches, nextLevel, nextTier,
@@ -45,7 +45,10 @@ const HOMES: Readonly<Record<number, readonly number[]>> = {
 /** Narrow views (the ball field is under 2.5 balls wide): three balls in a zigzag column. */
 const NARROW_HOMES: readonly number[] = [0, 0, 1, 0.5, 0, 1];
 const NARROW_BALLS = 3;
+/** Floor for ball and point discs: 100 keeps the drawn disc at least 96 px even after edge anti-aliasing. */
 const MIN_DISC = 100;
+/** Clear space kept between two floating balls at the widest bob and sway. */
+const BALL_GAP = 2;
 const IDLE_OPTIONS: IdleRequestOptions = { timeout: 500 };
 const GUIDE_FADES = 24;
 /** Clear space wanted between two connect points' discs, so the rings round the next and joined points have room; the least accepted. */
@@ -71,6 +74,11 @@ export interface WebPlaygroundStats {
   pointsList(): { x: number; y: number; r: number; glyph: string; next: boolean; joined: boolean }[];
   controls(): { x: number; y: number; radius: number; id: string }[];
   corners(): { x: number; y: number; radius: number; id: string }[];
+  /**
+   * Cached art against the canvas pixel ratio, for checks: backdrops in device px with the size the view needs, and
+   * how many baked glyph canvases (balls, caught balls, points, sign) match the current ratio and how many do not.
+   */
+  art(): { dpr: number; view: number[]; day: number[]; dusk: number[]; glyphs: number; stale: number };
   resetWork(): void;
 }
 export interface WebPlaygroundScene extends Scene { readonly stats: WebPlaygroundStats }
@@ -128,11 +136,12 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
   let pending: PendingRound | null = null;
   let inputAfter = 0, menuSelected = -1, cornerFocus = -1, focusAt = 0;
   let fanfareStarted = false, fanfareAsked = false, idleHandle = 0, dayDecoded = false, duskDecoded = false, frame = 0, bakedAt = -1;
-  let bgW = 0, bgH = 0, bgDpr = 0;
+  // Size and pixel ratio the backdrops were made at; the ratio every glyph canvas was baked at.
+  let bgW = 0, bgH = 0, bgDpr = 0, dayStale = false, duskStale = false, artDpr = 0;
   let workHead = 0, workCount = 0, updateMs = 0;
   // Layout.
   let parapetY = 0, feetY = 0, heroX = 0, heroSize = 250, signW = 230, signH = 236, signX = 0, signY = 0;
-  let narrow = false, aimRot = 0, aimX = 0, aimY = 0;
+  let narrow = false, wobble = 8, aimRot = 0, aimX = 0, aimY = 0;
   // The picture maps unit point (x, y) to (picX + x * picSX, picY + y * picSY).
   let ax0 = 0, ay0 = 0, ax1 = 0, ay1 = 0, ballD = 150, pointD = 124, picX = 0, picY = 0, picSX = 200, picSY = 200;
   let stringX0 = 0, stringX1 = 0, stringY = 0, miniD = 56, starY = 0, starR = 30;
@@ -165,21 +174,20 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     soundButton.x = soundX; soundButton.y = cornerY; soundButton.radius = cornerRadius;
     stringX0 = homeX + cornerRadius + 28 * u; stringX1 = soundX - cornerRadius - 28 * u; stringY = cornerY - 18 * u;
     miniD = Math.max(36, Math.min(60 * u, (stringX1 - stringX0) / (CATCHES_PER_ROUND + 1)));
-    signW = Math.max(150, 230 * u); signH = (mode === 'numbers' ? 236 : 176) * Math.max(0.65, u);
+    // The sign grows with the hero and, past its 1366x768 size, only into the room between the corner buttons and
+    // his head, so a large uiScale cannot make it bury him or crowd the balls.
+    const signBase = mode === 'numbers' ? 236 : 176, signRoom = feetY - heroSize - (cornerY + cornerRadius + 10);
+    const su = Math.min(u, heroSize / 250 * 1.15, Math.max(1, signRoom / (signBase * 1.16)));
+    signW = Math.max(150, 230 * su); signH = signBase * Math.max(0.65, su);
     signX = heroX + 34 * u;
     signY = Math.max(cornerY + cornerRadius + 10 + signH / 2, feetY - heroSize - signH * 0.6 - 26 * u);
-    // Floors of 100 keep the drawn disc at least 96 px even after edge anti-aliasing.
-    ballD = Math.max(MIN_DISC, tierP.ball * u);
-    ax0 = Math.max(heroX + heroSize * 0.6, signX + signW / 2 + 20 * u, W * 0.3) + ballD / 2;
-    ax1 = W - 40 * u - ballD / 2;
-    ay0 = cornerY + cornerRadius + 26 * u + ballD / 2;
-    ay1 = Math.max(ay0 + 10, parapetY - 12 * u - ballD / 2);
-    narrow = ax1 - ax0 < ballD * 2.5;
+    fitBalls();
     replaceBalls();
     fitPicture(); placePoints();
     starR = Math.max(22, Math.min(40 * u, cornerRadius * 0.7)); starY = cornerY;
     badgeSize = Math.min(330 * Math.min(1.25, H / 768), (W - 60) / 2.3, H * 0.42);
-    controlsRadius = Math.min(Math.max(48 * services.config.uiScale, 62 * u), W / 5);
+    // Never under 48 px (96 px across), whatever uiScale the config sets.
+    controlsRadius = Math.max(48, Math.min(Math.max(48 * services.config.uiScale, 62 * u), W / 5));
     controlsY = H - controlsRadius - 22;
     badgeY = Math.min(H * 0.56, controlsY - controlsRadius - badgeSize / 2 - 10);
     restSize = Math.max(120, Math.min(280 * Math.min(1.25, H / 768), controlsY - controlsRadius - (starY + starR) - 40));
@@ -187,8 +195,50 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     ballCache.clear(); for (const b of balls) b.canvas = undefined;
     for (let i = 0; i < MAX_POINTS; i++) pointCanvas[i] = undefined;
     caughtCanvas.length = 0; signCanvas = undefined;
-    // Rescaling the backdrops is costly; only a new canvas size needs it.
-    if (W !== bgW || H !== bgH || dpr() !== bgDpr) { bgDay = bgDusk = undefined; bgW = W; bgH = H; bgDpr = dpr(); }
+    // Rescaling the backdrops is costly; only a new canvas size or pixel ratio needs it (the engine's adaptive
+    // resolution changes the ratio without changing the size). Until a backdrop is remade, its old canvas is drawn
+    // stretched to the view, so the view is never left unpainted.
+    artDpr = dpr();
+    if (W !== bgW || H !== bgH || artDpr !== bgDpr) { dayStale = duskStale = true; bgW = W; bgH = H; bgDpr = artDpr; }
+  }
+  /** The area ball centres float in, for balls d across. */
+  function ballField(d: number): void {
+    ballD = d;
+    ax0 = Math.max(heroX + heroSize * 0.6, signX + signW / 2 + 20 * u, W * 0.3) + d / 2;
+    ax1 = W - 40 * u - d / 2;
+    ay0 = cornerY + cornerRadius + 26 * u + d / 2;
+    ay1 = Math.max(ay0 + 10, parapetY - 12 * u - d / 2);
+  }
+  /** True when every two homes keep their balls BALL_GAP apart at the widest bob and sway. */
+  function homesClear(): boolean {
+    const n = narrow ? NARROW_BALLS : tierP.balls, homes = narrow ? NARROW_HOMES : HOMES[tierP.balls] ?? HOMES[3]!;
+    // Two balls bob (up to wobble) and sway (up to 0.8 of it) out of phase: 2 * hypot(1, 0.8) is about 2.6.
+    const need = ballD + BALL_GAP + 2.6 * wobble, xr = Math.max(0, ax1 - ax0);
+    for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+      if (Math.hypot((homes[i * 2]! - homes[j * 2]!) * xr, (homes[i * 2 + 1]! - homes[j * 2 + 1]!) * (ay1 - ay0)) < need) return false;
+    }
+    return true;
+  }
+  /**
+   * Ball size and field. Balls start at the tier's size (never under MIN_DISC) and shrink only where their homes would
+   * crowd (a large uiScale). Still crowded at MIN_DISC: a bob and sway down to half as wide; then three balls in the
+   * narrow column, sized the same way; then a calmer bob and sway again.
+   */
+  function fitBalls(): void {
+    const full = tierP.wobble * u, start = Math.max(MIN_DISC, tierP.ball * u);
+    wobble = full;
+    let d = start;
+    for (;;) {
+      ballField(d); narrow = ax1 - ax0 < d * 2.5;
+      if (homesClear() || d <= MIN_DISC) break;
+      d = Math.max(MIN_DISC, d * 0.92);
+    }
+    while (!homesClear() && wobble > full * 0.5) wobble = Math.max(full * 0.5, wobble * 0.9);
+    if (!homesClear()) {
+      narrow = true; wobble = full;
+      for (d = start; ; d = Math.max(MIN_DISC, d * 0.92)) { ballField(d); if (homesClear() || d <= MIN_DISC) break; }
+    }
+    while (!homesClear() && wobble > 0.5) wobble *= 0.8;
   }
   function placeHome(b: Ball): void {
     const homes = narrow ? NARROW_HOMES : HOMES[tierP.balls] ?? HOMES[3]!;
@@ -287,8 +337,8 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     // Each backdrop is scaled once its image has decoded off the main thread, and at most one per frame, so the
     // opening frames under the fade stay short. The day city comes first; the dusk city is not needed before the swing.
     if (bakedAt !== frame) {
-      if (!bgDay && dayDecoded && sprites.get(spriteName('city-day'))) { bgDay = bakeBackground(services, spriteName('city-day'), W, H, fallbackSky, undefined); bakedAt = frame; }
-      else if (!bgDusk && bgDay && duskDecoded && sprites.get(spriteName('city-dusk'))) { bgDusk = bakeBackground(services, spriteName('city-dusk'), W, H, fallbackSky, undefined); bakedAt = frame; }
+      if ((!bgDay || dayStale) && dayDecoded && sprites.get(spriteName('city-day'))) { bgDay = bakeBackground(services, spriteName('city-day'), W, H, fallbackSky, undefined); dayStale = false; bakedAt = frame; }
+      else if ((!bgDusk || duskStale) && bgDay && duskDecoded && sprites.get(spriteName('city-dusk'))) { bgDusk = bakeBackground(services, spriteName('city-dusk'), W, H, fallbackSky, undefined); duskStale = false; bakedAt = frame; }
     }
     if (!fontReady) return;
     for (const b of balls) if (b.active && !b.canvas) b.canvas = ballCanvas(b.value, ballD, b.rim);
@@ -399,7 +449,7 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
       if (b.enter < 1) b.enter = Math.min(1, b.enter + dt / 0.6);
       b.wiggle = Math.max(0, b.wiggle - dt);
       if (b.pulled) continue;
-      const bob = Math.sin(time * 1.3 + b.phase) * tierP.wobble * u, sway = Math.sin(time * 0.7 + b.phase * 1.7) * tierP.wobble * 0.8 * u;
+      const bob = Math.sin(time * 1.3 + b.phase) * wobble, sway = Math.sin(time * 0.7 + b.phase * 1.7) * wobble * 0.8;
       b.x = b.homeX + sway;
       b.y = lerp(-ballD, b.homeY + bob, easeOutBack(b.enter));
     }
@@ -978,6 +1028,16 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     pointsList() { return Array.from({ length: phase === 'connect' ? nPoints : 0 }, (_, i) => ({ x: pts[i * 2]!, y: pts[i * 2 + 1]!, r: pointD / 2, glyph: glyph(mode, pointValue(i)), next: i === nextPoint, joined: i < nextPoint })); },
     controls() { const choice = phase === 'choice'; return Array.from({ length: choice ? pending?.choices.length ?? 0 : phase === 'rest' ? 2 : 0 }, (_, i) => ({ x: controlX(i, choice), y: choice ? badgeY : controlsY, radius: choice ? badgeSize / 2 : controlsRadius, id: choice ? pending!.choices[i]! : i === 0 ? 'again' : 'home' })); },
     corners() { return [{ x: homeX, y: cornerY, radius: cornerRadius, id: 'home' }, { x: soundX, y: cornerY, radius: cornerRadius, id: 'sound' }]; },
+    art() {
+      const r = dpr(), size = (c: HTMLCanvasElement | undefined): number[] => (c ? [c.width, c.height] : []);
+      let glyphs = 0, stale = 0;
+      const check = (c: HTMLCanvasElement | undefined, w: number): void => { if (!c) return; glyphs++; if (Math.abs(c.width - Math.ceil(w * r)) > 1) stale++; };
+      for (const b of balls) if (b.active) check(b.canvas, ballD + PAD * 2);
+      for (let i = 0; i < caughtCount; i++) check(caughtCanvas[i], miniD + PAD * 2);
+      for (let i = 0; i < nPoints; i++) check(pointCanvas[i], pointD + PAD * 2);
+      check(signCanvas, signSize[0]!);
+      return { dpr: r, view: [Math.round(W * r), Math.round(H * r)], day: size(bgDay), dusk: size(bgDusk), glyphs, stale };
+    },
     resetWork() { workHead = workCount = 0; },
   };
 
@@ -1048,7 +1108,7 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     render(view: SceneContext) {
       const started = performance.now(), ctx = view.ctx;
       frame++;
-      if (view.width !== W || view.height !== H) layout(view.width, view.height);
+      if (view.width !== W || view.height !== H || dpr() !== artDpr) { layout(view.width, view.height); ensureBakes(); }
       if (phase === 'swing') {
         const p = easeInOutSine(clamp01(phaseT / (SWING_OUT + SWING_ACROSS_IN)));
         drawBg(ctx, bgDay, -p * W); drawBg(ctx, bgDusk, W - p * W);
