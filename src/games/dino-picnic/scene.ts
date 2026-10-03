@@ -326,14 +326,18 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
   }
   /**
    * One dino fewer: the last one leaves. Mid-round (a resize while feeding), its unfinished wish goes back to the round
-   * for a dino that stays and fruit on its way to it is dropped; a plate it was already eating counts as done.
+   * for a dino that stays and fruit on its way to it is dropped; a plate it was already eating counts as done. Dinos
+   * that stay and had finished ('done' only once every wish was started) wait again, so one of them asks for it.
    */
   function dropDino(comparing: boolean): void {
     dinos--;
     if (phase !== 'play' || comparing) return;
     const sl = slots[dinos]!;
-    if (sl.state === 'asking' || sl.state === 'settling') ordersStarted--;
-    else if (sl.state === 'eating') ordersDone++;
+    if (sl.state === 'asking' || sl.state === 'settling') {
+      ordersStarted--;
+      // The returned wish was never recorded or counted; the dino that takes it starts a fresh plate.
+      for (let i = 0; i < dinos; i++) { const o = slots[i]!; if (o.state === 'done') { o.state = 'waiting'; o.t = 0; } }
+    } else if (sl.state === 'eating') ordersDone++;
     sl.state = 'off';
     for (const f of flights) if (f.active && f.slot === dinos && f.mode !== RETURN) f.active = false;
     if (hand.slot === dinos && (hand.mode === 1 || hand.mode === 2)) hand.mode = 0;
