@@ -1318,6 +1318,15 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
       keyCooldown = 0;
       startRound();
     },
+    /** Covered by the break nudge: keep the round, quiet the music, save progress. */
+    pause() {
+      stopMusic(audio);
+      services.save.save();
+    },
+    /** Uncovered: the round continues where it stopped. */
+    resume() {
+      startMusic(audio, theme.music);
+    },
     exit() {
       stopMusic(audio);
       services.save.save();

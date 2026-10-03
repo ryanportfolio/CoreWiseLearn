@@ -2,7 +2,7 @@
 
 > Build / dev / test / deploy commands for this project.
 
-All commands run from the repo root with npm (Node 20 or newer; 24 is what the machine uses).
+All commands run from the repo root with npm (Node 20.19 or newer, or 22.12 or newer, which is what Vite 8 and Rolldown require; 24 is what the machine uses).
 
 | Command | What it does |
 |---|---|

@@ -649,6 +649,13 @@ export function createNameEntryScene(services: AppServices): Scene {
       sfx('whoosh');
     },
 
+    /** Covered by the break nudge: keep the typed name, quiet the music. */
+    pause() {
+      stopMusic(audio);
+    },
+    resume() {
+      startMusic(audio, 'name-entry');
+    },
     exit() {
       stopMusic(audio);
     },

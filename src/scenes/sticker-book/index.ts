@@ -461,6 +461,13 @@ export function createStickerBookScene(services: AppServices): Scene {
       soundButton.popIn(0.14);
       startMusic(audio, 'sticker-book');
     },
+    /** Covered by the break nudge: keep the page and any drop in progress, quiet the music. */
+    pause() {
+      stopMusic(audio);
+    },
+    resume() {
+      startMusic(audio, 'sticker-book');
+    },
     exit() {
       stopMusic(audio);
     },

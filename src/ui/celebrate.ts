@@ -1,7 +1,7 @@
 /** Shared celebration bits: confetti bursts and the 1 to 3 star reveal. */
 
 import type { ParticleSystem, ParticleSpawn } from '../engine/particles';
-import { chunkyText, OUTLINE } from './draw';
+import { chunkyText, DISPLAY_FONT, OUTLINE } from './draw';
 import { reducedMotion } from './motion';
 import { clamp01, pulse, slamScale, SLAM_CONTACT } from './tween';
 
@@ -133,12 +133,74 @@ export function drawStarRow(ctx: CanvasRenderingContext2D, cx: number, cy: numbe
   }
 }
 
-/** Big number that pops when it changes. `sinceChange` in seconds. */
+const COUNTER_FILL = '#fff7a8';
+
+interface Glyph {
+  canvas: HTMLCanvasElement;
+  w: number;
+  h: number;
+  /** Horizontal advance of the digit in logical px, from measureText. */
+  advance: number;
+}
+
+/** Digit glyphs 0 to 9 rendered once per text size, so the counter never calls fillText per frame. */
+const glyphCache = new Map<number, Glyph[]>();
+
+function glyphsFor(sizePx: number): Glyph[] {
+  let glyphs = glyphCache.get(sizePx);
+  if (glyphs) return glyphs;
+  glyphs = [];
+  const stroke = Math.max(4, sizePx * 0.14);
+  const pad = Math.ceil(stroke + 2);
+  const h = Math.ceil(sizePx * 1.3 + stroke * 2);
+  for (let d = 0; d < 10; d++) {
+    const text = String(d);
+    const canvas = document.createElement('canvas');
+    const measure = canvas.getContext('2d');
+    let advance = sizePx * 0.6;
+    if (measure) {
+      measure.font = `900 ${sizePx}px ${DISPLAY_FONT}`;
+      advance = measure.measureText(text).width;
+    }
+    const w = Math.ceil(advance + pad * 2);
+    // Drawn at 1 logical px per device px: the canvas DPR is capped at 1 (MAX_DPR).
+    canvas.width = Math.max(1, w);
+    canvas.height = Math.max(1, h);
+    const c = canvas.getContext('2d');
+    if (c) chunkyText(c, text, w / 2, h / 2, sizePx, COUNTER_FILL);
+    glyphs.push({ canvas, w, h, advance });
+  }
+  glyphCache.set(sizePx, glyphs);
+  return glyphs;
+}
+
+/**
+ * Big number that pops when it changes. `sinceChange` in seconds. Draws cached
+ * digit glyphs with drawImage and allocates nothing per frame.
+ */
 export function drawCounter(ctx: CanvasRenderingContext2D, value: number, x: number, y: number, sizePx: number, sinceChange: number): void {
   const s = 1 + 0.35 * pulse(Math.min(1, sinceChange / 0.3));
+  const glyphs = glyphsFor(Math.round(sizePx));
+  const n = Math.max(0, Math.floor(value));
+  // Total advance first, so the number stays centred on x.
+  let total = 0;
+  let m = n;
+  do {
+    total += (glyphs[m % 10] as Glyph).advance;
+    m = Math.floor(m / 10);
+  } while (m > 0);
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(s, s);
-  chunkyText(ctx, String(value), 0, 0, sizePx, '#fff7a8');
+  // Lay digits out from the rightmost one, walking left.
+  let right = total / 2;
+  m = n;
+  do {
+    const g = glyphs[m % 10] as Glyph;
+    const cx = right - g.advance / 2;
+    ctx.drawImage(g.canvas, cx - g.w / 2, -g.h / 2, g.w, g.h);
+    right -= g.advance;
+    m = Math.floor(m / 10);
+  } while (m > 0);
   ctx.restore();
 }

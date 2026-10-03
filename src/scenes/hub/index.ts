@@ -539,6 +539,21 @@ export function createHubScene(services: AppServices): Scene {
           t.pressed = false;
           if (tileAt(x, y) === t) activate(t);
         }
+      } else if (event.type === 'anykey') {
+        // Any key acts on whatever the pointer rests on, so a child who typed
+        // their name can keep going without reaching for the mouse.
+        for (const t of tiles) {
+          if (t.hovered && t.delay <= 0) {
+            activate(t);
+            return;
+          }
+        }
+        for (const b of buttons) {
+          if (b.hovered && b.pointerDown(b.x, b.y)) {
+            b.pointerUp(b.x, b.y);
+            return;
+          }
+        }
       }
     },
     resize(w: number, h: number) {

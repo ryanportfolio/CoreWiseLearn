@@ -30,6 +30,8 @@ let folder = defaultFolder();
 export function setMusicFolder(url: string | undefined): void {
   folder = url ?? defaultFolder();
   bytesCache.clear();
+  // Decoded buffers came from the old folder too; a WeakMap cannot be cleared, so replace it.
+  decodedCache = new WeakMap();
 }
 
 // ---------------------------------------------------------------------------
@@ -38,7 +40,7 @@ export function setMusicFolder(url: string | undefined): void {
 // context.
 
 const bytesCache = new Map<MusicTrack, Promise<ArrayBuffer | undefined>>();
-const decodedCache = new WeakMap<BaseAudioContext, Map<MusicTrack, Promise<AudioBuffer | undefined>>>();
+let decodedCache = new WeakMap<BaseAudioContext, Map<MusicTrack, Promise<AudioBuffer | undefined>>>();
 
 function fetchBytes(track: MusicTrack): Promise<ArrayBuffer | undefined> {
   let p = bytesCache.get(track);
