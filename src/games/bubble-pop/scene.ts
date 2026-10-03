@@ -32,6 +32,10 @@ const MENU_GUARD_MS = 1200, FOCUS_HOLD_MS = 250;
 const CELEBRATION_LOCK = 1.5;
 // Smallest size of the art at rest (the chosen sticker or the round's catch), however short the screen.
 const REST_MIN = 72;
+// Counting tray: drawn height over width, the gap between its slots as a share of its width, and each slot's circle
+// radius and animal size as shares of that gap. The animal art has clear margins, so at 1.15 the animal itself fills
+// its circle.
+const TRAY_ASPECT = 0.386, TRAY_CELL = 0.103, SLOT_RADIUS = 0.47, SLOT_ANIMAL = 1.15;
 // The closed shell squashes for the first OPEN_SWAP of the opening, then pops into the open shell behind a gold ring
 // (the sticker rises in front of it), a burst of outlined gold and coral stars and a low pop.
 const OPEN_SECONDS = 0.3, OPEN_SWAP = 0.4, FLASH_SECONDS = 0.3, SPARKLES = 12, REVEAL_SECONDS = 0.65, BUMP_SECONDS = 0.3, LEAVE_SECONDS = 0.25, GROUP_MAX = 5;
@@ -58,7 +62,7 @@ export interface BubblePopStats {
   readonly warmPending: number;
   /** Times the end-of-round preparation went round again for art that had not loaded; stops at 4. */
   readonly warmRetries: number;
-  /** Result-screen layout in CSS px, for checks: vertical extents of the stars, total bubble (0 when hidden) and tray, offer and rest shells, controls; the corner buttons, the offer hit radius and the backdrop as drawn. */
+  /** Result-screen layout in CSS px, for checks: vertical extents of the stars, total bubble (0 when hidden) and tray, the tray width and its animal size, offer and rest shells, controls; the corner buttons, the offer hit radius and the backdrop as drawn. */
   resultLayout(): Record<string, number | boolean>;
   items(): { x: number; y: number; r: number; hitRadius: number; decoy: boolean; onScreen: boolean; highlighted: boolean }[];
   controls(): { x: number; y: number; radius: number; id: string }[];
@@ -185,37 +189,52 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
     jarW = Math.min(W * 0.55, 290 * u); jarH = Math.max(83, 132 * u); jarX = W / 2; jarY = jarH / 2 + 20 * u;
     placeResult();
   }
-  /** End-of-round layout. Depends on the count on narrow screens, where a total above ten pushes the tray down. */
+  /**
+   * End-of-round layout. Depends on the count: a total above ten pushes the tray down on narrow screens and limits the
+   * tray's width on wider ones, so the total bubble beside it stays on screen.
+   */
   function placeResult(): void {
     const headerScale = Math.min(1.25, Math.max(0.74, Math.min(W / 1366, H / 768)));
     starSize = W < 550 ? 36 : 72 * headerScale;
     starY = W < 550 ? 60 : 78 * headerScale;
-    trayWidth = Math.min(W - 24, 480 * headerScale);
-    trayY = starY + starSize / 2 + 18 + trayWidth * 0.386 / 2 + (W < 550 && count > 10 ? 76 : 0);
-    const trayBottom = trayY + trayWidth * 0.386 / 2;
     shellSize = Math.min(370 * Math.min(1.25, H / 768), (W - 60) / 2);
     restSize = Math.min(300 * Math.min(1.25, H / 768), W * 0.64);
+    const restFull = restSize;
     // Never under 48 px (96 px across), whatever uiScale the config sets.
     controlsRadius = Math.max(48, Math.min(Math.max(48 * services.config.uiScale, 62 * u), W / 5));
     controlsY = H - controlsRadius - 22;
-    restY = (trayBottom + controlsY - controlsRadius) / 2;
-    // Short screens leave little or no room between the tray and the controls (none at 390x400 with a total above
-    // ten). The rest art keeps REST_MIN and overlaps them; the controls draw over it.
-    restSize = Math.max(REST_MIN, Math.min(restSize, controlsY - controlsRadius - trayBottom - 26));
     // Where Again and Home fit beside the offer-sized shell, the chosen shell keeps its size and place height.
     // Otherwise (narrow screens) it rests above the controls; where that space is smaller than the offer size,
     // the offers take the rest size, so the chosen shell never gets smaller between choice and rest.
     const gap = Math.max(16, 30 * u);
     flankOffset = shellSize / 2 + gap + controlsRadius;
     flank = W / 2 - flankOffset - controlsRadius >= 8;
+    cornerRadius = Math.max(48, Math.min(60 * u, W / 8, H / 6));
+    homeX = cornerRadius + 12; soundX = W - cornerRadius - 12; cornerY = cornerRadius + 12;
+    // The tray starts at its old width (480 px at 1366x768) and grows up to 1.25 times that into room nothing else
+    // needs: the offers keep the place they would take anyway, narrow screens keep the full rest art, a total above
+    // ten beside the tray stays on screen, and the tray stays clear of the corner buttons.
+    const trayTop = starY + starSize / 2 + 18 + (W < 550 && count > 10 ? 76 : 0);
+    let trayBottomMax = H - Math.max(48, shellSize * 0.51, shellSize / 2) - 8 - shellSize / 2 - 22;
+    if (!flank) trayBottomMax = Math.min(trayBottomMax, controlsY - controlsRadius - 26 - restFull);
+    let trayRoom = (trayBottomMax - trayTop) / TRAY_ASPECT;
+    // That bubble's right edge is 0.928 tray widths right of the centre (0.76 out, 0.168 across half its art).
+    if (count > 10 && W >= 550) trayRoom = Math.min(trayRoom, (W / 2 - 8) / 0.928);
+    const cornerDy = Math.max(0, trayTop - cornerY);
+    if (cornerDy < cornerRadius + 4) trayRoom = Math.min(trayRoom, W - 2 * (homeX + Math.sqrt((cornerRadius + 4) ** 2 - cornerDy ** 2)));
+    trayWidth = Math.max(Math.min(W - 24, 480 * headerScale), Math.min(W - 24, 600 * headerScale, trayRoom));
+    trayY = trayTop + trayWidth * TRAY_ASPECT / 2;
+    const trayBottom = trayY + trayWidth * TRAY_ASPECT / 2;
+    restY = (trayBottom + controlsY - controlsRadius) / 2;
+    // Short screens leave little or no room between the tray and the controls (none at 390x400 with a total above
+    // ten). The rest art keeps REST_MIN and overlaps them; the controls draw over it.
+    restSize = Math.max(REST_MIN, Math.min(restSize, controlsY - controlsRadius - trayBottom - 26));
     if (!flank) shellSize = Math.min(shellSize, restSize);
     choiceRadius = Math.max(48, shellSize * 0.51);
     // The offers stay whole on screen, over the tray when the screen is that short.
     shellY = Math.min(Math.max(trayBottom + 22 + shellSize / 2, H * 0.64), H - Math.max(choiceRadius, shellSize / 2) - 8);
     if (flank) { restY = shellY; restSize = shellSize; controlsY = Math.min(controlsY, shellY + shellSize / 2 - controlsRadius); }
     groupD = Math.min(restSize * 0.5, (flank ? shellSize + 2 * gap : W - 40) / 3.3);
-    cornerRadius = Math.max(48, Math.min(60 * u, W / 8, H / 6));
-    homeX = cornerRadius + 12; soundX = W - cornerRadius - 12; cornerY = cornerRadius + 12;
     soundButton.x = soundX; soundButton.y = cornerY; soundButton.radius = cornerRadius;
     planWarm();
   }
@@ -223,12 +242,12 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
   function planWarm(): void {
     warmNames.length = 0; warmSizes.length = 0; warmKeys.length = 0; prepIndex = 0; madeIndex = -1; warmRetry = -1;
     const add = (name: string, size: number): void => { const side = Math.round(size); warmNames.push(name); warmSizes.push(side); warmKeys.push(`${name}@${side}`); };
-    const cell = trayWidth * 0.103, total = W < 550 ? 68 : trayWidth * 0.3;
+    const cell = trayWidth * TRAY_CELL, total = W < 550 ? 68 : trayWidth * 0.3;
     // Before the round ends, a gift is expected unless rewards are off or the collection is complete (read once the
     // scene has entered and a profile is active).
     const gift = pending ? giftFollows() : !!data && services.config.rewardsEnabled && STICKERS.some(st => st.game === GAME_ID && !rewards(services).stickers.includes(st.id));
     add('rewards/gold-star', starSize); add('rewards/counting-tray', trayWidth);
-    for (const name of names) add(name, cell * 0.95);
+    for (const name of names) add(name, cell * SLOT_ANIMAL);
     add('', trayWidth * 0.115); add(bubbleName, total * 1.12); add('', total * 0.4);
     if (gift) {
       add('rewards/shell-closed-coral', shellSize); add('rewards/shell-closed-mint', shellSize);
@@ -428,8 +447,9 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
     combo = Math.min(10, time - lastPop <= COMBO_WINDOW ? combo + 1 : 1);
     bestCombo = Math.max(bestCombo, combo); lastPop = time; lastInput = elapsed;
     count++; if (count <= tally.length) tally[count - 1] = b.creature;
-    // Narrow screens lay the result out differently above ten; prepare that layout's sizes too.
-    if (count === 11 && W < 550) placeResult();
+    // A total above ten changes the result layout at any width (the tray moves down on narrow screens and makes room
+    // for the total bubble beside it on wider ones); plan that layout now so play prepares its sizes.
+    if (count === 11) placeResult();
     if (keyAssisted || b.assisted) assisted++;
     if (!b.recycled && !b.excluded && !b.assisted && !keyAssisted && elapsed >= 5 && b.visible) hits++;
     else excluded++;
@@ -565,13 +585,13 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
   }
   function renderRewardCount(ctx: CanvasRenderingContext2D, total: number): void {
     drawSprite(ctx, sprites, 'rewards/counting-tray', W / 2, trayY, Math.round(trayWidth));
-    const cell = trayWidth * 0.103, left = W / 2 - trayWidth * 0.32;
+    const cell = trayWidth * TRAY_CELL, left = W / 2 - trayWidth * 0.32;
     const shown = total === 0 ? 0 : (total - 1) % 10 + 1;
     for (let i = 0; i < 10; i++) {
       const x = left + (i % 5) * cell, y = trayY + (i < 5 ? -0.57 : 0.43) * cell;
-      ctx.beginPath(); ctx.arc(x, y, cell * 0.43, 0, Math.PI * 2);
+      ctx.beginPath(); ctx.arc(x, y, cell * SLOT_RADIUS, 0, Math.PI * 2);
       ctx.fillStyle = i < shown ? '#7fbebc' : '#d7d1bb'; ctx.fill();
-      if (i < shown) creature(ctx, tally[Math.max(0, total - shown + i) % tally.length] ?? 0, x, y, Math.round(cell * 0.95));
+      if (i < shown) creature(ctx, tally[Math.max(0, total - shown + i) % tally.length] ?? 0, x, y, Math.round(cell * SLOT_ANIMAL));
     }
     // Up to ten the tray names the quantity it shows. Above ten only the total bubble carries a numeral,
     // so the partial ten in the tray never reads as the score.
@@ -769,10 +789,10 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
     get warmRetries() { return warmRetries; },
     get warmPending() { let n = warmRetry >= 0 ? 1 : 0; for (const key of warmKeys) if (!warmDone.has(key)) n++; return n; },
     resultLayout() {
-      const trayHalf = trayWidth * 0.386 / 2, narrowTotal = W < 550 && count > 10;
+      const trayHalf = trayWidth * TRAY_ASPECT / 2, narrowTotal = W < 550 && count > 10;
       return { width: W, height: H, count, flank, starTop: starY - starSize / 2, starBottom: starY + starSize / 2,
         totalTop: narrowTotal ? starY + starSize / 2 + 10 : 0, totalBottom: narrowTotal ? starY + starSize / 2 + 78 : 0,
-        trayTop: trayY - trayHalf, trayBottom: trayY + trayHalf, shellY, shellSize, restY, restSize, groupD, controlsY, controlsRadius,
+        trayTop: trayY - trayHalf, trayBottom: trayY + trayHalf, trayWidth, trayAnimal: Math.round(trayWidth * TRAY_CELL * SLOT_ANIMAL), shellY, shellSize, restY, restSize, groupD, controlsY, controlsRadius,
         controlsLeft: controlX(0) - controlsRadius, controlsRight: controlX(1) + controlsRadius,
         cornerRadius, cornerY, homeX, soundX, choiceRadius, backdropRatio: bgCanvas ? artRatio : 0,
         backdropLeft: bgX, backdropTop: bgY, backdropWidth: bgCanvas ? bgCanvas.width / sprites.pixelRatio : 0, backdropHeight: bgCanvas ? bgCanvas.height / sprites.pixelRatio : 0 };

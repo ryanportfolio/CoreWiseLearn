@@ -1,6 +1,7 @@
 /** Full-window logical canvas with an adaptive backing store. */
 export const MAX_DPR = 1.5;
-const MAX_PIXELS = 1_500_000;
+// A 1920x1080 window (2.07 M pixels) renders at full pixel ratio; MAX_DPR and SCALES bound the rest.
+const MAX_PIXELS = 2_100_000;
 const SCALES = [1, 0.85, 0.7] as const;
 export interface GameCanvas {
   readonly element: HTMLCanvasElement;

@@ -79,7 +79,7 @@ export function gameIconUrl(services: AppServices, icon: string): string {
 
 function hubArt(services: AppServices): ArtRequest[] {
   const reqs: ArtRequest[] = [
-    artRequest(services, `${BG}.png`, 'none'),
+    artRequest(services, `${BG}.webp`, 'none'),
     artRequest(services, `${WAVE}.png`, 'blob', MASCOT_BLUE),
     artRequest(services, `${IDLE}.png`, 'blob', MASCOT_BLUE),
     artRequest(services, `${POINT}.png`, 'blob', MASCOT_BLUE),

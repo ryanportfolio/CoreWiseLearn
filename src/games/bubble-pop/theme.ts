@@ -55,7 +55,7 @@ export interface BubbleTheme {
 
 export const OCEAN_THEME: BubbleTheme = {
   id: 'ocean',
-  background: 'backgrounds/ocean-floor.png',
+  background: 'backgrounds/ocean-floor.webp',
   creatures: [
     { path: 'creatures/clownfish.png', hue: 25 },
     { path: 'creatures/turtle.png', hue: 115 },

@@ -51,7 +51,7 @@ const MAX_MASCOT = 300;
 const fitKeys = (span: number, n: number, gap: number): number => span / (n + gap * (n - 1));
 
 export function nameEntryArt(): Record<string, string> {
-  return { [BG]: `${BG}.png`, [GO]: `${GO}.png`, [BACK]: `${BACK}.png`, [IDLE]: `${IDLE}.png`, [CHEER]: `${CHEER}.png`, [GUEST]: 'avatars/bunny.png', 'buttons/home': 'buttons/home.png' };
+  return { [BG]: `${BG}.webp`, [GO]: `${GO}.png`, [BACK]: `${BACK}.png`, [IDLE]: `${IDLE}.png`, [CHEER]: `${CHEER}.png`, [GUEST]: 'avatars/bunny.png', 'buttons/home': 'buttons/home.png' };
 }
 export async function loadNameEntryArt(services: AppServices): Promise<void> {
   const paths = Object.fromEntries(Object.entries(nameEntryArt()).map(([key, path]) => [key, services.art(path)]));
