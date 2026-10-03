@@ -6,6 +6,7 @@
 import type { Scene } from './scene';
 import type { AppServices } from '../app/services';
 import { bubblePop } from '../games/bubble-pop';
+import { shapeWorkshop } from '../games/shape-workshop';
 
 /** Everything a game may need from the hub, handed in when its scene is created. */
 export type GameServices = AppServices;
@@ -31,6 +32,7 @@ export interface GameDefinition {
 
 const games: GameDefinition[] = [
   bubblePop,
+  shapeWorkshop,
   // Add games here in hub order. See docs/adding-a-game.md.
 ];
 
