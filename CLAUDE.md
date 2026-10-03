@@ -4,15 +4,15 @@
 
 ## What this project is
 
-A browser game hub for the owner's niece and nephew, aged 4 and 5, who cannot read. They play alone on a Windows laptop with a low-end integrated GPU, a mouse or trackpad and a keyboard. The hub, a name-entry screen and a growing set of small games share one engine (`src/engine/`), one art style (flat chunky vector) and one save file; new games register in `src/engine/registry.ts`.
+A browser game hub for the owner's niece and nephew, aged 4 and 5, who cannot read. They play alone on a Windows laptop with a low-end integrated GPU, a mouse or trackpad and a keyboard. The hub, a name-entry screen and a growing set of small games share one engine (`src/engine/`), familiar controls (each world may use its own art medium) and one save file; new games register in `src/engine/registry.ts`.
 
 Won't compromise on:
 
-- No instruction text. The only text on screen is a child's name and numbers. Mechanics are taught by demonstration.
+- No instruction text; navigation never needs reading. Text on screen is a child's name, numbers, the letter keys on the name-entry screen, and letters (uppercase and lowercase), words and shape names used as learning material. Mechanics are taught by demonstration.
 - Nothing is ever wrong, locked or lost. No game over; misses only ease the hidden adaptive difficulty; every round ends with at least one star.
 - Every interactive target is at least 96 CSS px on its shortest side. Mouse, trackpad and any key all work; there is no wrong button.
 - 60 fps at 1366x768 on an integrated GPU. No per-frame allocations in update or render, no shadowBlur, no per-frame gradients or fillText.
-- No settings screens, no network calls at runtime, no analytics, no external links. Adult configuration is JSON in the repo.
+- No settings screens, no network calls at runtime except fetching the app's own files (no third-party requests, no analytics, nothing about the child sent anywhere), no external links. Adult configuration is JSON in the repo.
 - Engagement stays honest: stickers, stars and unlocks reward play; nothing nags, times out or manipulates.
 
 ## Default prose mode: caveman ultra

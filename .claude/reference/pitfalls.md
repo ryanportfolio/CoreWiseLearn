@@ -38,6 +38,8 @@ Killing the Bash background task that started `npm run dev -- --port 5183` ended
 
 The dev box has a 100 Hz panel, so `loop.stats.mean` reads 10.0 ms on every page no matter how little work a scene does. Two builders burned time trying to get it "under 4 ms". The budget number is `loop.stats.workMean` and `workMax` (milliseconds inside update plus render), added to `src/engine/loop.ts` for this reason.
 
+The work numbers have their own blind spot (2026-10-03): `workSamples()`, `workMean` and `workMax` time only the update and render inside the frame callback. Work a scene does in `requestIdleCallback` (Bubble Bay prepares its end-of-round art there) is not counted, so a check of idle-time preparation must also read the delivered frame intervals (`loop.stats.samples()` or its own rAF deltas) to see whether that work delayed a frame.
+
 ## 2026-10-02: opening chrome://gpu in the probe window throttled the probe tab
 
 In the Canvas 2D perf probe, opening `chrome://gpu` as a second tab of the probe's window before the run left the probe tab ticking at about 1 Hz after that tab was closed, and once crashed the page. Cost two aborted runs. Fix: capture `chrome://gpu` last, in its own `browser.newContext()`.
@@ -49,3 +51,7 @@ The box is an AMD Radeon RX 6600 XT desktop with a 100 Hz panel, not the childre
 ## 2026-10-03: running loop does not mean the name screen accepts input
 
 `bootApp` starts the loop on a loading scene before the initial art promises finish and name entry is installed. A probe that typed after `loop.running` alone lost its first letters and created the wrong profile. Wait for the actual name scene (`window.__nameEntry` in a dev build; production needs the installed scene with `handleInput`) and its input guard before typing; verify the name before Enter. Production navigation and offline probes must use the same readiness condition.
+
+## 2026-10-03: a passing typecheck through rtk can print nothing
+
+The Bash hook runs commands through the rtk wrapper, which trims output. A passing `tsc` or `npm run typecheck` then prints nothing, or only npm's `> tsc --noEmit -p tsconfig.json` line, so the output alone does not show that the check ran and passed. Judge the result by the exit code (`npm run typecheck; echo "exit $?"`), not by the output.

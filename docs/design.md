@@ -15,15 +15,15 @@ The owner's word for the goal is "addictive". Confirmed reading (owner, 2026-10-
 Any pull request that crosses one of these is wrong, whatever else it improves.
 
 1. Reading is never required to navigate. Letters, words, numbers, and shape names can be play material, supported by demonstrations and, in future learning games, spoken cues.
-2. Nothing is ever wrong, locked or lost. No game over. Misses only ease the hidden difficulty. Every finished round earns at least one star and a sticker.
+2. Nothing is ever wrong, locked or lost. No game over. Misses only ease the hidden difficulty. Every finished round earns at least one star. A sticker choice follows while the game still has stickers the profile has not collected. With `rewardsEnabled: false` in `public/config.json` (an adult option, for example a reward-free week), finished rounds add no stars or stickers to the profile; existing collections stay intact.
 3. No pressure characters. The mascot and any future pet are never sad, hurt, hungry or pleading, and never react to the child leaving.
 4. No autoplay. Round games end on a still screen with Again and Home of equal size and brightness; nothing starts by itself. Creative games save creations when the child leaves and need no forced round or score.
 5. No streaks, timers that punish, daily quotas, countdowns, or anything that rewards coming back on a schedule. The break nudge is the one asymmetry, and it leans toward stopping.
-6. No random reward drops, no rarity, no gambling shapes. A sticker is a gift for finishing a round; the child chooses between visible stickers, or receives the last remaining one. A completed collection remains playable without an endless upgrade ladder.
+6. No random reward drops, no rarity, no gambling shapes. A sticker is a gift for finishing a round while uncollected stickers remain; the child chooses between two visible stickers. Offers come from the first sticker page (8 stickers per page) that still has uncollected stickers, so when only one sticker on that page is left, the child is offered that one sticker alone and still picks it. A completed collection remains playable without an endless upgrade ladder.
 7. All games stay open. Unlocks come from book and page completion, never from star thresholds, so the hidden tier can never split the siblings' collections.
 8. Every interactive target is at least 96 CSS px on its shortest side, checked with a ruler on the real laptop (`uiScale` in config).
 9. Mouse, trackpad and any key all work; there is no wrong button; any mouse button counts as a click.
-10. Nothing leaves the device: no network calls at runtime, no analytics, no external links. Play time is never tracked beyond the session nudge.
+10. Nothing leaves the device: no network calls at runtime except fetching the app's own files (no third-party requests, no analytics, nothing about the child sent anywhere), no external links. Play time is never tracked beyond the session nudge.
 11. Avoid full-screen flashes and saturated-red flashes. Inspect combined effects during dense pops and celebrations. Individual effect limits alone do not establish formal flash-threshold compliance.
 12. 60 fps on the integrated GPU, with the runtime resolution scale as the safety valve.
 

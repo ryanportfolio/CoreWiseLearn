@@ -20,4 +20,4 @@ Per-scene dev pages: with the dev server running, `/CoreWiseLearn/dev/<scene>.ht
 
 Deploy: manual only for now. `.github/workflows/deploy.yml` is `workflow_dispatch` and GitHub Pages is not enabled; see `deployment.md` for the steps to turn it on.
 
-Frame-time measurement: the running app exposes `window.__corewise.loop.stats` (`last`, `mean`, `max`, `fps`, `samples()`), so a browser script can read timings without touching game code.
+Frame-time measurement: the running app exposes `window.__corewise.loop.stats` (defined in `src/engine/loop.ts`), so a browser script can read timings without touching game code. Frame interval, the time between frames: `last`, `mean`, `max`, `p95`, `fps` and `samples()`. Work, the time spent in update plus render: `workLast`, `workMean`, `workMax`, `workP95` and `workSamples()`. Also `count` (samples held), `frames` (frames since start) and `updatesLastFrame`. `mean` is the time between frames, locked to the display refresh, not the update and render cost; read `workMean` and `workP95` for cost.
