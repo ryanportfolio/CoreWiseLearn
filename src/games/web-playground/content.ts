@@ -71,22 +71,12 @@ export function picturePoints(kind: PictureKind, n: number, out: Float32Array, c
     return;
   }
   if (kind === 'heart') {
-    // Equal steps along the outline, starting at the top dip and going round the right lobe first.
-    const samples = 240, xy = new Float32Array(2), len = new Float32Array(samples + 1);
-    let px = 0, py = 0;
-    for (let i = 0; i <= samples; i++) {
-      heartAt(i / samples * Math.PI * 2, xy, 0);
-      if (i) len[i] = len[i - 1]! + Math.hypot(xy[0]! - px, xy[1]! - py);
-      px = xy[0]!; py = xy[1]!;
-    }
-    let j = 0;
+    // Equal straight-line gaps between neighbours, starting at the top dip and going round the right lobe first.
+    // Equal steps along the curve would put the two points either side of the tip close together.
+    const ts = heartChords(n);
     for (let k = 0; k < n; k++) {
-      const want = len[samples]! * k / n;
-      while (j < samples && len[j + 1]! < want) j++;
-      const seg = len[j + 1]! - len[j]!, f = seg > 0 ? (want - len[j]!) / seg : 0;
-      const t = (j + f) / samples * Math.PI * 2;
-      heartAt(t, out, k * 2);
-      if (curveT) curveT[k] = t;
+      heartAt(ts[k]!, out, k * 2);
+      if (curveT) curveT[k] = ts[k]!;
     }
     return;
   }
@@ -125,6 +115,85 @@ export function heartAt(t: number, out: Float32Array, index: number): void {
   out[index] = (16 * s * s * s) / 17;
   out[index + 1] = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t)) / 17 + 0.08;
 }
+
+/** The heart outline sampled once: x, y for t = i / HEART_SAMPLES * 2 pi, i = 0 .. HEART_SAMPLES. */
+const HEART_SAMPLES = 720;
+const heartXY = new Float32Array((HEART_SAMPLES + 1) * 2);
+for (let i = 0; i <= HEART_SAMPLES; i++) heartAt(i / HEART_SAMPLES * Math.PI * 2, heartXY, i * 2);
+/** Unit bounding box of the heart outline: x0, x1, y0, y1. */
+const HEART_BOX = ((): readonly number[] => {
+  let y0 = Infinity, y1 = -Infinity;
+  for (let i = 0; i <= HEART_SAMPLES; i++) { y0 = Math.min(y0, heartXY[i * 2 + 1]!); y1 = Math.max(y1, heartXY[i * 2 + 1]!); }
+  return [-16 / 17, 16 / 17, y0, y1];
+})();
+const chordCache = new Map<number, Float32Array>();
+
+/**
+ * Walks n - 1 straight steps of length c along the sampled heart from the dip, writing each point's sample
+ * position to ts. Returns the length of the closing step back to the dip, or -1 when the walk runs off the end.
+ */
+function chordWalk(c: number, n: number, ts: Float32Array): number {
+  let s = 0, px = heartXY[0]!, py = heartXY[1]!;
+  ts[0] = 0;
+  for (let k = 1; k < n; k++) {
+    let j = Math.floor(s) + 1, from = s, before = 0, after = 0;
+    for (; j <= HEART_SAMPLES; j++) {
+      after = Math.hypot(heartXY[j * 2]! - px, heartXY[j * 2 + 1]! - py);
+      if (after >= c) break;
+      from = j; before = after;
+    }
+    if (j > HEART_SAMPLES) return -1;
+    s = from + (j - from) * (c - before) / Math.max(1e-6, after - before);
+    const i = Math.min(HEART_SAMPLES - 1, Math.floor(s)), f = s - i;
+    px = heartXY[i * 2]! + (heartXY[i * 2 + 2]! - heartXY[i * 2]!) * f;
+    py = heartXY[i * 2 + 1]! + (heartXY[i * 2 + 3]! - heartXY[i * 2 + 1]!) * f;
+    ts[k] = s;
+  }
+  return Math.hypot(px - heartXY[0]!, py - heartXY[1]!);
+}
+
+/** Curve parameters of n heart points with equal straight gaps (the closing gap included). Computed once per n. */
+function heartChords(n: number): Float32Array {
+  let ts = chordCache.get(n);
+  if (ts) return ts;
+  ts = new Float32Array(n);
+  let lo = 0.05, hi = 3;
+  for (let i = 0; i < 32; i++) {
+    const c = (lo + hi) / 2, closing = chordWalk(c, n, ts);
+    if (closing < c) hi = c; else lo = c;
+  }
+  chordWalk(lo, n, ts);
+  for (let k = 0; k < n; k++) ts[k] = ts[k]! / HEART_SAMPLES * Math.PI * 2;
+  chordCache.set(n, ts);
+  return ts;
+}
+
+/** Unit bounding box of the drawn picture, as x0, x1, y0, y1 in out. Points are in join order. */
+export function pictureBox(kind: PictureKind, points: Float32Array, n: number, out: Float32Array): void {
+  if (kind === 'heart') { for (let i = 0; i < 4; i++) out[i] = HEART_BOX[i]!; return; }
+  if (kind === 'kite') { out[0] = -0.72; out[1] = 0.72; out[2] = -1; out[3] = 1; return; }
+  out[0] = out[2] = Infinity; out[1] = out[3] = -Infinity;
+  for (let i = 0; i < n; i++) {
+    out[0] = Math.min(out[0]!, points[i * 2]!); out[1] = Math.max(out[1]!, points[i * 2]!);
+    out[2] = Math.min(out[2]!, points[i * 2 + 1]!); out[3] = Math.max(out[3]!, points[i * 2 + 1]!);
+  }
+}
+
+/** Points along the drawn outline (unit x, y pairs in out, at most 48), for keeping it clear of the corner buttons. Returns the count. */
+export function pictureOutline(kind: PictureKind, points: Float32Array, n: number, out: Float32Array): number {
+  if (kind === 'heart') {
+    for (let i = 0; i < 48; i++) { out[i * 2] = heartXY[i * 30]!; out[i * 2 + 1] = heartXY[i * 30 + 1]!; }
+    return 48;
+  }
+  const corners = kind === 'kite' ? KITE : points, m = kind === 'kite' ? 4 : n, per = Math.max(1, Math.floor(48 / m));
+  let k = 0;
+  for (let i = 0; i < m; i++) {
+    const ax = corners[i * 2]!, ay = corners[i * 2 + 1]!, bx = corners[((i + 1) % m) * 2]!, by = corners[((i + 1) % m) * 2 + 1]!;
+    for (let s = 0; s < per; s++, k++) { out[k * 2] = ax + (bx - ax) * s / per; out[k * 2 + 1] = ay + (by - ay) * s / per; }
+  }
+  return k;
+}
+const KITE = new Float32Array([0, -1, 0.72, -0.18, 0, 1, -0.72, -0.18]);
 
 export interface PendingRound {
   mode: Mode; picture: number; stars: number; caught: number; points: number;

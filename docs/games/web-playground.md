@@ -11,7 +11,9 @@ Registry: `id: 'web-playground'`, `mode: 'round'`, `learning: ['counting', 'lett
 1. **Swing in** (about 1.7 s). The hero swings into the day city on a web line and lands on the rooftop at the left. This shows the web before the child does anything.
 2. **Catch** (6 catches). Three to five round web balls float gently over the sky, each with a numeral or a capital letter. The hero holds up a comic sign with the wanted glyph; for numbers the sign also shows that many dots in a ten-frame (two rows of five). The child clicks the matching ball. The hero shoots a web (a short "thwip"), the ball is pulled in, pops into a small burst and flies to a string of caught balls at the top. A new ball floats in to replace it, and the sign changes. The new ball never repeats a glyph already floating; when every value is in use (five values, five balls) it takes the value just caught.
 3. **Swing across** (about 1.6 s, automatic). The hero swings off to the right while the city pans from day to dusk. Nothing to press; it always succeeds.
-4. **Connect** (5, 7 or 10 points). Web points with numerals 1, 2, 3 ... or letters A, B, C ... sit around a hidden picture: a star, a heart or a kite, taking turns by round. Point 1 (or A) starts lit. Each click on the next point shoots a web thread to it with a climbing note. After the last point the thread closes the shape, the picture fills with colour and sparkles. The threads always make the picture that fills in: star and kite threads are straight and the star and kite are exactly those polygons; heart threads curve along the heart outline between points, so five points already spin a heart, not a pentagon.
+4. **Connect** (5, 7 or 10 points). Web points with numerals 1, 2, 3 ... or letters A, B, C ... sit around a hidden picture: a star, a heart or a kite, taking turns by round. Point 1 (or A) starts lit. Each click on the next point shoots a web thread to it with a climbing note. After the last point the thread closes the shape, the picture fills with colour and sparkles. The threads always make the picture that fills in: star and kite threads are straight and the star and kite are exactly those polygons; heart threads curve along the heart outline between points, so five points already spin a heart, not a pentagon. Heart points sit at equal straight-line gaps from their neighbours (not equal steps along the curve), so the two points either side of the tip are as far apart as any other pair.
+
+   The picture is fitted to the view, at its own proportions or stretched up to 20 percent: first in the space right of the hero (above him on narrow views) with the tier's point size, then with points at the 100 px floor. Where neighbouring points would still come closer than 16 px, the picture grows just enough into the space between the corner buttons, on the same bottom line, as long as no point or outline comes near those buttons; then the same again with 8 px. A view too small for that many points without overlap gets fewer: 10 become 7, 7 become 5. At 1366x768 every picture keeps all its points. At 800x600 only the ten-point kite drops to 7. At 390x600 the ten-point star drops to 7, and hearts and kites use 5. The count is chosen when the round starts and again when the connect begins; a resize during the connect keeps it.
 5. **Celebration**, then the **sticker choice**, then the **still rest** with Again and Home.
 
 Rounds alternate numbers and letters: the first round, and every second one after, uses numbers.
@@ -32,7 +34,7 @@ Rounds alternate numbers and letters: the first round, and every second one afte
 - The swing-in shows the web.
 - First round of a profile: the hero holds up the first sign, waits 1.2 s, then catches the matching ball himself. The next request shows its glow from the start. From the third request on, the glow waits.
 - First connect of a profile: the hero draws the thread from point 1 to point 2 himself, then point 3 glows.
-- The hint (after a few seconds without input, or after a different ball or point): the hero switches to his outstretched-arm pose, turns so his hand aims at the wanted ball or next point and reaches towards it in a slow pulse, for as long as the hint lasts. The target bounces (scale pulse), sits on a wide pulsing yellow halo, wears a thick yellow ring and has a big bouncing arrow above it. The hero also hops every 8 s. Nothing times out and nothing happens without the child, apart from the two first-round demonstrations.
+- The hint (after a few seconds without input, or after a different ball or point): the hero switches to his outstretched-arm pose, turns so his hand aims at the wanted ball or next point and reaches towards it in a slow pulse, for as long as the hint lasts. The target bounces (scale pulse), sits on a wide pulsing yellow halo, wears a thick yellow ring and has a big bouncing arrow above it. The dotted trail from his hand fades out where it passes near another ball or point, so it never crosses a target it does not lead to. The hero also hops every 8 s. Nothing times out and nothing happens without the child, apart from the two first-round demonstrations.
 
 ## Learning progression (separate from motor tiers)
 
@@ -66,7 +68,7 @@ Three hidden tiers, changed only between rounds.
 | 1 | 130 px | 4 | 16 px | 1.15 | 112 px |
 | 2 | 112 px | 5 | 26 px | 1.08 | 100 px |
 
-Sizes are at 1366x768 and scale with the view; balls and points never go below 100 px across, so the drawn disc still measures at least 96 px after edge smoothing. The connect point's visible paper disc is the full point diameter, outline included. When the ball area is less than 2.5 balls wide (a narrow window such as 390x600), the catch uses three balls in a zigzag column so none overlap. A motor attempt is a pointer press during catch or connect while input is open. It is a hit when it lands inside the visible ball or point, and near when only the padding catches it. Keys are not motor attempts. Up one tier after two rounds in a row with at least 10 attempts and at least 90 percent hits; down one tier when a round has at least 6 attempts and fewer than 70 percent land inside the padded area.
+Sizes are at 1366x768 and scale with the view; balls and points never go below 100 px across, so the drawn disc still measures at least 96 px after edge smoothing. The connect point's visible paper disc is the full point diameter, outline included. When the ball area is less than 2.5 balls wide (a narrow window such as 390x600), the catch uses three balls in a zigzag column so none overlap. A resize into a narrow view during the catch gives each floating ball its own place in that column: the wanted ball keeps one and any balls beyond three float away. A resize back to a wider view drops new balls into the empty places, up to the tier's count. A motor attempt is a pointer press during catch or connect while input is open. It is a hit when it lands inside the visible ball or point, and near when only the padding catches it. Keys are not motor attempts. Up one tier after two rounds in a row with at least 10 attempts and at least 90 percent hits; down one tier when a round has at least 6 attempts and fewer than 70 percent land inside the padded area.
 
 ## Stars and rewards
 
@@ -80,19 +82,20 @@ The first round of a profile earns three stars. Stars, the round count and the p
 
 **Celebration** (4 s): the hero cheers in front of the finished picture, the stars land one by one with the shared star sound, and the caught balls are counted out in a row with a ticking numeral that sits just right of the last ball counted. A tap or key skips it, but not in the first 1.5 s or before the stars have appeared.
 
-**Sticker choice** (while uncollected stickers remain and `rewardsEnabled` is true): two comic badges show two of this game's six stickers. Input is ignored for 1.2 s. Nothing is focused at first; the first key only shows focus, arrows move it, any other key chooses. Clicking a badge chooses it. The last remaining sticker is offered alone.
+**Sticker choice** (while uncollected stickers remain and `rewardsEnabled` is true): two comic badges show two of this game's six stickers. Input is ignored for 1.2 s. Nothing is focused at first; the first key only shows focus, arrows move it, and any other key chooses once the focus has shown for 0.25 s. Clicking a badge chooses it. The last remaining sticker is offered alone.
 
-**Rest:** the chosen sticker large in the middle, the hero waving, Again and Home buttons of equal size and colour. Nothing moves. `services.roundBoundary()` runs once when the rest is reached.
+**Rest:** the chosen sticker large in the middle, the hero waving, Again and Home buttons of equal size and colour. Nothing moves. Input is ignored for 1.2 s and the keys work as on the choice. `services.roundBoundary()` runs once when the rest is reached.
 
 ## Keyboard-only play
 
 - Catch: any key catches. A matching key catches its ball and counts as evidence; any other key catches the wanted ball. Once a key has been pressed in the round, the wanted ball wears a light-and-dark keyboard ring so the next key press is predictable.
 - Connect: a matching key draws to its point; any other key draws to the next point, which wears the keyboard ring.
-- Tab cycles focus over the Home and sound corners; Enter activates the focused corner; Escape goes Home. Celebration, choice and rest follow the rules above.
+- During the round (swing-in to the filled picture) every key plays, Escape, Tab and Enter included; no key leaves the round. The corner Home button still leaves at a click.
+- On the celebration (once it can be skipped), the choice and the rest (after their 1.2 s guard): Escape goes Home, Tab cycles focus over the Home and sound corners, arrows switch between them, Enter activates the focused corner. These match Bubble Bay. The corner buttons sit at Bubble Bay's corner positions and sizes, so the break nudge's sound button covers this game's.
 
 ## Pause, resume and leaving
 
-`pause()` stops music and flushes; `resume()` restarts music and blocks input for 0.35 s so the click that closed the break overlay cannot catch a ball. Play continues where it was. Home during play leaves without awarding; Home during the celebration or choice keeps the pending gift, and the next entry resumes at the choice exactly once. Reaching the rest clears the stored round (everything is awarded by then), so leaving the rest by any route (Again, Home, the corner Home, Escape, a reload) starts a new round on the next entry.
+`pause()` stops music and flushes; `resume()` restarts music. During the round it blocks input for 0.35 s so the click that closed the break overlay cannot catch a ball, and play continues where it was. On the choice or rest it starts their guard over as on first appearance: nothing focused, input ignored for 1.2 s. Home during play leaves without awarding; Home during the celebration or choice keeps the pending gift, and the next entry resumes at the choice exactly once. Reaching the rest clears the stored round (everything is awarded by then), so leaving the rest by any route (Again, Home, the corner Home, Escape, a reload) starts a new round on the next entry.
 
 ## Art
 
@@ -140,7 +143,8 @@ No clips ship. `public/voice/web-playground/clips.json` lists the clip files tha
 
 ## Performance plan
 
-- Both backgrounds are cover-fitted once per resize into device-resolution canvases; each frame is one blit (two during the pan).
+- Both backgrounds are decoded off the main thread after loading, then cover-fitted once per canvas size into device-resolution canvases, at most one per frame (day first, then dusk), so the opening frames under the fade stay short. Each frame is one blit (two during the pan).
+- The picture's fanfare is rendered ahead once per session like Bubble Bay's: the long first step of `prepareSfxStep(audio, 'fanfare')` runs when a round starts, under the enter fade or on the still rest after Again, and the note steps run in idle periods during play, so the frame the picture fills does not build the notes.
 - Each web ball (disc, web pattern, rim and glyph) and each connect point is baked into a canvas when its value or the layout changes, never per frame. The sign is baked when the request changes. Glyphs use the bundled Andika font after `ensureDisplayFont()`.
 - Balls, flights and points live in fixed pools; particles use the shared pooled system with a capacity of 160.
 - Per frame: drawImage calls, a few arcs and lines for web threads and glows, one filled path for the picture. No gradients, shadowBlur, fillText or allocation in update or render.
@@ -180,3 +184,15 @@ Production build served by `vite preview` on port 5224, headed Chrome on the rea
 - Leaving the rest by the corner Home and by Escape stores no pending round; re-entry starts a new round. Leaving during the choice resumes at the choice with the same stars; choosing adds one sticker, and Again adds nothing.
 - Learning evidence on a five-point heart: step 1 recorded, steps 2 to 4 not. On a five-point kite, a wrong click at step 1 recorded one wrong.
 - Mouse and keyboard rounds end to end, zero console errors or warnings. Keyboard round work time at 1366x768: game ring mean 0.07 ms, max 1.3 ms; loop work max 1.3 ms.
+
+## Verification notes, round G4 consistency pass (2026-10-03)
+
+Production build served by `vite preview` on port 5224, headed Chrome on the real GPU with the window parked offscreen, fullscreen requests stubbed to fail. Script: `.tmp/g4/g4.mjs` (not committed). Captures: `D:/screenshots/CoreWiseLearn/games/web-playground/g4/`.
+
+- Escape, Tab and Enter during the catch and the connect each caught a ball or joined a point and stayed in the round. Escape early in the celebration did nothing. On the rest, Tab then Enter went Home.
+- Break nudge over the rest with keys every 300 ms: after the nudge closed, keys at 301, 612 and 922 ms were ignored, the key at 1231 ms only showed focus (shown 1240 ms after the rest came back), and the next one, at 1542 ms, pressed Again.
+- Corner Home and sound buttons measured on the canvas match Bubble Bay's exactly at 1366x768 and 800x600.
+- Connect points at 1366x768, 800x600 and 390x600 for every picture and level: no two discs closer than 8 px; at 1366x768 and 800x600 at least 16 px; none outside the view or under a corner button.
+- Resize from 1366x768 to 390x600 during a five-ball catch: three balls at least 64 px apart; back to 1366x768, five balls again.
+- Work time at 1366x768 (loop `workLast` per frame): opening at most 7.7 ms (was 17.5 ms), catch with keys every 120 ms 4.0 ms, connect 5.8 ms, picture filling with the fanfare 3.2 ms, celebration 2.3 ms, choice 6.4 ms. No delivered frame interval above 10.4 ms on the 100 Hz display. Zero console errors or warnings in every scenario.
+- Sticker book page 4 shows all six stickers inside their slots.
