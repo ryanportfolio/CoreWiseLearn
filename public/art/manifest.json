@@ -1,8 +1,8 @@
 {
-  "style": "Flat chunky vector, thick dark outlines, flat saturated fills, single soft highlight, no text. Sprites are 512x512 RGBA with the subject centred and fitted to 80 percent of the canvas; backgrounds are 1536x864 opaque RGB.",
+  "style": "Flat chunky vector, thick dark outlines, flat saturated fills, single soft highlight, no text. Sprites are 512x512 RGBA with the subject centred and fitted to 80 percent of the canvas; backgrounds are 1365x768 (maximum 1366x768) opaque RGB.",
   "generatedWith": "OpenAI image_gen through Codex CLI (gpt-6-astra agent), downscaled with the project scratch script .tmp/art/png.mjs",
-  "count": 47,
-  "totalBytes": 8748764,
+  "count": 51,
+  "totalBytes": 4281370,
   "files": [
     {
       "file": "art/mascot/cheer.png",
@@ -12,7 +12,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 116686
+      "bytes": 62663
     },
     {
       "file": "art/mascot/idle.png",
@@ -22,7 +22,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 118926
+      "bytes": 61330
     },
     {
       "file": "art/mascot/point.png",
@@ -32,7 +32,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 99483
+      "bytes": 53070
     },
     {
       "file": "art/mascot/wave.png",
@@ -42,7 +42,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 110152
+      "bytes": 56605
     },
     {
       "file": "art/mascot/yawn.png",
@@ -52,7 +52,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 123875
+      "bytes": 72372
     },
     {
       "file": "art/tiles/candy-rainbow.png",
@@ -62,7 +62,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 121402
+      "bytes": 40687
     },
     {
       "file": "art/tiles/dino-green.png",
@@ -72,7 +72,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 134457
+      "bytes": 56110
     },
     {
       "file": "art/tiles/ocean-octopus.png",
@@ -82,7 +82,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 170070
+      "bytes": 72085
     },
     {
       "file": "art/tiles/rocket-red.png",
@@ -92,7 +92,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 115872
+      "bytes": 47966
     },
     {
       "file": "art/tiles/unicorn-rainbow.png",
@@ -102,7 +102,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 159773
+      "bytes": 48455
     },
     {
       "file": "art/buttons/avatar-silhouette.png",
@@ -112,7 +112,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 109265
+      "bytes": 67257
     },
     {
       "file": "art/buttons/backspace.png",
@@ -122,7 +122,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 70931
+      "bytes": 42879
     },
     {
       "file": "art/buttons/home.png",
@@ -132,7 +132,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 137106
+      "bytes": 61044
     },
     {
       "file": "art/buttons/play-arrow.png",
@@ -142,7 +142,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 98169
+      "bytes": 59548
     },
     {
       "file": "art/buttons/sound-off.png",
@@ -152,7 +152,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 126053
+      "bytes": 71813
     },
     {
       "file": "art/buttons/sound-on.png",
@@ -162,7 +162,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 93340
+      "bytes": 54157
     },
     {
       "file": "art/buttons/stars-empty.png",
@@ -172,7 +172,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 93620
+      "bytes": 57939
     },
     {
       "file": "art/buttons/stars-filled.png",
@@ -182,7 +182,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 106021
+      "bytes": 58707
     },
     {
       "file": "art/buttons/sticker-star.png",
@@ -192,7 +192,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 106851
+      "bytes": 62468
     },
     {
       "file": "art/creatures/clownfish.png",
@@ -202,7 +202,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 142094
+      "bytes": 60060
     },
     {
       "file": "art/creatures/crab.png",
@@ -212,7 +212,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 140229
+      "bytes": 63638
     },
     {
       "file": "art/creatures/dolphin.png",
@@ -222,7 +222,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 118845
+      "bytes": 55892
     },
     {
       "file": "art/creatures/jellyfish.png",
@@ -232,7 +232,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 134622
+      "bytes": 58624
     },
     {
       "file": "art/creatures/octopus-purple.png",
@@ -242,7 +242,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 168787
+      "bytes": 66554
     },
     {
       "file": "art/creatures/pufferfish.png",
@@ -252,7 +252,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 144625
+      "bytes": 58199
     },
     {
       "file": "art/creatures/seahorse.png",
@@ -262,7 +262,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 100696
+      "bytes": 37420
     },
     {
       "file": "art/creatures/starfish.png",
@@ -272,7 +272,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 114482
+      "bytes": 57250
     },
     {
       "file": "art/creatures/turtle.png",
@@ -282,7 +282,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 139208
+      "bytes": 53283
     },
     {
       "file": "art/creatures/whale-small.png",
@@ -292,7 +292,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 110557
+      "bytes": 51432
     },
     {
       "file": "art/decoys/seaweed-clump.png",
@@ -302,7 +302,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 102012
+      "bytes": 50772
     },
     {
       "file": "art/decoys/urchin-grumpy.png",
@@ -312,7 +312,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 162822
+      "bytes": 75078
     },
     {
       "file": "art/effects/bubble-ring.png",
@@ -322,7 +322,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 166715
+      "bytes": 62418
     },
     {
       "file": "art/effects/confetti-piece-set.png",
@@ -332,7 +332,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 89441
+      "bytes": 34144
     },
     {
       "file": "art/effects/pop-burst.png",
@@ -342,7 +342,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 135867
+      "bytes": 50196
     },
     {
       "file": "art/effects/sparkle.png",
@@ -352,7 +352,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 55131
+      "bytes": 29109
     },
     {
       "file": "art/avatars/bunny.png",
@@ -362,7 +362,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 133400
+      "bytes": 56126
     },
     {
       "file": "art/avatars/fox.png",
@@ -372,7 +372,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 161667
+      "bytes": 73154
     },
     {
       "file": "art/avatars/frog.png",
@@ -382,7 +382,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 158770
+      "bytes": 80600
     },
     {
       "file": "art/avatars/koala.png",
@@ -392,7 +392,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 122401
+      "bytes": 58341
     },
     {
       "file": "art/avatars/lion.png",
@@ -402,7 +402,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 173622
+      "bytes": 74092
     },
     {
       "file": "art/avatars/owl.png",
@@ -412,7 +412,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 184910
+      "bytes": 75258
     },
     {
       "file": "art/avatars/panda.png",
@@ -422,7 +422,7 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 155824
+      "bytes": 73117
     },
     {
       "file": "art/avatars/penguin.png",
@@ -432,47 +432,99 @@
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 138540
+      "bytes": 63536
     },
     {
       "file": "art/backgrounds/hub-meadow-beach.png",
       "group": "backgrounds",
       "name": "hub-meadow-beach",
       "use": "Hub screen background; UI sits in the calm middle band",
-      "width": 1536,
-      "height": 864,
+      "width": 1365,
+      "height": 768,
       "transparent": false,
-      "bytes": 848569
+      "bytes": 318554
     },
     {
       "file": "art/backgrounds/meadow-sky.png",
       "group": "backgrounds",
       "name": "meadow-sky",
       "use": "Name-entry screen background",
-      "width": 1536,
-      "height": 864,
+      "width": 1365,
+      "height": 768,
       "transparent": false,
-      "bytes": 810711
+      "bytes": 457755
     },
     {
       "file": "art/backgrounds/ocean-floor.png",
       "group": "backgrounds",
       "name": "ocean-floor",
       "use": "Bubble-pop game background",
-      "width": 1536,
-      "height": 864,
+      "width": 1365,
+      "height": 768,
       "transparent": false,
-      "bytes": 912307
+      "bytes": 377185
     },
     {
       "file": "art/backgrounds/sticker-album.png",
       "group": "backgrounds",
       "name": "sticker-album",
       "use": "Sticker book background",
-      "width": 1536,
-      "height": 864,
+      "width": 1365,
+      "height": 768,
       "transparent": false,
-      "bytes": 709858
+      "bytes": 407906
+    },
+    {
+      "file": "art/rewards/shell-coral.webp",
+      "group": "rewards",
+      "name": "shell-coral",
+      "use": "Tidepool reward presentation",
+      "width": 480,
+      "height": 494,
+      "transparent": true,
+      "bytes": 69320
+    },
+    {
+      "file": "art/rewards/shell-mint.webp",
+      "group": "rewards",
+      "name": "shell-mint",
+      "use": "Tidepool reward presentation",
+      "width": 480,
+      "height": 498,
+      "transparent": true,
+      "bytes": 69820
+    },
+    {
+      "file": "art/rewards/counting-tray.webp",
+      "group": "rewards",
+      "name": "counting-tray",
+      "use": "Tidepool reward presentation",
+      "width": 640,
+      "height": 247,
+      "transparent": true,
+      "bytes": 45340
+    },
+    {
+      "file": "art/rewards/gold-star.webp",
+      "group": "rewards",
+      "name": "gold-star",
+      "use": "Tidepool reward presentation",
+      "width": 160,
+      "height": 154,
+      "transparent": true,
+      "bytes": 10042
     }
-  ]
+  ],
+  "prepared": {
+    "date": "2026-10-02",
+    "tool": "scripts/prepare-art.mjs with sharp",
+    "settings": "PNG palette 256 colors, dither 0.5; backgrounds fit within 1366x768; alpha preserved",
+    "originals": "D:/CoreWise/_artifacts/CoreWiseLearn/v1.1-original-art/art"
+  },
+  "rewardArt": {
+    "generatedWith": "OpenAI image_gen; model identifier not exposed",
+    "date": "2026-10-02",
+    "source": "C:/Users/Home/.codex/generated_images/01a0ff7b-3c60-7450-80ac-6d78e2f1e516/exec-78b1530c-cb96-47ef-a233-73328f1a6df8.png",
+    "preparation": "Alpha-trimmed isolated source objects; WebP quality 92, alpha quality 100; originals retained outside public."
+  }
 }

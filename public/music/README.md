@@ -1,8 +1,9 @@
 # Background music
 
 Put one looping music file per track in this folder. The game plays them in
-the background, quieter than the sound effects (the music bus sits at 40% of
-the effects level).
+the background, quieter than the sound effects. The music bus starts at -12 dB
+(about 25% amplitude), with a separate master trim of -6 dB from config.json.
+The owner supplies the tracks and tunes their levels on the intended laptop.
 
 ## File names
 
