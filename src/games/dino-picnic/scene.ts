@@ -35,6 +35,8 @@ const BG = `${ART}meadow`, PLATE = `${ART}leaf-plate`, BASKET = `${ART}basket`, 
 const BUTTON_PLAY = 'buttons/play-arrow', BUTTON_HOME = 'buttons/home';
 const CARD_FILL = '#fff4dc', CARD_LINE = '#6b4a33', DOT_EMPTY = '#ece0c4', DOT_RIM = '#b8a27c', HIGHLIGHT = '#fff6a3';
 const POOL = 32, PARTICLES = 220, MAX_FRUIT = 10;
+/** Most progress pips a round shows: six plates and two comparisons. */
+const MAX_PIPS = 8;
 const SETTLE_SECONDS = 0.8, EAT_GAP = 0.3, DANCE_SECONDS = 1.3, CELEBRATION_SECONDS = 4.6, STAR_START = 0.5;
 // Choice and rest ignore input this long (and again after the break nudge), so steady pressing from the round cannot
 // choose for the child; the first key then only shows focus, and a later key acts once focus has shown FOCUS_HOLD_MS.
@@ -74,6 +76,8 @@ export interface DinoPicnicStats {
   basket(): { x: number; y: number; r: number };
   controls(): { x: number; y: number; radius: number; id: string }[];
   corners(): { home: [number, number, number]; sound: [number, number, number] };
+  /** Baked canvases: the pixel ratio they were made at, the backdrop's logical rectangle, and the hat and glow canvas widths. */
+  baked(): { ratio: number; pixelRatio: number; backdrop: [number, number, number, number] | null; hatPx: number; hatSize: number; glowPx: number; glowSize: number; scale: number };
   resetWork(): void;
 }
 export interface DinoPicnicScene extends Scene { readonly stats: DinoPicnicStats }
@@ -100,11 +104,12 @@ export async function loadDinoPicnicArt(services: AppServices): Promise<string[]
   return missing;
 }
 
-/** A small clay party hat, baked once per size: the "which has more?" prize. */
-function bakeHat(size: number): HTMLCanvasElement {
+/** A small clay party hat, baked once per size and pixel ratio: the "which has more?" prize. Draw it at width / ratio. */
+function bakeHat(size: number, ratio: number): HTMLCanvasElement {
   const c = document.createElement('canvas'), w = Math.ceil(size * 1.1), h = Math.ceil(size * 1.25);
-  c.width = w; c.height = h;
+  c.width = Math.max(1, Math.round(w * ratio)); c.height = Math.max(1, Math.round(h * ratio));
   const g = c.getContext('2d'); if (!g) return c;
+  g.scale(c.width / w, c.height / h);
   const cx = w / 2, top = size * 0.2, base = h - size * 0.12, half = size * 0.42, line = Math.max(3, size * 0.06);
   g.lineJoin = 'round';
   g.beginPath(); g.moveTo(cx, top); g.lineTo(cx + half, base); g.quadraticCurveTo(cx, base + size * 0.12, cx - half, base); g.closePath();
@@ -121,13 +126,14 @@ function bakeHat(size: number): HTMLCanvasElement {
   return c;
 }
 
-/** A soft warm halo behind demonstration fruit, baked once per layout so a hint never reads as a real fruit. */
-function bakeGlow(size: number): HTMLCanvasElement {
-  const c = document.createElement('canvas'); c.width = c.height = Math.max(2, size);
+/** A soft warm halo behind demonstration fruit, baked once per size and pixel ratio so a hint never reads as a real fruit. */
+function bakeGlow(size: number, ratio: number): HTMLCanvasElement {
+  const c = document.createElement('canvas'); c.width = c.height = Math.max(2, Math.round(size * ratio));
   const g = c.getContext('2d'); if (!g) return c;
-  const r = c.width / 2, grad = g.createRadialGradient(r, r, 0, r, r, r);
+  g.scale(c.width / size, c.width / size);
+  const r = size / 2, grad = g.createRadialGradient(r, r, 0, r, r, r);
   grad.addColorStop(0, 'rgba(255, 253, 225, 1)'); grad.addColorStop(0.6, 'rgba(255, 240, 150, 0.9)'); grad.addColorStop(1, 'rgba(255, 238, 140, 0)');
-  g.fillStyle = grad; g.fillRect(0, 0, c.width, c.height);
+  g.fillStyle = grad; g.fillRect(0, 0, size, size);
   // A bright rim marks it as a hint, unlike any fruit on a plate.
   g.beginPath(); g.arc(r, r, r * 0.66, 0, Math.PI * 2);
   g.lineWidth = Math.max(3, r * 0.07); g.strokeStyle = 'rgba(255, 255, 255, 0.95)'; g.stroke();
@@ -157,6 +163,12 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
   let data: PicnicData = defaultData();
   let W = 1366, H = 768, u = 1, s = 1;
   let bgCanvas: HTMLCanvasElement | undefined, bgX = 0, bgY = 0, hatCanvas: HTMLCanvasElement | undefined, glowCanvas: HTMLCanvasElement | undefined;
+  /** Pixel ratio the backdrop, hat and glow were made at; logical sizes of the glow and hat. */
+  let artRatio = 0, glowSize = 0;
+  /** Fitted scales for feeding (and the round's end) and for comparing. */
+  let playS = 1, compareS = 1;
+  /** The last placed layout stands the dinos lower; the progress row sits at the top. */
+  let lowLayout = false, pipsTop = false;
   let phase: Phase = 'play', tier: Tier = 0, intro = false, dinoOffset = 0;
   let time = 0, sceneT = 0, phaseT = 0, idleT = 0;
   let ordersTotal = 0, ordersStarted = 0, ordersDone = 0, happy = 0, compTotal = 0, compDone = 0, lastTarget = 0;
@@ -210,17 +222,10 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     for (let i = 1; i < activeSlots(); i++) gap = Math.min(gap, Math.abs(slotX(i) - slotX(i - 1)));
     return gap;
   }
-  function layout(width: number, height: number): void {
-    // Rescaling the full-screen backdrop is costly; only a new canvas size needs it.
-    const resized = width !== W || height !== H;
-    W = width; H = height;
-    u = Math.min(1.5, Math.max(0.45, Math.min(W / 1366, H / 768))) * services.config.uiScale;
+  /** Play geometry at scale s. With `lowered`, the dinos stand lower so the wish cards clear the corner buttons. */
+  function place(lowered: boolean): void {
     const t = TIERS[intro ? 0 : tier];
-    s = u * (cmp.active ? 1 : t.scale);
-    feetY = H * 0.62; dinoH = 250 * s; plateW = 236 * s; plateY = feetY + plateW * 0.28;
-    fruitSize = Math.round(plateW * FRUIT_OF_PLATE);
-    const glowSize = Math.max(2, Math.round(fruitSize * 1.9));
-    if (glowCanvas?.width !== glowSize) glowCanvas = bakeGlow(glowSize);
+    dinoH = 250 * s; plateW = 236 * s; fruitSize = Math.round(plateW * FRUIT_OF_PLATE);
     // The widest wish card (ten dots and a two-digit numeral) at full size. Where the tier's places leave less room
     // between dinos (narrow screens), the dinos spread evenly and the cards shrink to fit between them.
     const fullCard = s * (14 * 2 + 5 * 44 + 60 * 1.65), several = !cmp.active && activeSlots() > 1;
@@ -230,32 +235,87 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     const k = several ? Math.min(1, (gap - 8) / fullCard) : 1;
     dotR = 17 * s * k; dotStep = 44 * s * k; cardPad = 14 * s * k; numSize = Math.round(62 * s * k); numW = 60 * s * k;
     const maxCard = cardPad * 2 + 5 * dotStep + numberWidth(10);
+    // Press zones reach from above a two-row card down to below the plate.
+    const above = dinoH + 14 * s + (cardPad * 2 + 2 * dotStep) + 18 * s, below = plateW * 0.7;
+    feetY = H * 0.62; lowLayout = lowered;
+    if (lowered) feetY = Math.max(feetY, Math.min(cornerY + cornerRadius + 4 + above, H - below));
+    plateY = feetY + plateW * 0.28;
     zoneW = Math.max(96, plateW * 1.05, maxCard);
     // Neighbouring press zones never overlap, and never get narrower than 96 px.
     if (activeSlots() > 1) zoneW = Math.max(96, Math.min(zoneW, gap - 4));
-    zoneTop = Math.max(0, feetY - dinoH - 14 * s - (cardPad * 2 + 2 * dotStep) - 18 * s);
-    zoneBottom = plateY + plateW * 0.42;
+    zoneTop = feetY - above; zoneBottom = feetY + below;
     basketSize = Math.round(170 * s); basketR = Math.max(48, basketSize * 0.5);
-    basketX = W * t.basketX; basketY = Math.min(H - basketSize * 0.45, H * t.basketY);
+    // The whole press circle stays on screen.
+    basketX = Math.min(W - basketR, Math.max(basketR, W * t.basketX)); basketY = Math.min(H - basketR, H * t.basketY);
     for (let i = 0; i < 3; i++) { slots[i]!.x = slotX(i); cardSize(slots[i]!); }
-    const hat = Math.round(84 * s);
-    if (!hatCanvas || hat !== hatSize) { hatSize = hat; hatCanvas = bakeHat(hatSize); }
-    const headerScale = Math.min(1.25, Math.max(0.6, Math.min(W / 1366, H / 768)));
-    starR = 34 * headerScale; starY = 70 * headerScale;
-    pipSize = Math.round(34 * u); pipY = H - pipSize * 0.75;
+  }
+  /** Whether the press zone of the dino at x comes within r of (cx, cy). */
+  function zoneNear(x: number, cx: number, cy: number, r: number): boolean {
+    const dx = Math.max(x - zoneW / 2 - cx, 0, cx - x - zoneW / 2), dy = Math.max(zoneTop - cy, 0, cy - zoneBottom);
+    return dx * dx + dy * dy < r * r;
+  }
+  /** True when a wish card would leave the top of the screen or a press area overlaps the basket or a corner button. */
+  function crowded(): boolean {
+    if (zoneTop < 0) return true;
+    const basketOn = !cmp.active;
+    if (basketOn && (Math.hypot(basketX - homeX, basketY - cornerY) < basketR + cornerRadius || Math.hypot(basketX - soundX, basketY - cornerY) < basketR + cornerRadius)) return true;
+    for (let i = 0; i < activeSlots(); i++) {
+      const x = slots[i]!.x;
+      if (zoneNear(x, homeX, cornerY, cornerRadius) || zoneNear(x, soundX, cornerY, cornerRadius) || (basketOn && zoneNear(x, basketX, basketY, basketR))) return true;
+    }
+    return false;
+  }
+  /**
+   * The largest scale up to `start` at which the play layout fits (a large uiScale on a small screen asks for more than
+   * fits): first as placed, then with the dinos lower, then smaller. Leaves that layout placed.
+   */
+  function fit(start: number): void {
+    for (let f = 1; ; f *= 0.95) {
+      s = start * f;
+      place(false); if (!crowded()) return;
+      place(true); if (!crowded() || s <= 0.3) return;
+    }
+  }
+  function layout(width: number, height: number): void {
+    const resized = width !== W || height !== H;
+    W = width; H = height;
+    // The loop's adaptive resolution changes the pixel ratio without a new size: every canvas baked at the old ratio
+    // (the scaled backdrop, the hat and glow, the sprites warmed for the round's end) is made again.
+    const reratio = sprites.pixelRatio !== artRatio;
+    artRatio = sprites.pixelRatio;
+    if (reratio) warmDone.clear();
+    u = Math.min(1.5, Math.max(0.45, Math.min(W / 1366, H / 768))) * services.config.uiScale;
     // Bubble Bay's corner buttons, place and size, so the break nudge's sound button covers this one exactly.
     const cornerU = Math.min(1.5, Math.max(0.4, Math.min(W / 1366, H / 768))) * services.config.uiScale;
     cornerRadius = Math.max(48, Math.min(60 * cornerU, W / 8, H / 6));
     homeX = cornerRadius + 12; soundX = W - cornerRadius - 12; cornerY = cornerRadius + 12;
     soundButton.x = soundX; soundButton.y = cornerY; soundButton.radius = cornerRadius;
+    // Feeding and comparing each get their own fitted scale; the round's end draws at the feeding scale.
+    const t = TIERS[intro ? 0 : tier], comparing = cmp.active;
+    cmp.active = !comparing; fit(u * (cmp.active ? 1 : t.scale)); const otherS = s, otherLow = lowLayout;
+    cmp.active = comparing; fit(u * (comparing ? 1 : t.scale));
+    const anyLow = lowLayout || (otherLow && (comparing || (!intro && comparisonsPerRound(data) > 0)));
+    playS = comparing ? otherS : s; compareS = comparing ? s : otherS;
+    // The halo shows only while feeding and the hat only in comparisons, so each bakes at its own scale once.
+    const glow = Math.max(2, Math.round(Math.round(236 * playS * FRUIT_OF_PLATE) * 1.9));
+    if (!glowCanvas || reratio || glow !== glowSize) { glowSize = glow; glowCanvas = bakeGlow(glowSize, artRatio); }
+    const hat = Math.round(84 * compareS);
+    if (!hatCanvas || reratio || hat !== hatSize) { hatSize = hat; hatCanvas = bakeHat(hatSize, artRatio); }
+    const headerScale = Math.min(1.25, Math.max(0.6, Math.min(W / 1366, H / 768)));
+    starR = 34 * headerScale; starY = 70 * headerScale;
+    pipSize = Math.round(34 * u); pipY = H - pipSize * 0.75; pipsTop = anyLow;
+    // Where the dinos stand lower, the plates reach the bottom edge: the round's progress row moves up between the corner buttons.
+    if (pipsTop) { pipY = cornerY; pipSize = Math.max(8, Math.round(Math.min(pipSize, (soundX - homeX - 2 * cornerRadius - 24) / (MAX_PIPS * 1.15)))); }
     choiceSize = Math.round(Math.max(110, Math.min(340 * Math.min(1.25, H / 768), (W - 60) / 2)));
     choiceY = H * 0.58;
-    controlsRadius = Math.min(Math.max(48 * services.config.uiScale, 62 * u), W / 5);
+    // Never under 48 px (96 px across), whatever uiScale the config sets.
+    controlsRadius = Math.max(48, Math.min(Math.max(48 * services.config.uiScale, 62 * u), W / 5));
     controlsY = H - controlsRadius - 22;
     restSize = Math.round(Math.max(110, Math.min(300 * Math.min(1.25, H / 768), controlsY - controlsRadius - starY - starR - 40)));
     restY = (starY + starR + controlsY - controlsRadius) / 2;
     planWarm();
-    if (resized || !bgCanvas) { sprites.clearScaled(BG); bgCanvas = undefined; }
+    // Rescaling the full-screen backdrop is costly; only a new canvas size or pixel ratio needs it.
+    if (resized || reratio || !bgCanvas) { sprites.clearScaled(BG); bgCanvas = undefined; }
   }
   function ensureBackground(): void {
     if (bgCanvas) return;
@@ -403,7 +463,7 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     warmNames.length = 0; warmSizes.length = 0; warmIndex = 0;
     const add = (name: string, size: number): void => { warmNames.push(name); warmSizes.push(Math.round(size)); };
     // The celebration (and a rest without a gift) shows all three dinos at the round's own size.
-    const celebH = 250 * u * TIERS[intro ? 0 : tier].scale;
+    const celebH = 250 * playS;
     for (let k = 0; k < 3; k++) { add(dinoName(k, 2), celebH); add(dinoName(k, 0), celebH); }
     add(PLATE, choiceSize); add(PLATE, restSize);
     // Offers are drawn only when the round ends; any sticker not yet owned can be one.
@@ -412,10 +472,10 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
       for (const st of STICKERS) if (st.game === GAME_ID && !owned.includes(st.id)) { add(stickerSpriteName(st.id), choiceSize * 0.78); add(stickerSpriteName(st.id), restSize * 0.78); }
     }
     add(BUTTON_PLAY, controlsRadius * 1.3); add(BUTTON_HOME, controlsRadius * 1.3);
-    // Comparisons draw the dinos, plates and fruit at size 1 instead of the tier's size.
+    // Comparisons draw the dinos, plates and fruit at their own size instead of the tier's size.
     if (!intro && comparisonsPerRound(data) > 0) {
-      const plate = 236 * u, fruit = Math.round(plate * FRUIT_OF_PLATE);
-      for (let k = 0; k < 3; k++) for (let pose = 0; pose < 3; pose++) add(dinoName(k, pose), 250 * u);
+      const plate = 236 * compareS, fruit = Math.round(plate * FRUIT_OF_PLATE);
+      for (let k = 0; k < 3; k++) for (let pose = 0; pose < 3; pose++) add(dinoName(k, pose), 250 * compareS);
       add(PLATE, plate);
       for (let f = 0; f < FRUITS.length; f++) add(fruitName(f), fruit);
     }
@@ -893,7 +953,7 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
   /** The idle demonstration's fruit: a warm halo behind a slightly see-through fruit, so it reads as a hint, not a plate fruit. */
   function ghostFruit(ctx: CanvasRenderingContext2D, x: number, y: number, a: number): void {
     if (glowCanvas) {
-      const g = glowCanvas.width;
+      const g = glowSize;
       ctx.globalAlpha = a * (0.85 + Math.sin(time * 7) * 0.15); ctx.drawImage(glowCanvas, x - g / 2, y - g / 2, g, g);
     }
     ctx.globalAlpha = a * 0.8; drawSprite(ctx, sprites, fruitName(hand.kind), x, y, fruitSize);
@@ -925,7 +985,7 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
   function renderPips(ctx: CanvasRenderingContext2D): void {
     const total = ordersTotal + compTotal, done = ordersDone + compDone, gap = pipSize * 1.15;
     // The row sits on the side of the blanket away from the basket.
-    const cx = basketX > W * 0.6 ? W * 0.4 : basketX < W * 0.4 ? W * 0.6 : W * 0.25;
+    const cx = pipsTop ? W / 2 : basketX > W * 0.6 ? W * 0.4 : basketX < W * 0.4 ? W * 0.6 : W * 0.25;
     for (let i = 0; i < total; i++) {
       const x = cx + (i - (total - 1) / 2) * gap;
       ctx.globalAlpha = i < done ? 1 : 0.35;
@@ -942,7 +1002,7 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     for (let i = 0; i < n; i++) card(ctx, slots[i]!);
     basket(ctx);
     if (cmp.active && cmp.sub !== 'fill' && hatCanvas) {
-      hatPos(); const w = hatCanvas.width, h = hatCanvas.height;
+      hatPos(); const w = hatCanvas.width / artRatio, h = hatCanvas.height / artRatio;
       ctx.drawImage(hatCanvas, pos.x - w / 2, pos.y - h / 2, w, h);
     }
     renderFlights(ctx);
@@ -1105,6 +1165,10 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
       return Array.from({ length: n }, (_, i) => ({ x: controlX(i, choice), y: choice ? choiceY : controlsY, radius: choice ? choiceSize / 2 : controlsRadius, id: choice ? pending!.choices[i]! : i === 0 ? 'again' : 'home' }));
     },
     corners() { return { home: [homeX, cornerY, cornerRadius], sound: [soundX, cornerY, cornerRadius] }; },
+    baked() {
+      const r = sprites.pixelRatio;
+      return { ratio: artRatio, pixelRatio: r, backdrop: bgCanvas ? [bgX, bgY, bgCanvas.width / r, bgCanvas.height / r] : null, hatPx: hatCanvas?.width ?? 0, hatSize, glowPx: glowCanvas?.width ?? 0, glowSize, scale: s };
+    },
     resetWork() { workHead = workCount = 0; },
   };
 
@@ -1144,7 +1208,7 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     },
     render(view: SceneContext) {
       const started = performance.now(), ctx = view.ctx;
-      if (view.width !== W || view.height !== H) layout(view.width, view.height);
+      if (view.width !== W || view.height !== H || sprites.pixelRatio !== artRatio) layout(view.width, view.height);
       ensureBackground(); warm(ctx);
       if (bgCanvas) ctx.drawImage(bgCanvas, bgX, bgY, bgCanvas.width / sprites.pixelRatio, bgCanvas.height / sprites.pixelRatio);
       else { ctx.fillStyle = '#9fd47a'; ctx.fillRect(0, 0, W, H); }
