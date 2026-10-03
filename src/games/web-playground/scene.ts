@@ -13,7 +13,7 @@ import { drawEnterFade } from '../../ui/motion';
 import { clamp01, easeInCubic, easeInOutSine, easeOutBack, easeOutCubic, lerp } from '../../ui/tween';
 import { bakeBackground, coverRect, createSoundButton, soundArt, syncSoundIcon, type Rect } from '../../scenes/hub/shared';
 import { bakeBall, bakePoint, bakeSign, PAD, RIMS } from './bake';
-import { playClip, prepareClips } from './voice';
+import { cancelClips, playClip, prepareClips } from './voice';
 import {
   CATCHES_PER_ROUND, catchRange, clipName, connectCount, DEFAULT_DATA, GAME_ID, glyph, heartAt, keyMatches, nextLevel, nextTier,
   PICTURES, pictureBox, pictureOutline, picturePoints, sanitizeData, signDots, signGlyph, stepNeedsGlyph, TIERS, toLevel, toTier,
@@ -24,6 +24,11 @@ export { GAME_ID } from './content';
 const ART_DIR = 'web-playground/';
 const HERO = { wave: 'hero-wave', shoot: 'hero-shoot', swing: 'hero-swing', cheer: 'hero-cheer' } as const;
 type Pose = keyof typeof HERO;
+const spriteName = (name: string): string => `${ART_DIR}${name}`;
+// Sprite names built once, so update and render never build strings.
+const HERO_SPRITE: Readonly<Record<Pose, string>> = { wave: spriteName(HERO.wave), shoot: spriteName(HERO.shoot), swing: spriteName(HERO.swing), cheer: spriteName(HERO.cheer) };
+const KITTEN = spriteName('kitten'), GIRL = spriteName('girl'), PIGEON = spriteName('pigeon'), EMBLEM = spriteName('emblem');
+const CITY_DAY = spriteName('city-day'), CITY_DUSK = spriteName('city-dusk');
 /** Hand positions as fractions of each pose's image (measured on the processed art). */
 const SHOOT_HAND = [0.87, 0.42] as const, SWING_HAND = [0.125, 0.07] as const;
 const ART = ['hero-wave', 'hero-shoot', 'hero-swing', 'hero-cheer', 'city-day', 'city-dusk', 'kitten', 'girl', 'pigeon', 'emblem'];
@@ -57,7 +62,8 @@ const POINT_GAP = 16, POINT_GAP_MIN = 8;
 const AIM_X = SHOOT_HAND[0] - 0.5, AIM_Y = SHOOT_HAND[1] - 0.5;
 type Phase = 'swingIn' | 'catch' | 'swing' | 'connect' | 'complete' | 'celebration' | 'choice' | 'sticker' | 'rest';
 type CatchStep = 'ask' | 'shoot' | 'wait';
-type How = 'click' | 'key-match' | 'key-other' | 'demo';
+/** ringed: a click on the target the keyboard focus ring marks; it plays like a click but is not learning evidence. */
+type How = 'click' | 'ringed' | 'key-match' | 'key-other' | 'demo';
 
 export interface WebPlaygroundOptions { mode?: Mode; level?: Level }
 export interface WebPlaygroundStats {
@@ -70,7 +76,8 @@ export interface WebPlaygroundStats {
   readonly workMean: number; readonly workMax: number; readonly particles: number;
   /** Hint trail dots in the last frame: drawn in full, faded near another target, and left out over one. */
   readonly guide: { dots: number; faded: number; hidden: number };
-  balls(): { x: number; y: number; r: number; glyph: string; wanted: boolean }[];
+  /** Balls on screen; catchable is false while a ball is still dropping in. */
+  balls(): { x: number; y: number; r: number; glyph: string; wanted: boolean; catchable: boolean }[];
   pointsList(): { x: number; y: number; r: number; glyph: string; next: boolean; joined: boolean }[];
   controls(): { x: number; y: number; radius: number; id: string }[];
   corners(): { x: number; y: number; radius: number; id: string }[];
@@ -89,7 +96,6 @@ interface Ball {
   phase: number; enter: number; delay: number; wiggle: number; rim: number; pulled: boolean; canvas: HTMLCanvasElement | undefined;
 }
 
-const spriteName = (name: string): string => `${ART_DIR}${name}`;
 function artList(): { name: string; path: string }[] {
   return [
     ...ART.map(name => ({ name: spriteName(name), path: `${ART_DIR}${name}.webp` })),
@@ -132,6 +138,7 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
   let caughtCount = 0, flightT = 1, flightX = 0, flightY = 0;
   let nPoints = 5, nextPoint = 1, threadT = 1, closeT = 0;
   let correct = 0, wrong = 0, alone = 0, attempts = 0, hits = 0, padded = 0, stars = 1, starsPlayed = 0, ticks = 0;
+  // keyboardUsed: the keyboard focus ring shows on the wanted ball or next point; a key turns it on, a pointer press off.
   let pose: Pose = 'wave', poseT = 0, hopT = 9, friendHopT = 9, keyboardUsed = false, demoDone = false;
   let pending: PendingRound | null = null;
   let inputAfter = 0, menuSelected = -1, cornerFocus = -1, focusAt = 0;
@@ -183,7 +190,7 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     signY = Math.max(cornerY + cornerRadius + 10 + signH / 2, feetY - heroSize - signH * 0.6 - 26 * u);
     fitBalls();
     replaceBalls();
-    fitPicture(); placePoints();
+    fitConnect();
     starR = Math.max(22, Math.min(40 * u, cornerRadius * 0.7)); starY = cornerY;
     badgeSize = Math.min(330 * Math.min(1.25, H / 768), (W - 60) / 2.3, H * 0.42);
     // Never under 48 px (96 px across), whatever uiScale the config sets.
@@ -330,6 +337,33 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     }
     placePoints(); for (let i = 0; i < MAX_POINTS; i++) pointCanvas[i] = undefined;
   }
+  /**
+   * Fits the picture again after a resize. During the connect, a view now too small for the round's points (no fit
+   * without overlap at the 100 px floor and the least gap) drops only points still to come: the same picture is laid out
+   * again with the most points that fit, as long as that keeps every joined point and the next one. Points are joined
+   * in index order, so the joined points keep their numerals or letters, the next point keeps its glyph, and the
+   * threads are drawn again between the new positions. Only when even that cannot fit (many points already joined in a
+   * very small view) do the points still to come go as well: the picture keeps as many joined points as fit and closes,
+   * as if the last one had just been joined. Nothing joined is ever undone and no step is counted that the child did
+   * not make. Shrinking the spacing alone cannot help: the points already sit at the floor size and least gap.
+   */
+  function fitConnect(): void {
+    if (phase !== 'connect' || fitPicture()) { placePoints(); return; }
+    const kind = PICTURES[picture]!, n0 = nPoints;
+    let fallback = 0;
+    for (let n = n0 - 1; n >= 5; n--) {
+      // Stars are drawn in one stroke ({n/2} or {n/3}), which needs 5, 7 or 8 points; hearts and kites take any count.
+      if (kind === 'star' && n !== 5 && n !== 7 && n !== 8) continue;
+      picturePoints(kind, n, unit, curveT); nPoints = n;
+      if (!fitPicture()) continue;
+      if (n > nextPoint) { placePoints(); return; }
+      fallback = n; break;
+    }
+    nPoints = fallback || n0;
+    picturePoints(kind, nPoints, unit, curveT); fitPicture(); placePoints();
+    // updateConnect closes the picture on its next step.
+    if (fallback) nextPoint = Math.min(nextPoint, nPoints);
+  }
   function placePoints(): void {
     for (let i = 0; i < nPoints; i++) { pts[i * 2] = picX + unit[i * 2]! * picSX; pts[i * 2 + 1] = picY + unit[i * 2 + 1]! * picSY; }
   }
@@ -337,8 +371,8 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     // Each backdrop is scaled once its image has decoded off the main thread, and at most one per frame, so the
     // opening frames under the fade stay short. The day city comes first; the dusk city is not needed before the swing.
     if (bakedAt !== frame) {
-      if ((!bgDay || dayStale) && dayDecoded && sprites.get(spriteName('city-day'))) { bgDay = bakeBackground(services, spriteName('city-day'), W, H, fallbackSky, undefined); dayStale = false; bakedAt = frame; }
-      else if ((!bgDusk || duskStale) && bgDay && duskDecoded && sprites.get(spriteName('city-dusk'))) { bgDusk = bakeBackground(services, spriteName('city-dusk'), W, H, fallbackSky, undefined); duskStale = false; bakedAt = frame; }
+      if ((!bgDay || dayStale) && dayDecoded && sprites.get(CITY_DAY)) { bgDay = bakeBackground(services, CITY_DAY, W, H, fallbackSky, undefined); dayStale = false; bakedAt = frame; }
+      else if ((!bgDusk || duskStale) && bgDay && duskDecoded && sprites.get(CITY_DUSK)) { bgDusk = bakeBackground(services, CITY_DUSK, W, H, fallbackSky, undefined); duskStale = false; bakedAt = frame; }
     }
     if (!fontReady) return;
     for (const b of balls) if (b.active && !b.canvas) b.canvas = ballCanvas(b.value, ballD, b.rim);
@@ -431,6 +465,7 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
   }
   function catchBall(b: Ball, how: How): void {
     if (phase !== 'catch' || step !== 'ask' || !b.active || b.pulled) return;
+    cancelClips();
     if ((how === 'click' || how === 'key-match') && !hint) { correct++; alone++; }
     target = b; b.pulled = true; step = 'shoot'; stepT = 0; pose = 'shoot'; poseT = 0;
     playSfx(audio, 'whoosh', { volume: 0.8 });
@@ -496,7 +531,7 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
   }
   /**
    * Connect evidence: a matching key always names the glyph; a click counts
-   * only when the layout does not give the answer away (stepNeedsGlyph).
+   * only when the layout does not give the answer away (stepNeedsGlyph) and the keyboard ring was not on the point.
    */
   function joinEvidence(how: How): boolean {
     if (hint) return false;
@@ -504,6 +539,7 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
   }
   function joinPoint(how: How): void {
     if (phase !== 'connect' || nextPoint >= nPoints) return;
+    cancelClips();
     if (joinEvidence(how)) { correct++; alone++; }
     pointJoined[nextPoint] = time; threadT = 0; pose = 'shoot'; poseT = 0;
     playSfx(audio, 'pop', { index: nextPoint });
@@ -514,6 +550,8 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
   }
   function updateConnect(dt: number): void {
     threadT = Math.min(1, threadT + dt / 0.22);
+    // A resize left every remaining point joined (fitConnect): close the picture now.
+    if (closeT === 0 && nextPoint >= nPoints) { closeT = 0.0001; finishRound(); }
     if (closeT > 0) {
       closeT += dt;
       if (closeT >= 0.35) { setPhase('complete'); pose = 'cheer'; playSfx(audio, 'pop-big'); }
@@ -539,6 +577,7 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     return second ? [first.id, second.id] : [first.id];
   }
   function finishRound(): void {
+    cancelClips();
     stars = intro ? 3 : 2 + (alone >= 3 ? 1 : 0);
     if (!intro && services.debug.tier === undefined) {
       const m = nextTier(tier, data.tierGood, attempts, hits, padded); data.tier = m.tier; data.tierGood = m.good;
@@ -623,7 +662,7 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
   /** Hand position for the current pose; also fills heroPos with the sprite centre and rotation. */
   function hand(): [number, number] {
     heroAt();
-    const p = pose === 'swing' ? SWING_HAND : SHOOT_HAND, name = spriteName(HERO[pose === 'swing' ? 'swing' : 'shoot']);
+    const p = pose === 'swing' ? SWING_HAND : SHOOT_HAND, name = HERO_SPRITE[pose === 'swing' ? 'swing' : 'shoot'];
     const img = sprites.get(name), aspect = img ? img.naturalWidth / img.naturalHeight : 1;
     const h = heroSize, w = h * aspect, rot = heroPos[2]!;
     const ox = (p[0] - 0.5) * w, oy = (p[1] - 0.5) * h;
@@ -670,7 +709,7 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     aimRot = 0;
     if (pointing) {
       // Turn the shooting pose so its outstretched hand aims at the target, and reach towards it in a slow pulse.
-      const img = sprites.get(spriteName(HERO.shoot)), w = heroSize * (img ? img.naturalWidth / img.naturalHeight : 1);
+      const img = sprites.get(HERO_SPRITE.shoot), w = heroSize * (img ? img.naturalWidth / img.naturalHeight : 1);
       const want = Math.atan2(aimY - standY, aimX - heroX) - Math.atan2(AIM_Y * heroSize, AIM_X * w);
       aimRot = Math.max(-0.28, Math.min(0.2, want));
       reach = (0.5 - 0.5 * Math.cos(time * 4)) * 18 * u;
@@ -741,7 +780,7 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     const squash = land < 0.25 ? Math.sin(land / 0.25 * Math.PI) * 0.12 : 0;
     if (roping) web(ctx, ropeX, ropeY, swingOut[0]!, swingOut[1]!, 0, 3.2 * u);
     const sy = 1 - squash, y = heroPos[1]! + heroSize * squash / 2;
-    drawSprite(ctx, sprites, spriteName(HERO[p]), heroPos[0]!, y, Math.round(heroSize), heroPos[2]!, 1 + squash, sy);
+    drawSprite(ctx, sprites, HERO_SPRITE[p], heroPos[0]!, y, Math.round(heroSize), heroPos[2]!, 1 + squash, sy);
   }
   function web(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: number, y1: number, sag: number, width: number): void {
     const mx = (x0 + x1) / 2, my = (y0 + y1) / 2 + sag;
@@ -760,9 +799,9 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     const hop = !still && friendHopT < 0.6 ? Math.sin(friendHopT / 0.6 * Math.PI) * 22 * u : 0;
     const party = !still && (phase === 'complete' || phase === 'celebration') ? Math.abs(Math.sin(time * 3.6 + 1)) * 16 * u : 0;
     const s = Math.max(70, 112 * u);
-    drawSprite(ctx, sprites, spriteName('kitten'), W - s * 0.75, parapetY - s * 0.42 - hop - party, Math.round(s));
-    if (dusk) drawSprite(ctx, sprites, spriteName('girl'), W - s * 1.85, feetY - s * 0.82 - party * 0.8, Math.round(s * 1.7));
-    else drawSprite(ctx, sprites, spriteName('pigeon'), Math.max(heroX + heroSize * 0.75, W * 0.4), parapetY - s * 0.38 - hop * 0.7, Math.round(s * 0.9));
+    drawSprite(ctx, sprites, KITTEN, W - s * 0.75, parapetY - s * 0.42 - hop - party, Math.round(s));
+    if (dusk) drawSprite(ctx, sprites, GIRL, W - s * 1.85, feetY - s * 0.82 - party * 0.8, Math.round(s * 1.7));
+    else drawSprite(ctx, sprites, PIGEON, Math.max(heroX + heroSize * 0.75, W * 0.4), parapetY - s * 0.38 - hop * 0.7, Math.round(s * 0.9));
   }
   function drawBalls(ctx: CanvasRenderingContext2D): void {
     const wanted = step === 'ask' ? wantedBall() : undefined;
@@ -947,7 +986,7 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     if (pending?.chosen) {
       const e = phase === 'sticker' ? easeOutCubic(clamp01(phaseT / 0.65)) : 1, index = Math.max(0, pending.choices.indexOf(pending.chosen));
       badge(ctx, pending.chosen, lerp(controlX(index, true), W / 2, e), lerp(badgeY, restY, e), restSize, index === 1, false, lerp(badgeSize / restSize, 1, e));
-    } else drawSprite(ctx, sprites, spriteName('emblem'), W / 2, restY, Math.round(restSize));
+    } else drawSprite(ctx, sprites, EMBLEM, W / 2, restY, Math.round(restSize));
     if (phase !== 'rest') return;
     for (let i = 0; i < 2; i++) {
       const x = controlX(i, false); chunkyCircle(ctx, x, controlsY, controlsRadius, '#a3c9c5', OUTLINE, 5 * u);
@@ -958,23 +997,29 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
 
   // ---- input ----
   function pointerPlay(x: number, y: number): void {
+    // The keyboard ring was on the wanted ball or next point at this press (drawBalls, drawPoints); a pointer press hides it.
+    const ring = keyboardUsed;
+    keyboardUsed = false;
     if (phase === 'catch' && step !== 'ask') {
       // A catch is still flying in: answer the click with a puff and a ball wiggle, record nothing.
       for (const b of balls) if (b.active && !b.pulled && b.delay <= 0 && Math.hypot(x - b.x, y - b.y) <= hitRadius(ballD / 2)) b.wiggle = 0.3;
       puff(x, y); return;
     }
     if (phase === 'catch') {
-      let best: Ball | undefined, dist = Infinity;
+      let best: Ball | undefined, dist = Infinity, dropping = false;
       for (const b of balls) {
-        // A ball still dropping in is catchable as soon as it shows.
         if (!b.active || b.pulled || b.delay > 0) continue;
         const d = Math.hypot(x - b.x, y - b.y);
+        if (b.enter < 1) { if (d <= ballD / 2) dropping = true; continue; }
         if (d <= hitRadius(ballD / 2) && d < dist) { best = b; dist = d; }
       }
+      // A ball still dropping in is not a target until it has landed in the play area, clear of the corner buttons: a
+      // click on it gets a puff and a wiggle and records nothing.
+      if (!best && dropping) { for (const b of balls) if (b.active && !b.pulled && b.delay <= 0 && b.enter < 1 && Math.hypot(x - b.x, y - b.y) <= ballD / 2) b.wiggle = 0.3; puff(x, y); return; }
       attempts++;
       if (best) { padded++; if (dist <= ballD / 2) hits++; }
       if (!best) { puff(x, y); return; }
-      if (best.value === request) catchBall(best, 'click'); else wrongBall(best);
+      if (best.value === request) catchBall(best, ring ? 'ringed' : 'click'); else wrongBall(best);
       return;
     }
     if (phase === 'connect' && (closeT > 0 || threadT < 0.6)) { puff(x, y); return; }
@@ -987,7 +1032,7 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
       attempts++;
       if (best < 0) { puff(x, y); return; }
       padded++; if (dist <= pointD / 2) hits++;
-      if (best === nextPoint) joinPoint('click');
+      if (best === nextPoint) joinPoint(ring ? 'ringed' : 'click');
       else if (best > nextPoint) { pointWiggle[best] = 0.45; playSfx(audio, 'hover', { volume: 0.6 }); if (!hint) { if (joinEvidence('click')) wrong++; showHint(); } hopT = 0; }
       else { pointWiggle[best] = 0.3; hopT = 0; }
     }
@@ -996,8 +1041,9 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     keyboardUsed = true;
     if (phase === 'catch') {
       const b = step === 'ask' ? wantedBall() : undefined;
-      // While a catch is still flying in, the hero hops and the sign wobbles so the key is seen.
-      if (!b || b.delay > 0) { hopT = 0; return; }
+      // While a catch is still flying in, or the wanted ball is still dropping in, the hero hops and the sign wobbles so
+      // the key is seen.
+      if (!b || b.delay > 0 || b.enter < 1) { hopT = 0; return; }
       catchBall(b, keyMatches(mode, request, key) ? 'key-match' : 'key-other');
     } else if (phase === 'connect') {
       if (closeT > 0 || threadT < 0.6) { hopT = 0; return; }
@@ -1024,7 +1070,7 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     get workMax() { let m = 0; for (let i = 0; i < workCount; i++) m = Math.max(m, work[i]!); return m; },
     get particles() { return particles.alive; },
     get guide() { return { dots: guideDots, faded: guideFaded, hidden: guideHidden }; },
-    balls() { const w = phase === 'catch' && step === 'ask' ? wantedBall() : undefined; return balls.filter(b => b.active && !b.pulled && b.delay <= 0).map(b => ({ x: b.x, y: b.y, r: ballD / 2, glyph: glyph(mode, b.value), wanted: b === w })); },
+    balls() { const w = phase === 'catch' && step === 'ask' ? wantedBall() : undefined; return balls.filter(b => b.active && !b.pulled && b.delay <= 0).map(b => ({ x: b.x, y: b.y, r: ballD / 2, glyph: glyph(mode, b.value), wanted: b === w, catchable: b.enter >= 1 })); },
     pointsList() { return Array.from({ length: phase === 'connect' ? nPoints : 0 }, (_, i) => ({ x: pts[i * 2]!, y: pts[i * 2 + 1]!, r: pointD / 2, glyph: glyph(mode, pointValue(i)), next: i === nextPoint, joined: i < nextPoint })); },
     controls() { const choice = phase === 'choice'; return Array.from({ length: choice ? pending?.choices.length ?? 0 : phase === 'rest' ? 2 : 0 }, (_, i) => ({ x: controlX(i, choice), y: choice ? badgeY : controlsY, radius: choice ? badgeSize / 2 : controlsRadius, id: choice ? pending!.choices[i]! : i === 0 ? 'again' : 'home' })); },
     corners() { return [{ x: homeX, y: cornerY, radius: cornerRadius, id: 'home' }, { x: soundX, y: cornerY, radius: cornerRadius, id: 'sound' }]; },
@@ -1048,8 +1094,8 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
       void loadWebPlaygroundArt(services).then(() => {
         for (const { name } of artList()) {
           const done = sprites.get(name)?.decode().catch(() => undefined);
-          if (name === spriteName('city-day')) void done?.then(() => { dayDecoded = true; });
-          else if (name === spriteName('city-dusk')) void done?.then(() => { duskDecoded = true; });
+          if (name === CITY_DAY) void done?.then(() => { dayDecoded = true; });
+          else if (name === CITY_DUSK) void done?.then(() => { duskDecoded = true; });
         }
       });
       if (services.debug.enabled) window.__webPlayground = stats;
@@ -1068,7 +1114,7 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
         else enterRest();
       } else startRound();
     },
-    pause() { stopMusic(audio); stopIdle(); services.save.flush(); },
+    pause() { stopMusic(audio); stopIdle(); cancelClips(); services.save.flush(); },
     resume() {
       // Back on top after another screen (the break nudge) covered it. Keys pressed into that screen must not act
       // here: the choice and rest start over as when they first appeared, nothing focused and input ignored for
@@ -1076,7 +1122,7 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
       if (phase === 'choice' || phase === 'rest') armMenu(); else guard();
       startMusic(audio, 'web-playground');
     },
-    exit() { stopMusic(audio); stopIdle(); services.save.flush(); setSfxVariants({ pop: 'A', whoosh: 'A' }); },
+    exit() { stopMusic(audio); stopIdle(); cancelClips(); services.save.flush(); setSfxVariants({ pop: 'A', whoosh: 'A' }); },
     resize: layout,
     update(dt) {
       const started = performance.now();

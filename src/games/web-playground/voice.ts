@@ -7,6 +7,8 @@ import type { AppServices } from '../../app/services';
 
 let listed: Promise<Set<string>> | undefined;
 const buffers = new Map<string, Promise<AudioBuffer | undefined>>();
+/** Counts prompts. A clip plays only if no newer prompt, pause or exit came while its file loaded and decoded. */
+let current = 0;
 
 function clipList(services: AppServices): Promise<Set<string>> {
   listed ??= fetch(`${services.base}voice/web-playground/clips.json`)
@@ -21,11 +23,17 @@ export function prepareClips(services: AppServices): void {
   void clipList(services);
 }
 
-/** Play `<name>.mp3` (or the listed file name) when the owner has added it. */
+/** Drop any clip still loading: its prompt has been answered, or the scene was paused or left. */
+export function cancelClips(): void {
+  current++;
+}
+
+/** Play `<name>.mp3` (or the listed file name) when the owner has added it. Starting a new clip cancels any still loading. */
 export function playClip(services: AppServices, name: string): void {
-  const audio = services.audio;
+  const audio = services.audio, id = ++current;
   if (!audio.ready || audio.muted) return;
   void clipList(services).then(set => {
+    if (id !== current) return;
     const file = set.has(`${name}.mp3`) ? `${name}.mp3` : set.has(`${name}.ogg`) ? `${name}.ogg` : '';
     if (!file) return;
     let p = buffers.get(file);
@@ -36,6 +44,6 @@ export function playClip(services: AppServices, name: string): void {
         .catch(() => undefined);
       buffers.set(file, p);
     }
-    return p.then(buffer => { if (buffer && !audio.muted) audio.playBuffer(buffer, 0.9); });
+    return p.then(buffer => { if (buffer && id === current && !audio.muted) audio.playBuffer(buffer, 0.9); });
   });
 }
