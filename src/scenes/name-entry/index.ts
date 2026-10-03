@@ -26,6 +26,29 @@ const SPARKLE_HUES = [0, 35, 55, 130, 200, 280, 320];
 /** Label centre below a profile bubble's edge, and the name field's distance below the top buttons, both in px. */
 const LABEL_DROP = 22;
 const NAME_DROP = 106;
+/**
+ * Gap between letter keys in key diameters at uiScale 1. It is divided by uiScale (between MIN_KEY_GAP
+ * and MAX_KEY_GAP), so a larger uiScale grows the keys into the gaps. A tight window may close it
+ * to MIN_KEY_GAP to keep 96 px keys, or further to keep the keys as large as they were before gaps.
+ */
+const KEY_GAP = 0.2;
+const MIN_KEY_GAP = 0.08;
+const MAX_KEY_GAP = 0.25;
+/** Largest letter key at uiScale 1, in CSS px. */
+const MAX_KEY = 200;
+/** Letter glyph size as a fraction of the key diameter. */
+const GLYPH_RATIO = 0.62;
+/** Width the key page arrow takes at the right edge, with its gap to the keys (the old layout's lane, so as many keys fit beside it). */
+const ARROW_LANE = 100;
+/** Mascot's drawn extent as fractions of its sprite size: width, and height from the feet up (measured from the idle and cheer art). */
+const MASCOT_W = 0.8;
+const MASCOT_H = 0.66;
+/** Mascot sprite sizes: it shrinks to the room the keys leave and hides below MIN_MASCOT. */
+const MIN_MASCOT = 80;
+const MAX_MASCOT = 300;
+
+/** Largest diameter for n keys with n - 1 gaps of `gap` diameters in `span` px. */
+const fitKeys = (span: number, n: number, gap: number): number => span / (n + gap * (n - 1));
 
 export function nameEntryArt(): Record<string, string> {
   return { [BG]: `${BG}.webp`, [GO]: `${GO}.png`, [BACK]: `${BACK}.png`, [IDLE]: `${IDLE}.png`, [CHEER]: `${CHEER}.png`, [GUEST]: 'avatars/bunny.png', 'buttons/home': 'buttons/home.png' };
@@ -80,6 +103,8 @@ export interface NameEntryDebug {
   goCenter(): { x: number; y: number }; backCenter(): { x: number; y: number };
   bubbleCenter(index: number): { x: number; y: number } | undefined;
   art(): { loaded: string[]; missing: string[] };
+  /** Name field panel and the mascot's drawn box (empty when hidden), for layout checks. */
+  layoutBoxes(): { field: { x: number; y: number; w: number; h: number }; mascot: { x: number; y: number; w: number; h: number }; keySize: number; keyGap: number; glyphPx: number };
 }
 
 export function createNameEntryScene(services: AppServices, options: { renameProfileId?: string } = {}): Scene {
@@ -92,13 +117,15 @@ export function createNameEntryScene(services: AppServices, options: { renamePro
   let arrowPlace = false;
   let lastSound = -1, pendingNote = -1, pendingAt = 0, tuneIndex = 0;
   let nameRows = 1, nameColumns = 10, namePitch = 64, compactName = false;
-  let nameY = 210, keyTop = 280, keySize = 96, mascotSize = 150, fieldX = 0;
+  let nameY = 210, keyTop = 280, keySize = 96, keyGap = 0, mascotSize = 150, fieldX = 0;
   let background: HTMLCanvasElement | undefined;
   let backgroundsReady = false;
   const flashes = new Float32Array(26);
   const counts: Record<string, number> = {};
   const particles = createParticleSystem(150);
-  const glyphs = ALPHABET.split('').map((letter) => makeTextSprite(letter, 62, services.canvas.dpr));
+  /** Key letters, rebuilt by layoutKeys only when the key size changes them. */
+  let glyphPx = 62;
+  const glyphs = ALPHABET.split('').map((letter) => makeTextSprite(letter, glyphPx, services.canvas.dpr));
   let profileLabels: TextSprite[] = [];
   let profileInitials: TextSprite[] = [];
   let names: Profile[] = [];
@@ -190,7 +217,7 @@ export function createNameEntryScene(services: AppServices, options: { renamePro
   const guest = createButton({ x: 0, y: 0, radius: 48, fill: '#ffe08a', icon: renaming ? 'buttons/home' : GUEST, iconScale: 0.84, onPress: () => { if (!leaving) { if (renaming) { leaving = true; services.nav.toHub(); } else playAsGuest(); } } });
   const profileNext = createButton({ x: 0, y: 0, radius: 48, fill: '#a78bfa', onPress: () => { profilePage = (profilePage + 1) % profilePages; buildProfiles(); layout(); keyboard.focus(profileNext); } });
   const keyNext = createButton({ x: 0, y: 0, radius: 48, fill: '#a78bfa', onPress: () => { keyPage = (keyPage + 1) % keyPages; layout(); keyboard.focus(keyNext); } });
-  const keys = ALPHABET.split('').map((_, i) => createButton({ x: 0, y: 0, radius: 48, fill: COLORS[i % COLORS.length]!, squareHit: true, onPress: () => typeLetter(i) }));
+  const keys = ALPHABET.split('').map((_, i) => createButton({ x: 0, y: 0, radius: 48, fill: COLORS[i % COLORS.length]!, onPress: () => typeLetter(i) }));
 
   function buildProfiles(): void {
     const query = normalizeName(name);
@@ -251,33 +278,99 @@ export function createNameEntryScene(services: AppServices, options: { renamePro
       keyTop = nameY + 66 + (nameRows - 1) * 64;
     }
     fieldX = compactName ? width / 2 : (12 + back.x - back.radius - 24) / 2;
-    const availH = Math.max(96, height - keyTop - 12);
-    const rows = Math.max(1, Math.min(3, Math.floor(availH / 100)));
-    const maxCols = Math.max(1, Math.floor((width - 24) / target));
-    const order = services.config.keyboardLayout === 'qwerty' ? 'QWERTYUIOPASDFGHJKLZXCVBNM' : ALPHABET;
-    const rowSizes = services.config.keyboardLayout === 'qwerty' ? [10, 9, 7] : [9, 9, 8];
-    const full = rows === 3 && maxCols >= rowSizes[0]!;
-    const cols = full ? rowSizes[0]! : Math.max(1, Math.min(9, Math.floor((width - 124) / target)));
-    const perPage = full ? 26 : cols * rows;
-    keyPages = Math.ceil(26 / perPage); keyPage = Math.min(keyPage, keyPages - 1);
-    keyNext.visible = keyPages > 1;
-    keySize = Math.max(96, Math.min(target, availH / rows - 4));
-    keys.forEach((b) => { b.visible = false; });
-    for (let index = keyPage * perPage; index < Math.min(26, (keyPage + 1) * perPage); index++) {
-      const local = index - keyPage * perPage;
-      let row = Math.floor(local / cols), col = local % cols, inRow = Math.min(cols, 26 - keyPage * perPage - row * cols);
-      if (full) { row = index < rowSizes[0]! ? 0 : index < rowSizes[0]! + rowSizes[1]! ? 1 : 2; col = index - (row === 0 ? 0 : row === 1 ? rowSizes[0]! : rowSizes[0]! + rowSizes[1]!); inRow = rowSizes[row]!; }
-      const b = keys[ALPHABET.indexOf(order[index]!)]!;
-      const region = keyNext.visible ? width - 112 : width;
-      b.x = (region - inRow * keySize) / 2 + (col + 0.5) * keySize;
-      b.y = keyTop + (row + 0.5) * keySize;
-      b.radius = keySize / 2 - (keySize > 100 ? 2 : 0); b.visible = true;
-    }
-    keyNext.x = width - 60; keyNext.y = keyTop + availH / 2;
-    mascotSize = Math.min(300, Math.max(90, (height - keyTop - rows * keySize) * 1.35));
+    layoutKeys(scale);
     buttons = [guest, ...bubbles, profileNext, go, back, ...keys, keyNext, sound];
     if (!buttons.includes(keyboard.selected as Button) || !keyboard.selected?.visible) keyboard.focus(name ? go : guest);
     background = undefined;
+  }
+  /**
+   * Letter keys fill the free area below the name field: as large as fits, up
+   * to MAX_KEY times uiScale, with the uiScale-adjusted KEY_GAP between keys,
+   * never under 96 px and never smaller than the touching keys of the layout
+   * before gaps. The block is centred, and the mascot takes whatever room the
+   * keys leave in the bottom-right corner, or hides.
+   */
+  function layoutKeys(scale: number): void {
+    const availH = Math.max(96, height - keyTop - 12);
+    const maxKey = Math.max(96, MAX_KEY * scale);
+    const gap = Math.min(MAX_KEY_GAP, Math.max(MIN_KEY_GAP, KEY_GAP / scale));
+    // The touching-keys layout this replaced, for the same window and uiScale: its key size and rows.
+    const oldTarget = Math.max(96, Math.min(128, 100 * scale));
+    const oldRows = Math.max(1, Math.min(3, Math.floor(availH / 100)));
+    const oldKey = Math.max(96, Math.min(oldTarget, availH / oldRows - 4));
+    const qwerty = services.config.keyboardLayout === 'qwerty';
+    const order = qwerty ? 'QWERTYUIOPASDFGHJKLZXCVBNM' : ALPHABET;
+    const rowSizes = qwerty ? [10, 9, 7] : [9, 9, 8];
+    // Keys that fit in a span: 96 px keys with the smallest gap, or the old touching keys where more of
+    // those fit (the gap then closes, below), so no page holds fewer keys than the old layout's.
+    const count = (span: number, oldCount: number) => Math.max(1, oldCount, Math.floor((span + MIN_KEY_GAP * 96) / (96 * (1 + MIN_KEY_GAP))));
+    const across = (span: number) => count(span, Math.floor(span / oldTarget));
+    const maxRows = Math.min(3, count(availH, oldRows));
+    let areaW = width - 24;
+    // One page of the 9/9/8 or 10/9/7 rows whenever they fit the full width; the page arrow's lane is only taken when keys must page.
+    const full = maxRows === 3 && across(areaW) >= rowSizes[0]!;
+    let cols = rowSizes[0]!, rows = 3, perPage = 26;
+    if (!full) {
+      // Pages of keys: one page in a grid if the full width allows it, else the fewest pages beside the
+      // arrow; then the grid with the largest keys for that many pages.
+      let maxCols = Math.min(9, across(areaW));
+      if (maxCols * maxRows < 26) { areaW = width - 24 - ARROW_LANE; maxCols = Math.min(9, across(areaW)); }
+      const pages = Math.ceil(26 / (maxCols * maxRows));
+      let best = -1;
+      for (let r = 1; r <= maxRows; r++) for (let c = 1; c <= maxCols; c++) {
+        if (Math.ceil(26 / (c * r)) !== pages) continue;
+        const d = Math.min(maxKey, fitKeys(areaW, c, gap), fitKeys(availH, r, gap));
+        if (d > best + 0.01 || (d > best - 0.01 && c * r > cols * rows)) { best = d; cols = c; rows = r; }
+      }
+      perPage = cols * rows;
+    }
+    keyPages = Math.ceil(26 / perPage); keyPage = Math.min(keyPage, keyPages - 1);
+    keyNext.visible = keyPages > 1;
+    keyNext.x = width - 60; keyNext.y = keyTop + availH / 2;
+    const place = (size: number): void => {
+      keySize = size;
+      keyGap = Math.max(0, Math.min(size * gap, cols > 1 ? (areaW - cols * size) / (cols - 1) : Infinity, rows > 1 ? (availH - rows * size) / (rows - 1) : Infinity));
+      const pitch = size + keyGap;
+      const top = keyTop + (availH - rows * size - (rows - 1) * keyGap) / 2;
+      // Largest mascot whose box, grown from the bottom-right corner, stays below keyTop and clear of every key.
+      const pad = 6 + size * 0.05;
+      let fit = (height + 10 - keyTop) / MASCOT_H;
+      const avoid = (right: number, bottom: number) => { fit = Math.min(fit, Math.max((width - right - pad) / MASCOT_W, (height + 10 - bottom - pad) / MASCOT_H)); };
+      keys.forEach((b) => { b.visible = false; });
+      for (let index = keyPage * perPage; index < Math.min(26, (keyPage + 1) * perPage); index++) {
+        const local = index - keyPage * perPage;
+        let row = Math.floor(local / cols), col = local % cols, inRow = Math.min(cols, 26 - keyPage * perPage - row * cols);
+        if (full) { row = index < rowSizes[0]! ? 0 : index < rowSizes[0]! + rowSizes[1]! ? 1 : 2; col = index - (row === 0 ? 0 : row === 1 ? rowSizes[0]! : rowSizes[0]! + rowSizes[1]!); inRow = rowSizes[row]!; }
+        const b = keys[ALPHABET.indexOf(order[index]!)]!;
+        b.x = 12 + (areaW - inRow * size - (inRow - 1) * keyGap) / 2 + col * pitch + size / 2;
+        b.y = top + row * pitch + size / 2;
+        b.radius = size / 2; b.visible = true;
+        avoid(b.x + size / 2, b.y + size / 2);
+      }
+      if (keyNext.visible) avoid(keyNext.x + keyNext.radius, keyNext.y + keyNext.radius);
+      mascotSize = Math.min(MAX_MASCOT, fit);
+    };
+    // Where the gap would make keys smaller than the old touching keys, the gap closes instead (as far as the grid fits).
+    const size = Math.max(96, Math.min(maxKey, fitKeys(areaW, cols, gap), fitKeys(availH, rows, gap)), Math.min(oldKey, areaW / cols, availH / rows));
+    place(size);
+    if (mascotSize < MIN_MASCOT) mascotSize = 0;
+    const px = Math.round(size * GLYPH_RATIO);
+    if (px !== glyphPx) { glyphPx = px; for (let i = 0; i < 26; i++) glyphs[i] = makeTextSprite(ALPHABET[i]!, px, services.canvas.dpr); }
+  }
+  /**
+   * For a press in the gaps of the key block (within half a key pitch of some visible key), the
+   * visible key whose centre is nearest, so the whole block stays a target. Farther out, none.
+   */
+  function keyNear(x: number, y: number): Button | undefined {
+    const reach = (keySize + keyGap) / 2;
+    let near = false, best: Button | undefined, bestD = Infinity;
+    for (const b of keys) {
+      if (!b.visible) continue;
+      const dx = x - b.x, dy = y - b.y, d = dx * dx + dy * dy;
+      if (Math.abs(dx) <= reach && Math.abs(dy) <= reach) near = true;
+      if (d < bestD) { bestD = d; best = b; }
+    }
+    return near ? best : undefined;
   }
   function rebuildBackground(): void {
     const canvas = document.createElement('canvas');
@@ -331,7 +424,7 @@ export function createNameEntryScene(services: AppServices, options: { renamePro
       for (const b of buttons) b.render(ctx, sprites);
       for (let i = 0; i < keys.length; i++) {
         const b = keys[i]!; if (!b.visible) continue;
-        if (flashes[i]! > 0) { ctx.beginPath(); ctx.arc(b.x, b.y, b.radius - 5, 0, Math.PI * 2); ctx.lineWidth = 7; ctx.strokeStyle = '#fff'; ctx.stroke(); }
+        if (flashes[i]! > 0) { ctx.beginPath(); ctx.arc(b.x, b.y, b.radius - 5, 0, Math.PI * 2); ctx.lineWidth = Math.max(7, b.radius * 0.1); ctx.strokeStyle = '#fff'; ctx.stroke(); }
         drawTextSprite(ctx, glyphs[i]!, b.x, b.y);
       }
       for (let i = 0; i < bubbles.length; i++) {
@@ -348,12 +441,15 @@ export function createNameEntryScene(services: AppServices, options: { renamePro
       else drawSprite(ctx, sprites, avatarSpriteName(renaming), width / 2, guest.y, 100);
       drawPageArrow(ctx, profileNext, 1); drawPageArrow(ctx, keyNext, 1);
       if (name && !leaving) { ctx.beginPath(); ctx.arc(go.x, go.y, go.radius - 5 + Math.sin(time * 3) * 2, 0, Math.PI * 2); ctx.lineWidth = 4; ctx.strokeStyle = '#fff8ad'; ctx.stroke(); }
-      if (height - (keyTop + 3 * keySize) > 70) drawMascotAt(ctx, sprites, reaction > 0 ? CHEER : IDLE, IDLE, width - mascotSize * 0.4, height + 10, mascotSize, Math.sin(time * 2) * 3);
+      if (mascotSize > 0) drawMascotAt(ctx, sprites, reaction > 0 ? CHEER : IDLE, IDLE, width - mascotSize * 0.4, height + 10, mascotSize, Math.sin(time * 2) * 3);
       particles.render(ctx); drawEnterFade(ctx, width, height, time);
     },
     handleInput(event) {
       if (leaving || time < 0.4) return;
-      if (event.type === 'pointerdown') { active(); dispatchDown(buttons, event.info.x, event.info.y); }
+      if (event.type === 'pointerdown') {
+        active();
+        if (!dispatchDown(buttons, event.info.x, event.info.y)) { const k = keyNear(event.info.x, event.info.y); if (k) k.pointerDown(k.x, k.y); }
+      }
       else if (event.type === 'pointerup') dispatchUp(buttons, event.info.x, event.info.y);
       else if (event.type === 'keydown') {
         if (event.info.repeat) return;
@@ -375,6 +471,14 @@ export function createNameEntryScene(services: AppServices, options: { renamePro
       get attract() { return idle > 5; }, get pose() { return reaction > 0 ? CHEER : IDLE; }, get wide() { return keyPages === 1; }, sfx: counts,
       keyCenter(letter) { const b = keys[ALPHABET.indexOf(letter.toUpperCase())]; return b?.visible ? center(b) : undefined; },
       goCenter: () => center(go), backCenter: () => center(back), bubbleCenter(i) { const b = bubbles[i]; return b ? center(b) : undefined; },
+      layoutBoxes() {
+        const available = compactName ? width - 12 : back.x - back.radius - 24;
+        return {
+          field: { x: 12, y: nameY - 51, w: Math.max(96, available - 12), h: compactName ? 102 : 102 + (nameRows - 1) * 64 },
+          mascot: { x: width - mascotSize * MASCOT_W, y: height + 10 - mascotSize * MASCOT_H, w: mascotSize * MASCOT_W, h: mascotSize * MASCOT_H },
+          keySize, keyGap, glyphPx,
+        };
+      },
       art() { const all = Object.keys(nameEntryArt()); return { loaded: all.filter((n) => sprites.get(n)), missing: backgroundsReady ? all.filter((n) => !sprites.get(n)) : [] }; },
     };
     Object.assign(window, { __nameEntry: debug });
