@@ -620,7 +620,16 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
   function chooseOffers(): string[] {
     if (!services.config.rewardsEnabled) return [];
     const owned = rewards(services).stickers;
-    const fresh = STICKERS.filter(s => s.game === GAME_ID && !owned.includes(s.id));
+    // Offers follow the sticker book's pages (8 per page over the whole STICKERS list):
+    // only this game's uncollected stickers on the earliest such page, so one left there is offered alone.
+    let page = -1;
+    const fresh: (typeof STICKERS)[number][] = [];
+    STICKERS.forEach((s, i) => {
+      if (s.game !== GAME_ID || owned.includes(s.id)) return;
+      const p = Math.floor(i / 8);
+      if (page < 0) page = p;
+      if (p === page) fresh.push(s);
+    });
     if (!fresh.length) return [];
     const first = fresh.splice(Math.floor(random() * fresh.length), 1)[0]!;
     const second = fresh.length ? fresh[Math.floor(random() * fresh.length)] : undefined;
