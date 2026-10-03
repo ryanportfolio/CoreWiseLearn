@@ -15,7 +15,7 @@ import { approach, clamp01, easeInOutSine, easeOutCubic, lerp, pulse, slamScale 
 import { artName, artRequest, bakeBackground, createSoundButton, loadAllArt, soundArt, syncSoundIcon } from '../../scenes/hub/shared';
 import { PAPER, SHAPES, SWATCHES, TRAY_ASPECT, bakeShape, drawBaked, paintShape, setGrain, tracePath, type Baked, type Shape } from './paper';
 import { ALIVE_SECONDS, PICTURES, PICTURE_IDS, partPose, picturePose, pictureById, resetPose, shelfPose, type Face, type Part, type Picture, type PictureId, type Pose } from './pictures';
-import { FX_BUBBLE, FX_PUFF, createFx } from './fx';
+import { FX_BIT, FX_BUBBLE, FX_PUFF, createFx } from './fx';
 import { MAX_STAMPS, SHEET_COUNT, STAMP_STRIDE, TALLY_LENGTH, defaults, sanitize, type Wip, type WorkshopData } from './save';
 import { loadVoiceList, sayShape, startVoice, stopVoice } from './voice';
 
@@ -53,6 +53,9 @@ const SHEET_ASPECT = 4 / 3, STAMP_REF = 150, LIVE_STAMPS = 10;
 /** Key-mashing walk: step per key press in sheet heights, random turn range and pull toward empty paper, in radians and as a share of the turn needed. */
 const WALK_STEP = 0.15, WALK_TURN = 1.0, WALK_PULL = 0.35;
 const FRAME_COLORS = [1, 6, 4, 3, 5, 0];
+/** The fresh paper button's picture (drawn in code, registered once per session), the sweep's length and the empty-sheet wiggle's, in seconds. */
+const PAPER_ICON = 'shape-workshop/fresh-paper';
+const SWEEP_SECONDS = 0.65, WIGGLE_SECONDS = 0.45;
 
 type Mode = 'build' | 'free' | 'gallery';
 type Phase = 'deal' | 'play' | 'done' | 'alive' | 'send';
@@ -88,6 +91,8 @@ export interface WorkshopStats {
   pieces(): { x: number; y: number; w: number; h: number; shape: string; state: string; extra: boolean; cell: number; shown: boolean; selected: boolean }[];
   readonly focus: number;
   readonly fanfareReady: boolean;
+  /** Seconds into the fresh paper sweep and into the empty-sheet wiggle, or -1. */
+  readonly sweep: number; readonly wiggle: number;
   buttons(): { id: string; x: number; y: number; r: number; visible: boolean }[];
   frames(): { id: string; x: number; y: number; size: number; made: boolean }[];
   swatches(): { x: number; y: number; r: number }[];
@@ -145,7 +150,9 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   const brushBtn = createButton({ x: 0, y: 0, radius: 52, fill: '#ffe08a', icon: artName(sprite(ART.brush)), iconScale: 0.86, onPress: press(() => { sfx('button'); openFree(data.lastSheet); }) });
   const galleryBtn = createButton({ x: 0, y: 0, radius: 52, fill: '#ffc2d9', icon: artName(sprite(ART.gallery)), iconScale: 0.9, onPress: press(() => { sfx('button'); openGallery(); }) });
   const sound = createSoundButton(services);
-  const allButtons: Button[] = [home, brushBtn, galleryBtn, sound];
+  /** Free build's fresh paper button: a brush sweeps the sheet clean. Its picture is drawn in code (makePaperIcon). */
+  const paperBtn = createButton({ x: 0, y: 0, radius: 52, fill: '#d8c6f2', icon: PAPER_ICON, iconScale: 0.84, onPress: press(() => clearSheet()) });
+  const allButtons: Button[] = [home, brushBtn, galleryBtn, sound, paperBtn];
   const visibleButtons: Button[] = [];
 
   function sfx(name: SfxName, variant?: SfxVariant, index = 0, volume = 1): void {
@@ -212,6 +219,10 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   const swatchX = new Float32Array(SWATCHES), swatchY = new Float32Array(SWATCHES);
   const walkCounts = new Uint16Array(12);
   const live: Stamp[] = Array.from({ length: LIVE_STAMPS }, () => ({ active: false, shape: 0, color: 0, x: 0, y: 0, size: 0, rot: 0, t: 0 }));
+  /** Seconds into the fresh paper sweep, or -1; seconds into the empty-sheet wiggle of the button, or -1. */
+  let sweepT = -1, wiggleT = -1;
+  /** The big sweeping brush (handle, ferrule, bristles), baked with the free-build sheet. */
+  let sweepHandle: Baked | undefined, sweepFerrule: Baked | undefined, sweepBristles: Baked | undefined;
 
   // ---------------------------------------------------------------- gallery state
   const frameX = new Float32Array(12), frameY = new Float32Array(12), frameHover = new Float32Array(12);
@@ -387,6 +398,9 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
       cols = Math.min(cols, 4); rows = Math.ceil(SHAPES.length / cols); freeCell = Math.max(100, Math.min(Math.max(110, 124 * u), gridH / rows));
       const gx = areaRight - cols * freeCell, gy = freeTop + (gridH - rows * freeCell) / 2;
       for (let i = 0; i < SHAPES.length; i++) { shapeCellX[i] = gx + (i % cols + 0.5) * freeCell; shapeCellY[i] = gy + (Math.floor(i / cols) + 0.5) * freeCell; }
+      // The fresh paper button takes the grid's last cell, always free: seven shapes fill at most seven of eight or nine.
+      const last = cols * rows - 1;
+      paperBtn.x = gx + (last % cols + 0.5) * freeCell; paperBtn.y = gy + (Math.floor(last / cols) + 0.5) * freeCell;
       const aw = gx - margin - areaLeft, ah = gridH;
       freeH = Math.min(ah, aw / SHEET_ASPECT); freeW = freeH * SHEET_ASPECT;
       freeX = areaLeft + (aw - freeW) / 2; freeY = freeTop + (ah - freeH) / 2;
@@ -395,20 +409,37 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
       // may use the side margins so more 96 px cells fit in a row and leave more height for the sheet.
       const gridW = W - 6, cells = SHAPES.length + 1;
       const cols = Math.max(1, Math.min(cells, Math.floor(gridW / 96))), rows = Math.ceil(cells / cols);
+      // The fresh paper button joins the grid when that needs no extra row; otherwise it stands beside the sheet's lower right corner.
+      const paperInGrid = Math.ceil((cells + 1) / cols) === rows, n = paperInGrid ? cells + 1 : cells;
       freeCell = Math.max(96, Math.min(120 * u, gridW / cols));
       const gy = areaBottom - rows * freeCell;
-      for (let i = 0; i < cells; i++) {
-        const row = Math.floor(i / cols), inRow = row < rows - 1 ? cols : cells - cols * (rows - 1);
+      for (let i = 0; i < n; i++) {
+        const row = Math.floor(i / cols), inRow = row < rows - 1 ? cols : n - cols * (rows - 1);
         const x = W / 2 + (i % cols - (inRow - 1) / 2) * freeCell, y = gy + (row + 0.5) * freeCell;
-        if (i < SHAPES.length) { shapeCellX[i] = x; shapeCellY[i] = y; } else for (let k = 0; k < SWATCHES; k++) { swatchX[k] = x; swatchY[k] = y; }
+        if (i < SHAPES.length) { shapeCellX[i] = x; shapeCellY[i] = y; } else if (i === SHAPES.length) for (let k = 0; k < SWATCHES; k++) { swatchX[k] = x; swatchY[k] = y; } else { paperBtn.x = x; paperBtn.y = y; }
       }
       swatchR = 48;
-      const ah = Math.max(90, gy - margin - freeTop);
-      freeW = Math.min(availW, ah * SHEET_ASPECT); freeH = freeW / SHEET_ASPECT;
-      freeX = areaLeft + (availW - freeW) / 2; freeY = freeTop + (ah - freeH) / 2;
+      const ah = Math.max(90, gy - margin - freeTop), side = paperInGrid ? 0 : MIN_HIT * 2 + margin;
+      freeW = Math.min(availW - side, ah * SHEET_ASPECT); freeH = freeW / SHEET_ASPECT;
+      freeX = areaLeft + (availW - side - freeW) / 2; freeY = freeTop + (ah - freeH) / 2;
+      if (!paperInGrid) { paperBtn.x = areaRight - MIN_HIT; paperBtn.y = freeY + freeH - MIN_HIT; }
     }
+    paperBtn.radius = Math.max(MIN_HIT, Math.min(btnR, freeCell / 2 - 4));
     swatchCycle = portrait;
     freeSheet = bakeShape('rectangle', PAPER[10], freeW, freeH, dpr, { shadow: 9 * u, rim: 4, seed: 23, layer: '#fffdf6' });
+    // The sweeping brush stands as tall as the sheet: bristles in front, a metal band, and a handle trailing behind.
+    sweepBristles = bakeShape('rectangle', PAPER[2]!, freeH * 0.13, freeH * 1.02, dpr, { shadow: 5 * u, rim: 3, seed: 73 });
+    sweepFerrule = bakeShape('rectangle', '#c9c4d6', freeH * 0.07, freeH * 0.96, dpr, { shadow: 5 * u, rim: 3, seed: 72 });
+    sweepHandle = bakeShape('rectangle', PAPER[8]!, freeH * 0.5, freeH * 0.1, dpr, { shadow: 5 * u, rim: 3, seed: 71 });
+    const bctx = sweepBristles.canvas.getContext('2d');
+    if (bctx) {
+      // Bristle lines run the way the brush pushes.
+      const cx = sweepBristles.w / 2, cy = sweepBristles.h / 2, bw = freeH * 0.13;
+      bctx.setTransform(dpr, 0, 0, dpr, 0, 0); bctx.strokeStyle = '#d9a520'; bctx.lineWidth = Math.max(2, 3 * u); bctx.lineCap = 'round';
+      bctx.beginPath();
+      for (let k = -6; k <= 6; k++) { const y = cy + k * freeH * 0.075; bctx.moveTo(cx - bw * 0.32, y); bctx.lineTo(cx + bw * 0.36, y); }
+      bctx.stroke();
+    }
     trayArt.fill(undefined);
     layerDirty = true;
   }
@@ -729,7 +760,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     // Leaving a free-build sheet (it is saved with every stamp) or coming back to the gallery is a pause.
     if (mode === 'free' || next === 'gallery') naturalPause();
     if (mode === 'free') { flushLive(); thumbDirty[6 + sheetIndex] = 1; }
-    mode = next; focus = -1; guard(); handStop(); held = undefined; pointerDown = false;
+    mode = next; focus = -1; guard(); handStop(); held = undefined; pointerDown = false; sweepT = wiggleT = -1;
     placeButtons(); startFanfare();
     for (const p of pieces) if (p.state === 'held') returnPiece(p);
     fx.clear();
@@ -803,6 +834,50 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     fx.sparkleRing(x, y, freeW * size / 1000 * 0.4, 5, random);
     sayShape(services, SHAPES[selShape]!);
     save();
+  }
+
+  /**
+   * The fresh paper button: the sheet is emptied and saved at once, then a brush sweeps the old stamps off
+   * the picture. During the sweep the button, the sheet and keys do nothing more. An empty sheet only wiggles the button.
+   */
+  function clearSheet(): void {
+    if (mode !== 'free' || hand.kind || sweepT >= 0) return;
+    const list = stamps();
+    if (!list.length) { wiggleT = 0; sfx('button', 'B', 0, 0.5); return; }
+    // The sheet layer keeps showing the old stamps while the brush passes: bring it up to date, live stamps included.
+    if (layerDirty || !layer) rebuildLayer();
+    const ctx = layer?.getContext('2d');
+    if (ctx && freeSheet) {
+      const ox = (freeSheet.w - freeW) / 2, oy = (freeSheet.h - freeH) / 2;
+      for (const s of live) if (s.active) bakeStamp(ctx, s.shape, s.color, s.x, s.y, s.size, s.rot, ox, oy, freeW, freeH);
+    }
+    for (const s of live) s.active = false;
+    list.length = 0;
+    services.save.flush();
+    thumbDirty[6 + sheetIndex] = 1;
+    // A clear is play, as a stamp is: a waiting break point is dropped and the next needs a quiet spell after it.
+    boundaryAt = -1; lastStampAt = time; stampedSincePause = true;
+    sweepT = 0; lastStampX = lastStampY = -1e9;
+    sfx('whoosh', 'A');
+  }
+
+  /** The fresh paper button's picture, drawn once per session: a blank paper sheet with a small yellow brush sweeping it. */
+  function makePaperIcon(): void {
+    if (sprites.get(PAPER_ICON)) return;
+    const c = document.createElement('canvas');
+    c.width = c.height = 256;
+    const ctx = c.getContext('2d');
+    if (!ctx) return;
+    drawBaked(ctx, bakeShape('rectangle', '#fffdf6', 176, 132, 1, { rotation: -0.12, shadow: 8, rim: 3, seed: 61 }), 112, 118);
+    // Swish marks behind the brush on the clean paper.
+    ctx.lineCap = 'round'; ctx.strokeStyle = PAPER[11]!; ctx.lineWidth = 9;
+    for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.arc(200, 200, 120 + k * 20, 1.08 * Math.PI, 1.22 * Math.PI); ctx.stroke(); }
+    // The brush leans up and to the right: bristles on the paper, a metal band, then the handle.
+    const a = 0.7, ux = Math.sin(a), uy = -Math.cos(a), bx = 166, by = 170;
+    drawBaked(ctx, bakeShape('rectangle', PAPER[8]!, 24, 80, 1, { rotation: a, shadow: 6, rim: 2, seed: 62 }), bx + ux * 86, by + uy * 86);
+    drawBaked(ctx, bakeShape('rectangle', '#c9c4d6', 64, 22, 1, { rotation: a, shadow: 6, rim: 2, seed: 63 }), bx + ux * 34, by + uy * 34);
+    drawBaked(ctx, bakeShape('rectangle', PAPER[2]!, 70, 46, 1, { rotation: a, shadow: 6, rim: 2, seed: 64 }), bx, by);
+    void sprites.load(PAPER_ICON, c.toDataURL('image/png'));
   }
 
   /** Bake one stamp into the sheet layer. */
@@ -930,7 +1005,21 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     }
   }
 
+  /** Where the sweeping brush's bristles are now: the clean paper ends there. */
+  const sweepX = (): number => lerp(freeX, freeX + freeW + freeH * 0.1, easeInOutSine(clamp01(sweepT / SWEEP_SECONDS)));
+
   function updateFree(dt: number): void {
+    if (sweepT >= 0) {
+      const t0 = sweepT;
+      sweepT += dt;
+      // Paper bits fly up and away off the front of the bristles.
+      if (Math.floor(sweepT / 0.03) !== Math.floor(t0 / 0.03)) {
+        const x = sweepX() + freeH * 0.07;
+        for (let k = 0; k < 2; k++) fx.spawn(FX_BIT, x, freeY + random() * freeH, (300 + random() * 300) * u, -(220 + random() * 320) * u, 0.8, freeH * 0.06, Math.floor(random() * SWATCHES));
+      }
+      if (sweepT >= SWEEP_SECONDS) { sweepT = -1; layerDirty = true; fx.sparkleRing(freeX + freeW / 2, freeY + freeH / 2, freeH * 0.3, 8, random); }
+    }
+    if (wiggleT >= 0) { wiggleT += dt; if (wiggleT >= WIGGLE_SECONDS) wiggleT = -1; }
     // A few quiet seconds after stamping is a pause in the collage.
     if (stampedSincePause && !pointerDown && time - lastStampAt >= FREE_PAUSE) naturalPause();
     for (const s of live) if (s.active) { s.t += dt; }
@@ -959,8 +1048,8 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
       if (input.isKeyDown('ArrowUp')) cursorY = Math.max(0.04, cursorY - speed);
       if (input.isKeyDown('ArrowDown')) cursorY = Math.min(0.96, cursorY + speed);
     }
-    // A held button on the sheet stamps a trail.
-    if (pointerDown && !hand.kind && inSheet(input.pointer.x, input.pointer.y)) {
+    // A held button on the sheet stamps a trail (not while the sheet is being swept).
+    if (pointerDown && !hand.kind && sweepT < 0 && inSheet(input.pointer.x, input.pointer.y)) {
       const spacing = freeW * 0.16 * 0.8;
       if (Math.hypot(input.pointer.x - lastStampX, input.pointer.y - lastStampY) >= spacing) stamp(input.pointer.x, input.pointer.y);
     }
@@ -1272,11 +1361,26 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   // ---------------------------------------------------------------- render: free
   function renderFree(ctx: CanvasRenderingContext2D): void {
     if (layerDirty) rebuildLayer();
-    if (layer && freeSheet) ctx.drawImage(layer, freeX - (freeSheet.w - freeW) / 2, freeY - (freeSheet.h - freeH) / 2, freeSheet.w, freeSheet.h);
+    if (layer && freeSheet) {
+      const lx = freeX - (freeSheet.w - freeW) / 2, ly = freeY - (freeSheet.h - freeH) / 2;
+      if (sweepT < 0) ctx.drawImage(layer, lx, ly, freeSheet.w, freeSheet.h);
+      else {
+        // Clean paper behind the brush; the old stamps (still in the layer) only ahead of it.
+        const k = freeSheet.w / layer.width, sx = Math.min(layer.width, Math.max(0, Math.round((sweepX() - lx) / k)));
+        ctx.drawImage(freeSheet.canvas, lx, ly, freeSheet.w, freeSheet.h);
+        if (sx < layer.width) ctx.drawImage(layer, sx, 0, layer.width - sx, layer.height, lx + sx * k, ly, (layer.width - sx) * k, freeSheet.h);
+      }
+    }
     for (const s of live) {
       if (!s.active) continue;
       const k = slamScale(clamp01(s.t / 0.32), 0.3), b = stampBaked(s.shape, s.color), scale = freeW * s.size / 1000 / STAMP_REF * k;
       drawBaked(ctx, b, freeX + s.x / 1000 * freeW, freeY + s.y / 1000 * freeH, s.rot * Math.PI / 180, scale, scale);
+    }
+    if (sweepT >= 0 && sweepHandle && sweepFerrule && sweepBristles) {
+      const x = sweepX(), y = freeY + freeH / 2 + Math.sin(sweepT * 18) * freeH * 0.012;
+      drawBaked(ctx, sweepHandle, x - freeH * 0.385, y);
+      drawBaked(ctx, sweepFerrule, x - freeH * 0.1, y);
+      drawBaked(ctx, sweepBristles, x, y);
     }
     if (!hand.kind && kbActive) {
       // The keyboard's stamp spot shows only after a key, so a mouse player never sees a ring that looks like a target.
@@ -1379,6 +1483,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     if (mode === 'build') visibleButtons.push(brushBtn);
     if (mode !== 'gallery') visibleButtons.push(galleryBtn);
     visibleButtons.push(sound);
+    if (mode === 'free') visibleButtons.push(paperBtn);
     return visibleButtons;
   }
 
@@ -1478,7 +1583,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   }
 
   function freeDown(x: number, y: number): void {
-    if (hand.kind === KIND_FREE) return;
+    if (hand.kind === KIND_FREE || sweepT >= 0) return;
     for (let i = 0; i < SHAPES.length; i++) {
       if (Math.abs(x - shapeCellX[i]!) <= freeCell / 2 && Math.abs(y - shapeCellY[i]!) <= freeCell / 2) {
         selShape = i; sfx('button', 'B'); sayShape(services, SHAPES[i]!); return;
@@ -1491,7 +1596,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   }
 
   function freeKey(code: string): void {
-    if (hand.kind === KIND_FREE) return;
+    if (hand.kind === KIND_FREE || sweepT >= 0) return;
     if (code.startsWith('Arrow')) return;
     stamp(freeX + cursorX * freeW, freeY + cursorY * freeH);
     walkCursor();
@@ -1555,7 +1660,8 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     pieces() { return pieces.map(p => ({ x: p.hx, y: p.hy, w: p.w, h: p.h, shape: p.shape, state: p.state, extra: p.extra, cell: p.cell, shown: shown(p), selected: p.selected })); },
     get focus() { return focus; },
     get fanfareReady() { return fanfareAsked; },
-    buttons() { return allButtons.map((b, i) => ({ id: ['home', 'brush', 'gallery', 'sound'][i]!, x: b.x, y: b.y, r: Math.max(48, b.radius), visible: b.visible })); },
+    get sweep() { return sweepT; }, get wiggle() { return wiggleT; },
+    buttons() { return allButtons.map((b, i) => ({ id: ['home', 'brush', 'gallery', 'sound', 'paper'][i]!, x: b.x, y: b.y, r: Math.max(48, b.radius), visible: b.visible })); },
     frames() { return Array.from({ length: 12 }, (_, i) => ({ id: i < 6 ? PICTURES[i]!.id : `sheet-${i - 6}`, x: frameX[i]!, y: frameY[i]!, size: frameSize, made: i < 6 ? (data.made[PICTURES[i]!.id] ?? 0) > 0 : (data.sheets[i - 6]?.length ?? 0) > 0 })); },
     swatches() { return Array.from({ length: SWATCHES }, (_, i) => ({ x: swatchX[i]!, y: swatchY[i]!, r: swatchR })); },
     shapeCells() { return SHAPES.map((s, i) => ({ x: shapeCellX[i]!, y: shapeCellY[i]!, size: freeCell, shape: s })); },
@@ -1571,10 +1677,11 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     enter() {
       data = services.save.gameData<WorkshopData>(GAME_ID, defaults());
       sanitize(data, () => services.save.protect());
-      sceneT = 0; guard();
+      sceneT = 0; guard(); sweepT = wiggleT = -1;
       loadVoiceList(services);
       void loadShapeWorkshopArt(services).then(() => {
         setGrain(sprites.get(sprite(ART.grain)));
+        makePaperIcon();
         home.icon = artName(sprite(ART.home)); brushBtn.icon = artName(sprite(ART.brush)); galleryBtn.icon = artName(sprite(ART.gallery));
         // Rebake everything with the paper grain now that it has loaded.
         layout(services.canvas.width, services.canvas.height); layerDirty = true; thumbDirty.fill(1);
@@ -1624,7 +1731,12 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
       if (bg) ctx.drawImage(bg, 0, 0, W, H);
       if (mode === 'build') renderBuild(ctx); else if (mode === 'free') renderFree(ctx); else renderGallery(ctx);
       fx.render(ctx);
-      for (const b of allButtons) b.render(ctx, sprites);
+      for (const b of allButtons) {
+        if (b !== paperBtn || wiggleT < 0) { b.render(ctx, sprites); continue; }
+        // Fresh paper on an empty sheet: the button only wiggles.
+        ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(Math.sin(wiggleT * 32) * 0.2 * (1 - wiggleT / WIGGLE_SECONDS)); ctx.translate(-b.x, -b.y);
+        b.render(ctx, sprites); ctx.restore();
+      }
       const fb = visibleButtons[focus];
       if (focus >= 0 && fb) focusRing(ctx, fb.x, fb.y, fb.radius);
       drawHand(ctx);
@@ -1669,8 +1781,9 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
       if (focus >= 0 && nav) {
         const b = buttons[focus];
         if (code.startsWith('Arrow')) { focus = (focus + (code === 'ArrowLeft' || code === 'ArrowUp' ? buttons.length - 1 : 1)) % buttons.length; focusAt = now; sfx('hover'); return; }
-        // Only Enter presses a ringed button, and only once its ring has been in sight for FOCUS_HOLD_MS.
-        if ((code === 'Enter' || code === 'NumpadEnter') && b && now - focusAt >= FOCUS_HOLD_MS) { b.pointerDown(b.x, b.y); return; }
+        // Only Enter presses a ringed button (any key the fresh paper button, which then lets go of the ring so the
+        // next key stamps again), and only once its ring has been in sight for FOCUS_HOLD_MS.
+        if (b && now - focusAt >= FOCUS_HOLD_MS && (b === paperBtn || code === 'Enter' || code === 'NumpadEnter')) { b.pointerDown(b.x, b.y); if (b === paperBtn) focus = -1; return; }
       }
       // Any other key (Space, or an Enter that came too soon) drops the ring and plays.
       focus = -1;
