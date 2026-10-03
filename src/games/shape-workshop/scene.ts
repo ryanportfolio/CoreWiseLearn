@@ -198,6 +198,8 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   let freeSheet: Baked | undefined, layer: HTMLCanvasElement | undefined;
   let layerDirty = true;
   const stampArt: (Baked | undefined)[] = new Array<Baked | undefined>(SHAPES.length * SWATCHES).fill(undefined);
+  /** Pixel ratio the stamp art was baked at. */
+  let stampRatio = 0;
   const trayArt: (Baked | undefined)[] = new Array<Baked | undefined>(SHAPES.length * SWATCHES).fill(undefined);
   const shapeCellX = new Float32Array(SHAPES.length), shapeCellY = new Float32Array(SHAPES.length);
   const swatchX = new Float32Array(SWATCHES), swatchY = new Float32Array(SWATCHES);
@@ -248,6 +250,10 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     freeTop = narrowFree ? secondRow : areaTop;
     placeButtons();
     bgDirty = true; sheetKey = trayKey = '';
+    // The engine's adaptive resolution changes the pixel ratio without changing the CSS size. Every other
+    // cached canvas is rebaked below at the new ratio; the stamp art keeps its CSS size, so it only needs
+    // dropping when the ratio it was made at is no longer the one in use.
+    if (stampRatio !== dpr) { stampArt.fill(undefined); stampRatio = dpr; }
     fx.bake(dpr);
     layoutBuild(); layoutFree(); layoutGallery();
   }
