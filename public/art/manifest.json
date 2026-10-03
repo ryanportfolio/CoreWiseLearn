@@ -1,8 +1,8 @@
 {
   "style": "Flat chunky vector, thick dark outlines, flat saturated fills, single soft highlight, no text. Sprites are 512x512 RGBA with the subject centred and fitted to 80 percent of the canvas; backgrounds are 1365x768 (maximum 1366x768) opaque RGB.",
   "generatedWith": "OpenAI image_gen through Codex CLI (gpt-6-astra agent), downscaled with the project scratch script .tmp/art/png.mjs",
-  "count": 51,
-  "totalBytes": 4281370,
+  "count": 59,
+  "totalBytes": 4548294,
   "files": [
     {
       "file": "art/mascot/cheer.png",
@@ -513,6 +513,86 @@
       "height": 154,
       "transparent": true,
       "bytes": 10042
+    },
+    {
+      "file": "art/stickers/happy-star.webp",
+      "group": "stickers",
+      "name": "happy-star",
+      "use": "Sticker: smiling tangerine star character with waving arms (last sticker in the collection)",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 26454
+    },
+    {
+      "file": "art/stickers/red-rocket.webp",
+      "group": "stickers",
+      "name": "red-rocket",
+      "use": "Sticker: upright red rocket character with a face in its porthole and a short flame",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 26948
+    },
+    {
+      "file": "art/stickers/rainbow-candy.webp",
+      "group": "stickers",
+      "name": "rainbow-candy",
+      "use": "Sticker: rainbow swirl lollipop character with a short stick",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 28288
+    },
+    {
+      "file": "art/stickers/green-dino.webp",
+      "group": "stickers",
+      "name": "green-dino",
+      "use": "Sticker: seated baby green dinosaur",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 31974
+    },
+    {
+      "file": "art/stickers/rainbow-unicorn.webp",
+      "group": "stickers",
+      "name": "rainbow-unicorn",
+      "use": "Sticker: seated baby unicorn with a rainbow mane",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 37772
+    },
+    {
+      "file": "art/stickers/ocean-friend.webp",
+      "group": "stickers",
+      "name": "ocean-friend",
+      "use": "Sticker: teal baby octopus",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 33188
+    },
+    {
+      "file": "art/rewards/shell-closed-mint.webp",
+      "group": "rewards",
+      "name": "shell-closed-mint",
+      "use": "Tidepool reward: closed mint shell shown during the celebration, opens into the mint offer",
+      "width": 480,
+      "height": 498,
+      "transparent": true,
+      "bytes": 40838
+    },
+    {
+      "file": "art/rewards/shell-closed-coral.webp",
+      "group": "rewards",
+      "name": "shell-closed-coral",
+      "use": "Tidepool reward: closed coral shell shown during the celebration, opens into the coral offer",
+      "width": 480,
+      "height": 494,
+      "transparent": true,
+      "bytes": 41462
     }
   ],
   "prepared": {
@@ -526,5 +606,21 @@
     "date": "2026-10-02",
     "source": "C:/Users/Home/.codex/generated_images/01a0ff7b-3c60-7450-80ac-6d78e2f1e516/exec-78b1530c-cb96-47ef-a233-73328f1a6df8.png",
     "preparation": "Alpha-trimmed isolated source objects; WebP quality 92, alpha quality 100; originals retained outside public."
+  },
+  "stickerArt": {
+    "generatedWith": "Codex CLI 0.159.0 (codex exec -m gpt-6-astra, reasoning effort medium) using its built-in image_gen tool; the backend picks the image model and the log does not name it",
+    "date": "2026-10-03",
+    "files": [
+      "art/stickers/happy-star.webp",
+      "art/stickers/red-rocket.webp",
+      "art/stickers/rainbow-candy.webp",
+      "art/stickers/green-dino.webp",
+      "art/stickers/rainbow-unicorn.webp",
+      "art/stickers/ocean-friend.webp",
+      "art/rewards/shell-closed-mint.webp",
+      "art/rewards/shell-closed-coral.webp"
+    ],
+    "source": "Raw 1254x1254 RGBA PNGs, prompts and per-attempt verdicts retained outside public in the art-r4 scratch folder (provenance.json, raw/, prompts.py, notes.json)",
+    "preparation": "Matte fringe and specks removed, interiors made fully opaque, cropped to the alpha bounds; stickers resized so the longest side is 410 px on a 512x512 transparent canvas, shells to 480 px wide matching the open shells; WebP quality 92 with alpha quality 100."
   }
 }

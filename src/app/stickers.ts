@@ -30,12 +30,12 @@ export const STICKERS: readonly StickerDef[] = [
   { id: 'penguin', path: 'avatars/penguin.png', game: 'bubble-pop' },
   { id: 'koala', path: 'avatars/koala.png', game: 'bubble-pop' },
   { id: 'owl', path: 'avatars/owl.png', game: 'bubble-pop' },
-  { id: 'rainbow-unicorn', path: 'tiles/unicorn-rainbow.png', game: 'bubble-pop' },
-  { id: 'red-rocket', path: 'tiles/rocket-red.png', game: 'bubble-pop' },
-  { id: 'green-dino', path: 'tiles/dino-green.png', game: 'bubble-pop' },
-  { id: 'rainbow-candy', path: 'tiles/candy-rainbow.png', game: 'bubble-pop' },
-  { id: 'ocean-friend', path: 'tiles/ocean-octopus.png', game: 'bubble-pop' },
-  { id: 'happy-star', path: 'buttons/sticker-star.png', game: 'bubble-pop' },
+  { id: 'rainbow-unicorn', path: 'stickers/rainbow-unicorn.webp', game: 'bubble-pop' },
+  { id: 'red-rocket', path: 'stickers/red-rocket.webp', game: 'bubble-pop' },
+  { id: 'green-dino', path: 'stickers/green-dino.webp', game: 'bubble-pop' },
+  { id: 'rainbow-candy', path: 'stickers/rainbow-candy.webp', game: 'bubble-pop' },
+  { id: 'ocean-friend', path: 'stickers/ocean-friend.webp', game: 'bubble-pop' },
+  { id: 'happy-star', path: 'stickers/happy-star.webp', game: 'bubble-pop' },
 ];
 
 export function stickerById(id: string): StickerDef | undefined {

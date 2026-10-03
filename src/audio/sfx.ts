@@ -252,6 +252,152 @@ function climb(index: number): number {
 /** Star pitches climb do mi sol, then on up the scale (C5 E5 G5 C6 ...). */
 const STAR_NOTES = [72, 76, 79, 84, 88, 91] as const;
 
+/** Seconds from the trigger to the first note, so the start is not already past when the audio thread reads it. */
+const LEAD = 0.002;
+
+/** Build steps in the fanfare: one bell or marimba hit each for the three rising notes and the top note, then the chord, then the sub. */
+const FANFARE_STEPS = 10;
+const FANFARE_NOTES = [72, 76, 79] as const;
+
+/**
+ * One build step of the fanfare (0 to FANFARE_STEPS - 1). Running every step in order builds exactly the nodes,
+ * in the same order, that one whole build makes, so a render built a step at a time is sample-identical.
+ */
+function fanfareStep(step: number, v: Voice, t: number, p: Patch, out: AudioNode): void {
+  const register = finite(p.register, 0);
+  const hz = (midi: number): number => midiHz(midi + register);
+  const top = t + 0.42;
+  if (step < 6) {
+    // C5 E5 G5, each a bell over a marimba an octave down.
+    const i = step >> 1;
+    const nt = t + i * 0.13;
+    const m = FANFARE_NOTES[i] ?? 72;
+    if (step & 1) marimba(v, nt, hz(m - 12), 0.08, out, shaped(p, { ...MARIMBA, decay: 0.25 }));
+    else bell(v, nt, hz(m), 0.15, out, shaped(p, { ...BELL, decay: 0.35 }));
+  } else if (step === 6) bell(v, top, hz(84), 0.15, out, shaped(p, { ...BELL, decay: 0.74 }));
+  else if (step === 7) marimba(v, top, hz(72), 0.1, out, shaped(p, { ...MARIMBA, decay: 0.5 }));
+  else {
+    const chord = shaped(p, { attack: 0.06, decay: 0.72, shape: 0, overtone: 0, noise: 0 });
+    if (step === 8) for (const m of [60, 64, 67]) v.tone(chord.shape, hz(m), top - 0.02, chord.attack, chord.decay, 0.065, out);
+    else v.tone(Math.min(1, chord.shape + 1), hz(48), top - 0.02, 0.01 * finite(p.attack, 1, 0.01), 0.7 * finite(p.decay, 1, 0.01), 0.1, out);
+  }
+}
+
+/** Fanfare: C5 E5 G5 then a held C6 over a soft C major chord and a C3 sub. Every node feeds `out`. */
+function fanfare(v: Voice, t: number, p: Patch, out: AudioNode): void {
+  for (let step = 0; step < FANFARE_STEPS; step++) fanfareStep(step, v, t, p, out);
+}
+
+// ---------------------------------------------------------------------------
+// Rendered ahead. Building the fanfare's twenty notes takes a few ms of main
+// thread on the frame a round ends (four times that on a slow laptop, at the
+// 192 kHz some sound cards run at). prepareSfx renders the notes once into a
+// buffer, before they are needed; playSfx then plays that buffer through the
+// same voice gain and low-pass, which sounds the same because the notes have
+// no random part. A patch with extra noise adds random bursts, so it always
+// builds live. prepareSfxStep builds the same render one note per call, for
+// callers that only have short idle periods between frames.
+
+interface Rendered {
+  /** Undefined while building or rendering, or when the render failed (playSfx builds live then). */
+  buffer: AudioBuffer | undefined;
+  /** Seconds from the buffer start until the last note stops. */
+  end: number;
+  /** Settles once the render has finished or failed; undefined while the notes are still being built. */
+  done?: Promise<void>;
+}
+
+/** A render whose notes are still being added, one build step per prepareSfxStep call. */
+interface Building {
+  off: OfflineAudioContext;
+  v: Voice;
+  p: Patch;
+  step: number;
+}
+
+const renders = new Map<string, Rendered>();
+const building = new Map<string, Building>();
+/** Longest render kept; longer tunings build live. */
+const RENDER_SECONDS = 4;
+
+/** Cache key for an effect that can be rendered ahead, or undefined when it must build live. */
+function renderKey(ctx: BaseAudioContext, name: SfxName, variant: SfxVariant, p: Patch): string | undefined {
+  if (name !== 'fanfare' || !(p.noise <= 1)) return undefined;
+  // Level and brightness act after the buffer (voice gain and low-pass), so they are not part of the key.
+  return `${name}:${variant}:${ctx.sampleRate}:${p.register}:${p.attack}:${p.decay}:${p.shape}:${p.overtone}:${p.noise}`;
+}
+
+/** The render key and patch prepareSfx would use, or undefined when nothing can be rendered ahead. */
+function renderTarget(audio: Audio, name: SfxName, options: Pick<SfxOptions, 'variant'>): { ctx: AudioContext; key: string; p: Patch } | undefined {
+  const ctx = audio.context;
+  if (!ctx || typeof OfflineAudioContext === 'undefined') return undefined;
+  const variant = options.variant && SFX_VARIANT_IDS.includes(options.variant) ? options.variant : getSfxVariant(name);
+  const p = sfxVariantDef(name, variant).patch(SFX_PATCHES[name]);
+  const key = renderKey(ctx, name, variant, p);
+  return key ? { ctx, key, p } : undefined;
+}
+
+/**
+ * prepareSfx one slice at a time. The first call sets up the render and is the one long slice (about 4 ms at
+ * 192 kHz, four times that on a slow laptop): make it while nothing on screen moves. Each later call adds one bell or
+ * marimba hit (or the chord, or the sub), well under 1 ms (under 2 ms on a slow laptop), so it fits a short idle
+ * period between frames; the last starts the render, which runs off the main thread. Returns true once nothing is
+ * left to do on the main thread (rendering, rendered, failed, or an effect that always builds live).
+ */
+export function prepareSfxStep(audio: Audio, name: SfxName, options: Pick<SfxOptions, 'variant'> = {}): boolean {
+  const target = renderTarget(audio, name, options);
+  if (!target) return true;
+  const { ctx, key, p } = target;
+  const build = building.get(key);
+  if (!build) {
+    if (renders.has(key)) return true;
+    renders.set(key, { buffer: undefined, end: 0 });
+    try {
+      const off = new OfflineAudioContext(1, Math.ceil(ctx.sampleRate * RENDER_SECONDS), ctx.sampleRate);
+      // A context builds its sine and triangle tables when it makes its first oscillator of each kind, and that is
+      // most of the work (each several ms at 192 kHz on a slow laptop). Build them here, with an oscillator that is
+      // never connected or started, so the note steps after this stay short and the render is unchanged.
+      off.createOscillator().type = 'triangle';
+      building.set(key, { off, v: new Voice(off, LEAD, 1), p, step: 0 });
+      return false;
+    } catch {
+      return true;
+    }
+  }
+  try {
+    if (build.step < FANFARE_STEPS) {
+      fanfareStep(build.step++, build.v, LEAD, build.p, build.off.destination);
+      return false;
+    }
+    building.delete(key);
+    const entry = renders.get(key);
+    const { v } = build;
+    if (!entry || v.end > RENDER_SECONDS) return true;
+    entry.done = build.off.startRendering().then(
+      (buffer) => {
+        entry.end = v.end;
+        entry.buffer = buffer;
+      },
+      () => undefined,
+    );
+  } catch {
+    building.delete(key);
+  }
+  return true;
+}
+
+/**
+ * Render an effect ahead so playSfx does not build its notes on the frame it plays. Only the fanfare uses this;
+ * other effects resolve at once. Safe to call repeatedly: one render per patch, variant and sample rate. Call it
+ * away from busy frames: building the render costs what building the live sound would. Where only short idle
+ * periods are free, call prepareSfxStep once per period instead.
+ */
+export function prepareSfx(audio: Audio, name: SfxName, options: Pick<SfxOptions, 'variant'> = {}): Promise<void> {
+  while (!prepareSfxStep(audio, name, options));
+  const target = renderTarget(audio, name, options);
+  return (target && renders.get(target.key)?.done) ?? Promise.resolve();
+}
+
 export function playSfx(audio: Audio, name: SfxName, options: SfxOptions = {}): void {
   const ctx = audio.context;
   const bus = audio.sfxBus;
@@ -264,7 +410,7 @@ export function playSfx(audio: Audio, name: SfxName, options: SfxOptions = {}): 
   if (volume <= 0) return;
   const index = finite(options.index ?? 0, 0, 0);
   const kit = kitFor(ctx, bus);
-  const t = ctx.currentTime + 0.002;
+  const t = ctx.currentTime + LEAD;
   // The same sound at the same pitch twice within DEDUPE_SECONDS would add up
   // in phase and double the level, so the repeat is dropped.
   const key = `${name}:${variant}:${Math.floor(index)}`;
@@ -437,22 +583,16 @@ export function playSfx(audio: Audio, name: SfxName, options: SfxOptions = {}): 
       break;
     }
     case 'fanfare': {
-      // C5 E5 G5 then a held C6 over a soft C major chord and a C3 sub.
-      const notes = [72, 76, 79];
-      const quick = shaped(p, { ...BELL, decay: 0.35 });
-      const wood = shaped(p, { ...MARIMBA, decay: 0.25 });
-      for (let i = 0; i < notes.length; i++) {
-        const nt = t + i * 0.13;
-        const m = notes[i] ?? 72;
-        bell(v, nt, hz(m), 0.15, out, quick);
-        marimba(v, nt, hz(m - 12), 0.08, out, wood);
-      }
-      const top = t + 0.42;
-      bell(v, top, hz(84), 0.15, out, shaped(p, { ...BELL, decay: 0.74 }));
-      marimba(v, top, hz(72), 0.1, out, shaped(p, { ...MARIMBA, decay: 0.5 }));
-      const chord = shaped(p, { attack: 0.06, decay: 0.72, shape: 0, overtone: 0, noise: 0 });
-      for (const m of [60, 64, 67]) v.tone(chord.shape, hz(m), top - 0.02, chord.attack, chord.decay, 0.065, out);
-      v.tone(Math.min(1, chord.shape + 1), hz(48), top - 0.02, at(0.01), dc(0.7), 0.1, out);
+      const ready = renderKey(ctx, name, variant, p);
+      const rendered = ready ? renders.get(ready) : undefined;
+      if (rendered?.buffer) {
+        // The same notes, rendered ahead by prepareSfx with the same lead before the first note, so the buffer
+        // starts on the render quantum and every sample lines up with the live build.
+        const src = ctx.createBufferSource();
+        src.buffer = rendered.buffer;
+        src.connect(v.out(out));
+        v.ownSource(src, t - LEAD, t - LEAD + rendered.end);
+      } else fanfare(v, t, p, out);
       break;
     }
     case 'sticker': {
