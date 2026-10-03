@@ -606,7 +606,8 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
   /**
    * Learning evidence comes from pointer attempts (a block put on an open car: the right car is a hit, another a miss)
    * and from calm keyboard play (owner decision, 2026-10-03). A typed letter that is on a platform block is a hit (the
-   * child found it on the keyboard); a typed letter on no block is a miss. Any other key places the highlighted pair
+   * child found it on the keyboard) when an open car takes that block; with no open car for it (an ordered train whose
+   * car is not open yet) it counts for nothing, like a drop on a closed car. A typed letter on no block is a miss. Any other key places the highlighted pair
    * and counts only when the child moved a highlight with the arrows since the last placement; the default pair the
    * game chose never counts. keyPress sets keyEvidence, false for a key pressed under KEY_CALM after the previous key.
    * The demonstration and placements with no choice left never count.
@@ -798,7 +799,8 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
       if (typed >= 0) {
         const b = blocks[typed]!; let car = -1;
         for (let i = 0; i < nCars; i++) if (isOpen(i) && matches(b.letter, cars[i]!.letter)) { car = i; break; }
-        if (car < 0) { record(true, 'typed'); b.squash = 0; wiggleHome(b); return; }
+        // Its car is not open yet (an ordered train): like a mouse drop on a closed car, this is no attempt.
+        if (car < 0) { b.squash = 0; wiggleHome(b); return; }
         if (selectedBlock >= 0 && selectedBlock !== typed) { sendHome(blocks[selectedBlock]!); selectedBlock = -1; }
         attempt(typed, car, 'typed'); return;
       }
