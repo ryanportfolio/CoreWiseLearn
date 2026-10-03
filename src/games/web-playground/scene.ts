@@ -452,14 +452,15 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
   /** The counter's digits are not baked at its current size (a resize can change it); they wait for the font. */
   const counterDue = (): boolean => fontReady && counterWarm !== counterPx;
   /**
-   * Adds fanfare notes to the render started in startRound while this idle period has at least 4 ms left. Once that is
-   * done, bakes the celebration counter's ten digits at the current size (as Bubble Bay does), so the first
-   * celebration makes no canvas and calls no fillText.
+   * Adds fanfare notes to the render started in startRound while this idle period has at least 4 ms left. A period too
+   * short for a note bakes the celebration counter's ten digits at the current size instead (as Bubble Bay does) when
+   * it timed out or has 4 ms left, so on a busy machine the counter is still ready and the first celebration makes no
+   * canvas and calls no fillText.
    */
   function prepareIdle(deadline: IdleDeadline): void {
     idleHandle = 0;
-    if (fanfareDue()) {
-      while (deadline.timeRemaining() >= 4) if (prepareSfxStep(audio, 'fanfare')) { fanfareAsked = true; break; }
+    if (fanfareDue() && deadline.timeRemaining() >= 4) {
+      do if (prepareSfxStep(audio, 'fanfare')) { fanfareAsked = true; break; } while (deadline.timeRemaining() >= 4);
       return;
     }
     if (!counterDue() || !(deadline.didTimeout || deadline.timeRemaining() >= 4)) return;
