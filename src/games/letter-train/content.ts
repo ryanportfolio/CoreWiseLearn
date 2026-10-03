@@ -4,7 +4,8 @@ export const STAGE_SAME_UPPER = 0, STAGE_SAME_LOWER = 1, STAGE_PAIRS = 2, STAGE_
 export type Stage = 0 | 1 | 2 | 3 | 4;
 export const TOP_STAGE: Stage = 4;
 
-export const WORDS = ['cat', 'dog', 'sun', 'bus', 'hat', 'cup', 'pig', 'fox'] as const;
+/** No word puts two look-alike letters (LOOKALIKES) on one train. */
+export const WORDS = ['cat', 'dog', 'hen', 'bus', 'hat', 'cup', 'pig', 'fox'] as const;
 export type Word = (typeof WORDS)[number];
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -47,21 +48,29 @@ export function stageDown(stage: Stage, hasName: boolean): Stage {
   return next;
 }
 
-function pickLetters(count: number, random: () => number, alphabet = ALPHABET): string[] {
+/**
+ * `count` distinct letters with no two look-alikes. Letters in `used` (already on an earlier train of the round)
+ * are left out while enough others remain; only a pool too small for the train lets them back in.
+ */
+function pickLetters(count: number, random: () => number, alphabet = ALPHABET, used: Set<string> = new Set()): string[] {
   const picked: string[] = [];
-  for (let guard = 0; picked.length < count && guard < 400; guard++) {
-    const letter = alphabet[Math.floor(random() * alphabet.length)]!;
-    if (picked.includes(letter)) continue;
-    if (LOOKALIKES.some(group => group.includes(letter) && picked.some(p => group.includes(p)))) continue;
-    picked.push(letter);
+  const fresh = alphabet.split('').filter(l => !used.has(l)).join('');
+  for (const pool of [fresh, alphabet]) {
+    for (let guard = 0; picked.length < count && pool && guard < 400; guard++) {
+      const letter = pool[Math.floor(random() * pool.length)]!;
+      if (picked.includes(letter)) continue;
+      if (LOOKALIKES.some(group => group.includes(letter) && picked.some(p => group.includes(p)))) continue;
+      picked.push(letter);
+    }
   }
+  for (const l of picked) used.add(l);
   return picked;
 }
 
-/** One train of single letters for stages 0 to 2. */
-export function letterTrain(stage: Stage, count: number, random: () => number): TrainPlan {
+/** One train of single letters for stages 0 to 2. `used` collects the round's letters so later trains avoid them. */
+export function letterTrain(stage: Stage, count: number, random: () => number, used?: Set<string>): TrainPlan {
   // Capital to small only asks for the pairing when the two forms look different.
-  const letters = pickLetters(count, random, stage === STAGE_PAIRS ? PAIR_ALPHABET : ALPHABET);
+  const letters = pickLetters(count, random, stage === STAGE_PAIRS ? PAIR_ALPHABET : ALPHABET, used);
   const lower = letters.map(l => l.toLowerCase());
   if (stage === STAGE_SAME_LOWER) return { stage, cars: lower, blocks: lower.slice(), ordered: false };
   if (stage === STAGE_PAIRS) return { stage, cars: lower, blocks: letters, ordered: false };
@@ -95,13 +104,16 @@ export function planRound(stage: Stage, cars: number, perTrain: number, name: st
   const hasName = nameLetters(name).length > 0;
   if (stage === STAGE_NAME && !hasName) stage = STAGE_WORDS;
   const plans: TrainPlan[] = [];
+  // No letter rides twice in one round while the stage's letters allow it.
+  const used = new Set<string>();
   if (stage <= STAGE_PAIRS) {
-    for (let i = 0; i < 3; i++) plans.push(letterTrain(stage, cars, random));
+    for (let i = 0; i < 3; i++) plans.push(letterTrain(stage, cars, random, used));
     return plans;
   }
   if (stage === STAGE_NAME) {
     plans.push(...nameTrains(name, perTrain));
-    while (plans.length < 3) plans.push(letterTrain(STAGE_PAIRS, cars, random));
+    for (const l of nameLetters(name)) used.add(l);
+    while (plans.length < 3) plans.push(letterTrain(STAGE_PAIRS, cars, random, used));
     return plans;
   }
   const fresh = WORDS.filter(w => !recentWords.includes(w));
