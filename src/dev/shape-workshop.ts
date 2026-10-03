@@ -4,10 +4,11 @@
  *   ?debug&tier=2   force a motor tier (debug only)
  *   ?level=2        start at a learning level
  *   ?picture=cat    open that picture
- * window.__shapeWorkshop exposes the scene's stats for checks.
+ * window.__shapeWorkshop exposes the scene's stats for checks on this page only; in the app,
+ * checks read `stats` from the current scene (window.__corewise.scenes.current).
  */
 import { bootApp } from '../app/boot';
-import { createShapeWorkshopScene, GAME_ID, loadShapeWorkshopArt } from '../games/shape-workshop/scene';
+import { createShapeWorkshopScene, GAME_ID, loadShapeWorkshopArt, type WorkshopStats } from '../games/shape-workshop/scene';
 
 const params = new URLSearchParams(location.search);
 const services = bootApp({
@@ -27,5 +28,8 @@ const picture = params.get('picture');
 if (picture) bag.currentId = picture;
 services.save.flush();
 await loadShapeWorkshopArt(services);
-await services.scenes.push(createShapeWorkshopScene(services));
+const scene = createShapeWorkshopScene(services);
+window.__shapeWorkshop = scene.stats;
+await services.scenes.push(scene);
 services.loop.start();
+declare global { interface Window { __shapeWorkshop?: WorkshopStats } }

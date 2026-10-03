@@ -33,7 +33,9 @@ export const TIERS = [
   { pieces: 5, scale: 0.95, snap: 1.25, snapMin: 75 },
   { pieces: 8, scale: 0.9, snap: 1.1, snapMin: 64 },
 ] as const;
-const GUARD_MS = 320, HINT_IDLE = 9, HINT_REPEAT = 12, ASSIST_SECONDS = 8, LAND_SECONDS = 0.45, FLY_SECONDS = 0.3;
+const GUARD_MS = 320, HINT_IDLE = 9, HINT_REPEAT = 12, ASSIST_SECONDS = 8, LAND_SECONDS = 0.45, FLY_SECONDS = 0.3, HOP_SECONDS = 0.5;
+/** Break points in creative play: a free-build pause this long after a stamp, and the wait before a due nudge may show. */
+const FREE_PAUSE = 3, PAUSE_DELAY = 0.35;
 const DONE_SECONDS = 1.1, SEND_SECONDS = 0.85, DEAL_SECONDS = 0.55;
 /** Drop tolerance: half the 96 px minimum target around an outline's centre, and a rim around the drawn outline. */
 const MIN_HIT = 48, DROP_PAD = 12;
@@ -46,7 +48,7 @@ const FRAME_COLORS = [1, 6, 4, 3, 5, 0];
 
 type Mode = 'build' | 'free' | 'gallery';
 type Phase = 'deal' | 'play' | 'done' | 'alive' | 'send';
-type PieceState = 'tray' | 'held' | 'fly' | 'back' | 'nope' | 'gone';
+type PieceState = 'tray' | 'held' | 'fly' | 'back' | 'nope' | 'hop' | 'gone';
 
 interface Spot {
   part: Part; open: boolean; placed: boolean; reserved: boolean;
@@ -56,7 +58,8 @@ interface Spot {
   hit: number; reach: number; land: number; baked: Baked | undefined;
 }
 interface Piece {
-  shape: Shape; color: number; extra: boolean; cell: number;
+  /** `part` is the picture part this piece was cut for, or -1 for a spare that fits nowhere. */
+  shape: Shape; color: number; extra: boolean; part: number; cell: number;
   x: number; y: number; hx: number; hy: number; w: number; h: number;
   state: PieceState; t: number; fromX: number; fromY: number; target: number;
   tried: boolean; drag: boolean; selected: boolean; baked: Baked | undefined;
@@ -68,11 +71,11 @@ const HOW_POINTER = 0, HOW_KEY = 1, HOW_DEMO = 2;
 
 export interface WorkshopStats {
   readonly mode: Mode; readonly phase: Phase; readonly phaseTime: number; readonly picture: string; readonly tier: number; readonly level: number;
-  readonly handActive: boolean; readonly stamps: number; readonly sheet: number; readonly fx: number;
+  readonly handActive: boolean; readonly keyPiece: number; readonly stamps: number; readonly sheet: number; readonly fx: number;
   readonly workMean: number; readonly workMax: number;
   readonly learnHits: number; readonly learnMisses: number; readonly motorHits: number; readonly motorMisses: number;
   spots(): { x: number; y: number; w: number; h: number; rot: number; shape: string; open: boolean; placed: boolean; hit: number; reach: number }[];
-  pieces(): { x: number; y: number; shape: string; state: string; extra: boolean; cell: number }[];
+  pieces(): { x: number; y: number; w: number; h: number; shape: string; state: string; extra: boolean; cell: number }[];
   buttons(): { id: string; x: number; y: number; r: number; visible: boolean }[];
   frames(): { id: string; x: number; y: number; size: number; made: boolean }[];
   swatches(): { x: number; y: number; r: number }[];
@@ -108,7 +111,11 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   let mode: Mode = 'build', phase: Phase = 'deal';
   let W = 1366, H = 768, u = 1, margin = 16, btnR = 52, dpr = 1, portrait = false;
   let areaTop = 0, toolTop = 0, freeTop = 0, areaBottom = 0, areaLeft = 0, areaRight = 0, swatchCycle = false, narrowBuild = false, narrowFree = false;
+  /** Build on a narrow portrait screen: the mode buttons stand in a column under the speaker, beside the sheet. */
+  let buildColumn = false;
   let time = 0, sceneT = 0, phaseT = 0, inputAfter = 0, lastPlace = 0, lastHint = -99, hintShape = '', hintAt = -99;
+  /** When a due break nudge may show (a natural pause in creative play), or -1; and whether free build has stamped since the last pause. */
+  let boundaryAt = -1, stampedSincePause = false, lastStampAt = 0;
   let bg: HTMLCanvasElement | undefined;
   let bgDirty = true;
   let pointerDown = false, downX = 0, downY = 0, kbActive = false, focus = -1;
@@ -209,12 +216,15 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     layoutBuild(); layoutFree(); layoutGallery();
   }
 
-  /** Mode buttons in the top row, or in a second row when this mode's buttons do not fit in one. */
+  /** Mode buttons in the top row, or in a second row (a column on a portrait build screen) when this mode's buttons do not fit in one. */
   function placeButtons(): void {
     const top = margin + btnR;
     galleryBtn.x = sound.x - btnR * 2 - margin; galleryBtn.y = top;
     brushBtn.x = galleryBtn.x - btnR * 2 - margin; brushBtn.y = top;
-    if (mode === 'build' ? narrowBuild : mode === 'free' && narrowFree) {
+    if (mode === 'build' && buildColumn) {
+      galleryBtn.x = brushBtn.x = sound.x;
+      galleryBtn.y = top + btnR * 2 + margin; brushBtn.y = galleryBtn.y + btnR * 2 + margin;
+    } else if (mode === 'build' ? narrowBuild : mode === 'free' && narrowFree) {
       galleryBtn.x = sound.x; brushBtn.x = sound.x - btnR * 2 - margin;
       galleryBtn.y = brushBtn.y = top + btnR * 2 + margin;
     }
@@ -223,6 +233,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   function layoutBuild(bakeNow = true): void {
     const n = Math.max(3, pieces.length), availW = areaRight - areaLeft, availH = areaBottom - toolTop;
     let rows = 1;
+    buildColumn = false;
     if (!portrait) {
       trayCols = 1;
       for (; trayCols <= 4; trayCols++) { rows = Math.ceil(n / trayCols); cell = Math.min(Math.max(112, 150 * u), (availH - 20 * u) / rows); if (cell >= 108) break; }
@@ -234,9 +245,16 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
       trayCols = Math.max(1, Math.floor(availW / 104)); rows = Math.ceil(n / trayCols);
       cell = Math.max(100, Math.min(130 * u, availW / trayCols));
       trayY = areaBottom - rows * cell; trayX = areaLeft + (availW - trayCols * cell) / 2;
-      const side = Math.max(120, Math.min(availW, trayY - margin - toolTop));
-      sheetW = sheetH = side; sheetX = areaLeft + (availW - side) / 2; sheetY = toolTop + (trayY - margin - toolTop - side) / 2;
+      // Too narrow for the mode buttons in the top row: a second row of buttons above the sheet, or a
+      // column of them under the speaker beside the sheet, whichever leaves the bigger sheet.
+      const rowSide = Math.min(availW, trayY - margin - toolTop);
+      const colRight = W - margin - btnR * 2 - margin, colBottom = margin + btnR * 6 + margin * 2;
+      const colSide = Math.min(colRight - areaLeft, trayY - margin - areaTop);
+      buildColumn = narrowBuild && colSide > rowSide && trayY - margin >= colBottom;
+      const side = Math.max(120, buildColumn ? colSide : rowSide), top = buildColumn ? areaTop : toolTop, right = buildColumn ? colRight : areaRight;
+      sheetW = sheetH = side; sheetX = areaLeft + (right - areaLeft - side) / 2; sheetY = top + (trayY - margin - top - side) / 2;
     }
+    placeButtons();
     P = sheetW * 0.86 * TIERS[tierNow()].scale;
     boxX = sheetX + (sheetW - P) / 2; boxY = sheetY + (sheetH - P) / 2;
     // The sheet and tray are big bakes: redo them only when their size changes, not on every picture.
@@ -287,8 +305,11 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
 
   function placeInTray(p: Piece, bakeNow: boolean): void {
     trayHome(p);
-    const aspect = TRAY_ASPECT[p.shape], s = cell * 0.74;
-    p.w = s; p.h = s / aspect;
+    // Below learning level 2 a rectangle lies the way its outline stands, so no turn is needed to match it.
+    const part = p.part >= 0 ? pic.parts[p.part] : undefined;
+    const upright = data.level < 2 && p.shape === 'rectangle' && !!part && part.h > part.w;
+    const aspect = upright ? 1 / TRAY_ASPECT[p.shape] : TRAY_ASPECT[p.shape], s = cell * 0.74;
+    if (aspect >= 1) { p.w = s; p.h = s / aspect; } else { p.h = s; p.w = s * aspect; }
     if (bakeNow) bakePiece(p); else p.baked = undefined;
     if (p.state === 'tray' || (p.state === 'held' && p.selected)) { p.x = p.hx; p.y = p.hy; }
   }
@@ -383,11 +404,11 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     spots = pic.parts.map((part, j) => ({ part, open: wip.open.includes(j), placed: false, reserved: false, base: baseOf(pic, j), x: 0, y: 0, w: 0, h: 0, rot: 0, hit: 48, reach: 48, land: -1, baked: undefined }));
     for (const i of wip.placed) { const s = spots[i]; if (s) s.placed = true; }
     pieces = [];
-    for (const i of wip.open) if (!wip.placed.includes(i)) pieces.push(newPiece(pic.parts[i]!.shape, pic.parts[i]!.color, false));
+    for (const i of wip.open) if (!wip.placed.includes(i)) pieces.push(newPiece(pic.parts[i]!.shape, pic.parts[i]!.color, i));
     if (data.level >= 1) {
       const used = new Set(wip.open.map(i => pic.parts[i]!.shape));
       const spare = SHAPES.filter(s => !used.has(s));
-      for (let k = 0; k < 2 && spare.length; k++) pieces.push(newPiece(spare.splice(Math.floor(random() * spare.length), 1)[0]!, Math.floor(random() * SWATCHES), true));
+      for (let k = 0; k < 2 && spare.length; k++) pieces.push(newPiece(spare.splice(Math.floor(random() * spare.length), 1)[0]!, Math.floor(random() * SWATCHES), -1));
     }
     for (let i = pieces.length - 1; i > 0; i--) { const j = Math.floor(random() * (i + 1)); const t = pieces[i]!; pieces[i] = pieces[j]!; pieces[j] = t; }
     pieces.forEach((p, i) => { p.cell = i; });
@@ -411,14 +432,24 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     return -1;
   }
 
-  /** A glued-on part shows once its base is on the sheet. */
-  function waiting(s: Spot): boolean {
-    const b = s.base >= 0 ? spots[s.base] : undefined;
-    return !!b && b.open && !b.placed;
+  /** The nearest open part under a glued-on part (through other glued-on parts), or undefined. */
+  function anchorOf(s: Spot): Spot | undefined {
+    for (let b = s.base >= 0 ? spots[s.base] : undefined; b; b = b.base >= 0 ? spots[b.base] : undefined) if (b.open) return b;
+    return undefined;
   }
 
-  function newPiece(shape: Shape, color: number, extra: boolean): Piece {
-    return { shape, color, extra, cell: 0, x: 0, y: 0, hx: 0, hy: 0, w: 0, h: 0, state: 'tray', t: 0, fromX: 0, fromY: 0, target: -1, tried: false, drag: false, selected: false, baked: undefined };
+  /**
+   * A part the game glues on itself shows once the open part under it is on the sheet. A part the
+   * child or the demonstration placed never waits: it shows at once, whatever order the parts went in.
+   */
+  function waiting(s: Spot): boolean {
+    if (s.open) return false;
+    const a = anchorOf(s);
+    return !!a && !a.placed;
+  }
+
+  function newPiece(shape: Shape, color: number, part: number): Piece {
+    return { shape, color, extra: part < 0, part, cell: 0, x: 0, y: 0, hx: 0, hy: 0, w: 0, h: 0, state: 'tray', t: 0, fromX: 0, fromY: 0, target: -1, tried: false, drag: false, selected: false, baked: undefined };
   }
 
   function returnPiece(p: Piece): void {
@@ -479,18 +510,20 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
    * A pointer let go of (or clicked with) a piece at x, y. Inside a matching
    * outline always places, even where outlines nest or overlap; inside only
    * another shape's outline is the gentle miss; on bare paper near a matching
-   * outline it still snaps in.
+   * outline it still snaps in, but the game chose the outline, so that records
+   * no learning evidence.
    */
   function tryPlace(p: Piece, x: number, y: number, drag: boolean): void {
     let m = matchUnder(p.shape, x, y);
     const overOther = m < 0 && overOtherOutline(p.shape, x, y);
     const near = nearestSpot(p.shape, x, y, true);
     const dm = near >= 0 ? Math.hypot(x - spots[near]!.x, y - spots[near]!.y) : Infinity;
-    if (m < 0 && !overOther && near >= 0 && dm <= spots[near]!.reach) m = near;
+    const snapped = m < 0 && !overOther && near >= 0 && dm <= spots[near]!.reach;
+    if (snapped) m = near;
     lastHint = time;
     if (m >= 0) {
       motorHits++;
-      if (!assisted(p)) { if (!p.tried) { learnHits++; evidence(p.shape, 0); } }
+      if (!snapped && !assisted(p) && !p.tried) { learnHits++; evidence(p.shape, 0); }
       pointerPlacements++;
       place(p, m, HOW_POINTER);
       return;
@@ -526,8 +559,8 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     const s = spots[p.target]!;
     s.placed = true; s.reserved = false; s.land = 0;
     p.state = 'gone';
-    // Parts glued onto this one pop on with it.
-    for (const q of spots) if (q !== s && !q.open && spots[q.base] === s) q.land = 0;
+    // Parts the game glued onto this one pop on with it.
+    for (const q of spots) if (!q.open && anchorOf(q) === s) q.land = 0;
     const index = pic.parts.indexOf(s.part);
     if (!wip.placed.includes(index)) wip.placed.push(index);
     lastPlace = time; lastHint = time;
@@ -538,11 +571,12 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     if (wip.placed.length >= wip.open.length) completePicture(); else save();
   }
 
+  /** Move the keyboard ring to the next piece that fits an outline; spares are skipped (only arrows reach them). */
   function moveKeyPiece(step: number): void {
     const n = pieces.length;
     for (let k = 1; k <= n; k++) {
       const i = ((keyPiece + step * k) % n + n) % n, p = pieces[i]!;
-      if (p.state === 'tray' || p.state === 'held' || p.state === 'back') { keyPiece = i; return; }
+      if (!p.extra && (p.state === 'tray' || p.state === 'held' || p.state === 'back')) { keyPiece = i; return; }
     }
   }
 
@@ -575,7 +609,15 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   }
 
   // ---------------------------------------------------------------- modes
+  /**
+   * Creative play has no rounds, so its natural pauses stand in for one: a due break nudge may show
+   * shortly after, once no button is held (see update), never in the middle of a gesture.
+   */
+  function naturalPause(): void { boundaryAt = time + PAUSE_DELAY; stampedSincePause = false; }
+
   function setMode(next: Mode): void {
+    // Leaving a free-build sheet (it is saved with every stamp) or coming back to the gallery is a pause.
+    if (mode === 'free' || next === 'gallery') naturalPause();
     if (mode === 'free') { flushLive(); thumbDirty[6 + sheetIndex] = 1; }
     mode = next; focus = -1; guard(); handStop(); held = undefined; pointerDown = false;
     placeButtons();
@@ -642,7 +684,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     const nx = Math.round(clamp01((x - freeX) / freeW) * 1000), ny = Math.round(clamp01((y - freeY) / freeH) * 1000);
     list.push(selShape, selColor, nx, ny, size, rot);
     slot.active = true; slot.shape = selShape; slot.color = selColor; slot.x = nx; slot.y = ny; slot.size = size; slot.rot = rot; slot.t = 0;
-    lastStampX = x; lastStampY = y;
+    lastStampX = x; lastStampY = y; lastStampAt = time; stampedSincePause = true;
     sfx('pop', 'C', selShape * 2 + (selColor % 2));
     fx.sparkleRing(x, y, freeW * size / 1000 * 0.4, 5, random);
     sayShape(services, SHAPES[selShape]!);
@@ -700,6 +742,10 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
         const k = easeOutCubic(p.t / 0.38);
         p.x = lerp(p.fromX, p.hx, k); p.y = lerp(p.fromY, p.hy, k) - Math.sin(Math.PI * clamp01(p.t / 0.38)) * 30 * u;
         if (p.t >= 0.38) { p.state = 'tray'; p.x = p.hx; p.y = p.hy; }
+      } else if (p.state === 'hop') {
+        const k = Math.sin(Math.PI * clamp01(p.t / HOP_SECONDS)), dx = sheetX + sheetW / 2 - p.hx, dy = sheetY + sheetH / 2 - p.hy, d = Math.max(1, Math.hypot(dx, dy));
+        p.x = p.hx + dx / d * cell * 0.55 * k; p.y = p.hy + dy / d * cell * 0.55 * k - k * 28 * u;
+        if (p.t >= HOP_SECONDS) { p.state = 'tray'; p.x = p.hx; p.y = p.hy; }
       } else if (p.state === 'nope' && p.t >= 0.34) returnPiece(p);
     }
     if (phase === 'deal' && phaseT >= DEAL_SECONDS) {
@@ -765,6 +811,8 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   }
 
   function updateFree(dt: number): void {
+    // A few quiet seconds after stamping is a pause in the collage.
+    if (stampedSincePause && !pointerDown && time - lastStampAt >= FREE_PAUSE) naturalPause();
     for (const s of live) if (s.active) { s.t += dt; }
     let done = false;
     for (const s of live) if (s.active && s.t >= 0.32) done = true;
@@ -945,6 +993,16 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   }
 
   // ---------------------------------------------------------------- render: build
+  /** An open part's faint dashed outline. */
+  function drawOutline(ctx: CanvasRenderingContext2D, s: Spot, ox: number, oy: number): void {
+    ctx.save(); ctx.translate(s.x + ox, s.y + oy); ctx.rotate(s.rot);
+    tracePath(ctx, s.part.shape, 0, 0, s.w, s.h);
+    ctx.fillStyle = 'rgba(120, 92, 64, 0.12)'; ctx.fill();
+    dash[0] = 11 * u; dash[1] = 8 * u; ctx.setLineDash(dash);
+    ctx.lineWidth = Math.max(2.5, 3.5 * u); ctx.lineJoin = 'round'; ctx.strokeStyle = 'rgba(104, 76, 52, 0.62)'; ctx.stroke();
+    ctx.setLineDash(noDash); ctx.restore();
+  }
+
   function bakeBoard(withParts: boolean): void {
     if (!sheet) return;
     const pw = Math.ceil(sheet.w * dpr), ph = Math.ceil(sheet.h * dpr);
@@ -957,14 +1015,8 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     const ox = (sheet.w - sheetW) / 2 - sheetX, oy = (sheet.h - sheetH) / 2 - sheetY;
     if (withParts) {
       for (const s of spots) {
-        if (s.open && !s.placed) {
-          ctx.save(); ctx.translate(s.x + ox, s.y + oy); ctx.rotate(s.rot);
-          tracePath(ctx, s.part.shape, 0, 0, s.w, s.h);
-          ctx.fillStyle = 'rgba(120, 92, 64, 0.12)'; ctx.fill();
-          dash[0] = 11 * u; dash[1] = 8 * u; ctx.setLineDash(dash);
-          ctx.lineWidth = Math.max(2.5, 3.5 * u); ctx.lineJoin = 'round'; ctx.strokeStyle = 'rgba(104, 76, 52, 0.62)'; ctx.stroke();
-          ctx.setLineDash(noDash); ctx.restore();
-        } else if (s.land < 0 && !s.reserved && s.baked && !waiting(s)) {
+        if (s.open && !s.placed) drawOutline(ctx, s, ox, oy);
+        else if (s.land < 0 && !s.reserved && s.baked && !waiting(s)) {
           drawBaked(ctx, s.baked, s.x + ox, s.y + oy);
           if (s.part.face) { ctx.save(); ctx.translate(s.x + ox, s.y + oy); drawFace(ctx, s.part.face, s.w, s.h, 0); ctx.restore(); }
         }
@@ -996,12 +1048,14 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     if (artPending) return;
     drawBoard(ctx, !livePicture);
     if (livePicture) { renderLivePicture(ctx); return; }
-    // Landing pieces: a slam that dips once, drawn live until the board takes them in.
+    // Landing pieces: a slam that dips once, drawn live until the board takes them in. Parts later in
+    // draw order that are already on the board are drawn again over it, so a part placed early on top
+    // of this one never disappears under its landing.
+    let landing = false;
     for (const s of spots) {
-      if (s.land < 0 || !s.baked) continue;
-      const k = slamScale(clamp01(s.land / LAND_SECONDS), 0.22);
-      drawBaked(ctx, s.baked, s.x, s.y, 0, k, k);
-      if (s.part.face) { ctx.save(); ctx.translate(s.x, s.y); ctx.scale(k, k); drawFace(ctx, s.part.face, s.w, s.h, 0); ctx.restore(); }
+      if (s.land >= 0) landing = true;
+      if (!landing) continue;
+      if (s.open && !s.placed) drawOutline(ctx, s, 0, 0); else drawPart(ctx, s);
     }
     // Guidance rings: the keyboard target's outline, or the hint's outline.
     const kp = pieces[keyPiece];
@@ -1029,7 +1083,17 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
       const s = spots[p.target]!, k = easeOutCubic(clamp01(p.t / FLY_SECONDS));
       const x = lerp(p.fromX, s.x, k), y = lerp(p.fromY, s.y, k) - Math.sin(Math.PI * k) * 24 * u;
       drawBaked(ctx, p.baked, x, y, lerp(0, s.rot, k), lerp(1, s.w / p.w, k), lerp(1, s.h / p.h, k));
+      // A piece flying in under parts already on the sheet passes beneath them, so they stay in sight.
+      for (let j = p.target + 1; j < spots.length; j++) drawPart(ctx, spots[j]!);
     }
+  }
+
+  /** A landed or glued part drawn live over the board (a slam while it lands); nothing for empty or waiting parts. */
+  function drawPart(ctx: CanvasRenderingContext2D, s: Spot): void {
+    if (!s.baked || s.reserved || (s.open && !s.placed) || waiting(s)) return;
+    const k = s.land >= 0 ? slamScale(clamp01(s.land / LAND_SECONDS), 0.22) : 1;
+    drawBaked(ctx, s.baked, s.x, s.y, 0, k, k);
+    if (s.part.face) { ctx.save(); ctx.translate(s.x, s.y); ctx.scale(k, k); drawFace(ctx, s.part.face, s.w, s.h, 0); ctx.restore(); }
   }
 
   function renderLivePicture(ctx: CanvasRenderingContext2D): void {
@@ -1230,7 +1294,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
       let best = -1, bestD = Infinity;
       for (let i = 0; i < n; i++) {
         const q = pieces[i]!;
-        if (i === keyPiece || (q.state !== 'tray' && q.state !== 'held' && q.state !== 'back')) continue;
+        if (i === keyPiece || (q.state !== 'tray' && q.state !== 'held' && q.state !== 'back' && q.state !== 'hop')) continue;
         const ddx = (q.cell % trayCols) - (p.cell % trayCols), ddy = Math.floor(q.cell / trayCols) - Math.floor(p.cell / trayCols);
         const along = ddx * dc + ddy * dr;
         if (along <= 0) continue;
@@ -1244,8 +1308,14 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     const p = pieces[keyPiece];
     if (!p || (p.state !== 'tray' && p.state !== 'held')) { moveKeyPiece(1); return; }
     p.selected = false;
-    const si = nearestSpot(p.shape, p.hx, p.hy, true);
-    if (si < 0) { p.state = 'nope'; p.t = 0; p.x = p.hx; p.y = p.hy; sfx('miss', 'D', 0, 0.7); return; }
+    const si = p.extra ? -1 : nearestSpot(p.shape, p.hx, p.hy, true);
+    if (si < 0) {
+      // A spare (reached with the arrows) hops toward the sheet and back; the ring moves on to a piece that fits.
+      if (held === p) held = undefined;
+      p.state = 'hop'; p.t = 0; p.x = p.hx; p.y = p.hy; sfx('miss', 'D', 0, 0.6);
+      moveKeyPiece(1);
+      return;
+    }
     place(p, si, HOW_KEY);
   }
 
@@ -1318,13 +1388,13 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   // ---------------------------------------------------------------- stats for checks
   const stats: WorkshopStats = {
     get mode() { return mode; }, get phase() { return phase; }, get phaseTime() { return phaseT; }, get picture() { return pic.id; },
-    get tier() { return tierNow(); }, get level() { return data.level; }, get handActive() { return hand.kind !== 0; },
+    get tier() { return tierNow(); }, get level() { return data.level; }, get handActive() { return hand.kind !== 0; }, get keyPiece() { return keyPiece; },
     get stamps() { return mode === 'free' ? stamps().length / STAMP_STRIDE : 0; }, get sheet() { return sheetIndex; }, get fx() { return fx.alive; },
     get learnHits() { return learnHits; }, get learnMisses() { return learnMisses; }, get motorHits() { return motorHits; }, get motorMisses() { return motorMisses; },
     get workMean() { let sum = 0; for (let i = 0; i < workCount; i++) sum += work[i]!; return workCount ? sum / workCount : 0; },
     get workMax() { let max = 0; for (let i = 0; i < workCount; i++) max = Math.max(max, work[i]!); return max; },
     spots() { return spots.map(s => ({ x: s.x, y: s.y, w: s.w, h: s.h, rot: s.rot, shape: s.part.shape, open: s.open, placed: s.placed, hit: s.hit, reach: s.reach })); },
-    pieces() { return pieces.map(p => ({ x: p.hx, y: p.hy, shape: p.shape, state: p.state, extra: p.extra, cell: p.cell })); },
+    pieces() { return pieces.map(p => ({ x: p.hx, y: p.hy, w: p.w, h: p.h, shape: p.shape, state: p.state, extra: p.extra, cell: p.cell })); },
     buttons() { return allButtons.map((b, i) => ({ id: ['home', 'brush', 'gallery', 'sound'][i]!, x: b.x, y: b.y, r: Math.max(48, b.radius), visible: b.visible })); },
     frames() { return Array.from({ length: 12 }, (_, i) => ({ id: i < 6 ? PICTURES[i]!.id : `sheet-${i - 6}`, x: frameX[i]!, y: frameY[i]!, size: frameSize, made: i < 6 ? (data.made[PICTURES[i]!.id] ?? 0) > 0 : (data.sheets[i - 6]?.length ?? 0) > 0 })); },
     swatches() { return Array.from({ length: SWATCHES }, (_, i) => ({ x: swatchX[i]!, y: swatchY[i]!, r: swatchR })); },
@@ -1353,11 +1423,10 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
       startPicture(data.currentId || nextPictureId(PICTURE_IDS[PICTURE_IDS.length - 1]!));
       for (const [i, b] of allButtons.entries()) b.popIn(0.05 + i * 0.04);
       startMusic(audio, 'workshop');
-      window.__shapeWorkshop = stats;
     },
     pause() { stopMusic(audio); flushLive(); services.save.flush(); pointerDown = false; },
     resume() { guard(); startMusic(audio, 'workshop'); },
-    exit() { stopMusic(audio); flushLive(); services.save.flush(); if (window.__shapeWorkshop === stats) delete window.__shapeWorkshop; },
+    exit() { stopMusic(audio); flushLive(); services.save.flush(); },
     resize: layout,
     update(dt) {
       const started = performance.now();
@@ -1368,6 +1437,11 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
       updateHand(dt);
       // Warm the stamp art one piece per frame, so thumbnails and stamping never bake many at once.
       if (sceneT > 1) { const k = stampArt.indexOf(undefined); if (k >= 0) stampBaked(Math.floor(k / SWATCHES), k % SWATCHES); }
+      if (boundaryAt >= 0 && time >= boundaryAt && !pointerDown && !held && !hand.kind) {
+        boundaryAt = -1;
+        // Once a new picture is under way, its own finish is the next break point.
+        if (mode !== 'build' || phase === 'deal') services.roundBoundary();
+      }
       if (mode === 'build') updateBuild(dt);
       else if (mode === 'free') updateFree(dt);
       else for (let i = 0; i < 12; i++) frameHover[i] = approach(frameHover[i]!, (i === galleryFocus && (kbActive || frameAt(input.pointer.x, input.pointer.y) === i)) ? 1 : 0, 14, dt);
@@ -1429,5 +1503,3 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     },
   };
 }
-
-declare global { interface Window { __shapeWorkshop?: WorkshopStats } }
