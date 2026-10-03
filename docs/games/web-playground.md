@@ -1,0 +1,167 @@
+# Web Playground
+
+A round game in a toy-scale comic city. An original kid hero in a red hood, blue gloves and a yellow star badge holds up a number or a letter; the child finds the matching floating web ball, and the hero catches it with a web. Then the child joins numbered or lettered web points in order to spin a picture that sparkles.
+
+Owner direction (2026-10-03): the game is for the nephew, who loves Spider-Man, so it keeps a web-slinging city vibe, but the hero is original. No Spider-Man name, logo, mask, spider shapes or likeness appear in code, art or prompts. The core activity is numbers and letters, not swinging; one short swing is the transition between the two activities.
+
+Registry: `id: 'web-playground'`, `mode: 'round'`, `learning: ['counting', 'letters']`, themes `numbers`, `letters`, `city`.
+
+## One round
+
+1. **Swing in** (about 1.7 s). The hero swings into the day city on a web line and lands on the rooftop at the left. This shows the web before the child does anything.
+2. **Catch** (6 catches). Three to five round web balls float gently over the sky, each with a numeral or a capital letter. The hero holds up a comic sign with the wanted glyph; for numbers the sign also shows that many dots in a ten-frame (two rows of five). The child clicks the matching ball. The hero shoots a web (a short "thwip"), the ball is pulled in, pops into a small burst and flies to a string of caught balls at the top. A new ball floats in to replace it, and the sign changes.
+3. **Swing across** (about 1.6 s, automatic). The hero swings off to the right while the city pans from day to dusk. Nothing to press; it always succeeds.
+4. **Connect** (5, 7 or 10 points). Web points with numerals 1, 2, 3 ... or letters A, B, C ... sit around a hidden picture: a star, a heart or a kite, taking turns by round. Point 1 (or A) starts lit. Each click on the next point shoots a web thread to it with a climbing note. After the last point the thread closes the shape, the picture fills with colour and sparkles.
+5. **Celebration**, then the **sticker choice**, then the **still rest** with Again and Home.
+
+Rounds alternate numbers and letters: the first round, and every second one after, uses numbers.
+
+## Immediate response to every action
+
+- Matching ball: hero switches to the shooting pose, web line extends in 0.15 s, the ball is pulled to the hero's hand in 0.35 s, pops (pooled particles), a pitched pop that climbs with each catch, and the ball flies to the caught string.
+- A different ball: it wiggles and makes a soft low boop. The wanted ball starts to glow with a pulsing ring and a bouncing arrow, and the hero points at it. Nothing is lost; the count never goes down.
+- Empty sky: a small white web puff where the pointer landed. No sound, no penalty.
+- Next connect point: a thread shoots from the last point; the point bounces and its note rises one step on the pentatonic scale.
+- Any other connect point: wiggle and soft boop, and the next point glows.
+
+## Discovery without words
+
+- The swing-in shows the web.
+- First round of a profile: the hero holds up the first sign, waits 1.2 s, then catches the matching ball himself. The next request shows its glow from the start. From the third request on, the glow waits.
+- First connect of a profile: the hero draws the thread from point 1 to point 2 himself, then point 3 glows.
+- Idle: after a few seconds without input the wanted ball (or next point) glows; the hero bounces and points again every 8 s. Nothing times out and nothing happens without the child, apart from the two first-round demonstrations.
+
+## Learning progression (separate from motor tiers)
+
+Two hidden levels per profile, `numberLevel` and `letterLevel`, 0 to 2. They change only between rounds.
+
+| Level | Numbers: sign | Numbers: balls | Numbers: connect | Letters: sign | Letters: balls | Letters: connect |
+|---|---|---|---|---|---|---|
+| 0 | numeral and dots | 1 to 5 | 1 to 5 | capital | A to E | A to E |
+| 1 | numeral and dots | 1 to 10 | 1 to 7 | capital | A to Z | A to G |
+| 2 | dots only | 1 to 10 | 1 to 10 | small letter | capitals A to Z | A to J |
+
+Level 2 asks for a real skill: count the dots and find the numeral, or pair a small letter with its capital.
+
+**What counts as learning evidence:**
+
+- A click on a ball or point before its glow appeared: correct if it matches, wrong if not.
+- A key whose character matches the wanted glyph (digit keys for numbers, letter keys for letters) before the glow: correct.
+- Anything after the glow, any non-matching key, and the hero's own demonstrations: assisted, not evidence.
+- Ten has no single key, so a keyboard catch of 10 is always assisted.
+
+**Level change after a round of that type:** up one level after two rounds in a row with at least 7 correct and at most 1 wrong; down one level when a round has at least 3 wrong and wrong is at least half of correct. Otherwise the streak counter resets. Nothing is shown to the child.
+
+## Motor tiers (separate from learning)
+
+Three hidden tiers, changed only between rounds.
+
+| Tier | Ball diameter | Balls on screen | Float wobble | Hit padding | Connect point diameter |
+|---|---|---|---|---|---|
+| 0 | 150 px | 3 | 8 px | 1.25 | 124 px |
+| 1 | 130 px | 4 | 16 px | 1.15 | 112 px |
+| 2 | 112 px | 5 | 26 px | 1.08 | 100 px |
+
+Sizes are at 1366x768 and scale with the view; nothing goes below 96 px across. A motor attempt is a pointer press during catch or connect while input is open. It is a hit when it lands inside the visible ball or point, and near when only the padding catches it. Keys are not motor attempts. Up one tier after two rounds in a row with at least 10 attempts and at least 90 percent hits; down one tier when a round has at least 6 attempts and fewer than 70 percent land inside the padded area.
+
+## Stars and rewards
+
+Every finished round earns at least one star:
+
+- one star for the six catches,
+- one star for the finished picture,
+- one star for at least three finds without the glow (by click or matching key).
+
+The first round of a profile earns three stars. Stars, the round count and the pending gift are saved in one immediate write before the celebration shows them (`pending` in the game bag, then `save.flush()`); re-entering with a pending round resumes at the sticker choice or the rest and never awards again.
+
+**Celebration** (4 s): the hero cheers in front of the finished picture, the stars land one by one with the shared star sound, and the caught balls are counted out with a ticking numeral. A tap or key skips it, but not in the first 1.5 s or before the stars have appeared.
+
+**Sticker choice** (while uncollected stickers remain and `rewardsEnabled` is true): two comic badges show two of this game's six stickers. Input is ignored for 1.2 s. Nothing is focused at first; the first key only shows focus, arrows move it, any other key chooses. Clicking a badge chooses it. The last remaining sticker is offered alone.
+
+**Rest:** the chosen sticker large in the middle, the hero waving, Again and Home buttons of equal size and colour. Nothing moves. `services.roundBoundary()` runs once when the rest is reached.
+
+## Keyboard-only play
+
+- Catch: any key catches. A matching key catches its ball and counts as evidence; any other key catches the wanted ball. Once a key has been pressed in the round, the wanted ball wears a light-and-dark keyboard ring so the next key press is predictable.
+- Connect: a matching key draws to its point; any other key draws to the next point, which wears the keyboard ring.
+- Tab cycles focus over the Home and sound corners; Enter activates the focused corner; Escape goes Home. Celebration, choice and rest follow the rules above.
+
+## Pause, resume and leaving
+
+`pause()` stops music and flushes; `resume()` restarts music and blocks input for 0.35 s so the click that closed the break overlay cannot catch a ball. Play continues where it was. Home during play leaves without awarding; Home during the celebration or choice keeps the pending gift.
+
+## Art
+
+Medium: kid comic book. Bold even black ink lines, flat saturated colours, light Ben-Day halftone dots on shadow sides, red and royal blue accents with sunny yellow. Everything is rounded and toy-like. Web balls, web points, threads, the sign, glyphs, dots, the pictures and corner web decorations are drawn in code. Letters, numerals and dots are never in generated images.
+
+| File (public/art/web-playground/) | Use | Size |
+|---|---|---|
+| `hero-wave.webp` | hero idle on the rooftop, rest screen | 327x504 |
+| `hero-shoot.webp` | web shot pose | 459x464 |
+| `hero-swing.webp` | swings, celebration jump | 319x509 |
+| `hero-cheer.webp` | picture finished, celebration | 406x495 |
+| `city-day.webp` | catch background | 1366x911 |
+| `city-dusk.webp` | connect and reward background | 1366x911 |
+| `kitten.webp` | rooftop friend; sticker | 445x512 |
+| `pigeon.webp` | rooftop friend in the day city; sticker | 512x496 |
+| `girl.webp` | friend with a red balloon in the dusk city; sticker | 435x512 |
+| `emblem.webp` | the hero's star badge; sticker; rest picture when no sticker is offered | 491x387 |
+| `tile.webp` | hub icon: the hero mid-swing; sticker | 512x489 |
+
+Stickers (appended to `STICKERS`): `web-playground-hero` (hero waving), `web-playground-swing` (hub icon art), `web-playground-kitten`, `web-playground-balloon` (the girl), `web-playground-pigeon`, `web-playground-badge` (emblem).
+
+Provenance is listed at the end of this file.
+
+## Sound
+
+Shared effects only (`src/audio/sfx.ts`); no new patches. The scene sets `pop: 'C'` and `whoosh: 'C'` (the woody, shorter family suits comic thwips) on enter and puts them back to `'A'` on exit.
+
+| Moment | Effect |
+|---|---|
+| web shot | `whoosh` |
+| ball caught, point joined | `pop`, index climbs with each catch or point |
+| other ball or point | `hover` at 60 percent: a soft boop |
+| picture closes | `pop-big`, then `fanfare` |
+| swing across | `whoosh` variant D |
+| stars land | `star` with index |
+| celebration count | `tick` |
+| sticker chosen | `sticker` |
+| Again, Home | `whoosh`, `button` |
+
+Music: track `web-playground` (owner composes it; a missing file plays silence).
+
+## Voice clip slots
+
+No clips ship. `public/voice/web-playground/clips.json` lists the clip files that exist (shipped empty). When a request or point needs a glyph, the scene plays `number-<n>.mp3` or `letter-<x>.mp3` if that name is listed, and `picture-<star|heart|kite>.mp3` when a picture finishes. Unlisted names are skipped silently, so no request is made for a missing file. See `public/voice/web-playground/README.md`.
+
+## Performance plan
+
+- Both backgrounds are cover-fitted once per resize into device-resolution canvases; each frame is one blit (two during the pan).
+- Each web ball (disc, web pattern, rim and glyph) and each connect point is baked into a canvas when its value or the layout changes, never per frame. The sign is baked when the request changes. Glyphs use the bundled Andika font after `ensureDisplayFont()`.
+- Balls, flights and points live in fixed pools; particles use the shared pooled system with a capacity of 160.
+- Per frame: drawImage calls, a few arcs and lines for web threads and glows, one filled path for the picture. No gradients, shadowBlur, fillText or allocation in update or render.
+- Work time is measured into a ring buffer exposed on `stats.workMean` and `stats.workMax` like Bubble Bay.
+
+## Art provenance
+
+All art was generated on 2026-10-03 with the `codex-image-gen` skill: Codex CLI 0.159.0 (`codex exec -m gpt-6-astra -c model_reasoning_effort=medium -c model_provider=openai -s workspace-write`) calling its built-in `image_gen` tool. The tool did not report the image model's identifier. No prompt mentioned any existing character; prompts asked for an original hero with an uncovered face and excluded masks, spiders, web patterns, logos and text. Each result was reviewed by eye at full size and on light and dark backgrounds before use. The raw PNGs are kept outside the checkout in `D:/CoreWise/_artifacts/CoreWiseLearn/web-playground/`.
+
+Processing: a scratch Node script with sharp split each transparent sheet into its parts by connected alpha regions (small separate pieces such as burst lines join their nearest part), trimmed the empty margin, scaled the longest side to 512 px with Lanczos resampling and wrote WebP at quality 92 with alpha quality 100. Backgrounds were cover-resized to 1366x911 and written as WebP quality 86 without alpha. No palette reduction.
+
+| Source | Prompt summary | Produced |
+|---|---|---|
+| `hero-sheet-raw.png` (1024x1024, transparent, no reference) | A 2 by 2 character sheet of one original preschool kid hero, about five, chibi proportions: face fully visible with big brown eyes and rosy cheeks, soft red hood, red bodysuit with a royal blue belly panel, blue gloves and boots, a yellow chest badge with a white star, yellow wristbands, no cape. Poses: waving; one arm stretched out as if shooting a rope; swinging with one arm up and knees tucked; cheering and jumping. Kid comic-book style: even black ink lines, flat saturated colour, light Ben-Day dots, one highlight. No text, logos, spiders, web patterns, masks, villains or scenery. | `hero-wave`, `hero-shoot`, `hero-swing`, `hero-cheer` |
+| `bg-day-raw.png` (1536x1024, opaque) | A friendly toy-scale comic city seen from a rooftop on a sunny late morning: a long flat rooftop with a red brick parapet, a red water tower at the left and potted plants along the bottom 20 percent; rounded block-like buildings in red, royal blue, sunny yellow and cream with round windows, striped red-and-blue awnings and rooftop gardens in the lower half; open calm sky in the upper half. Same comic style. No text, signs with writing, people, animals, spiders, webs, vehicles, frames or dark shapes. | `city-day` |
+| `bg-dusk-raw.png` (1536x1024, opaque) | The same scene at a warm dusk: sky from peach and pink to calm violet-blue with a few early stars, many cosy lit yellow windows. | `city-dusk` |
+| `friends-sheet-raw.png` (1024x1024, transparent, hero sheet attached as style reference) | A 2 by 2 sheet in the hero's style: a smiling orange tabby kitten sitting; a cheerful girl about four with curly black hair in two puffs, a yellow raincoat and blue boots, waving and holding a red balloon; a plump friendly grey-lavender pigeon waving one wing; a round badge, yellow disc with a red rim, a white star and short blue comic burst lines. No text, spiders, webs, masks, sad faces or scenery. | `kitten`, `girl`, `pigeon`, `emblem` |
+| `hero-swing-raw.png` (1024x1024, transparent, processed `hero-swing.webp` attached as character reference) | The same hero mid-swing, flying left to right, one arm up holding a thick white rope that leaves the top right edge, legs kicked back, laughing, a few blue curved motion lines. No text, spiders, web patterns, masks or background. | `tile` |
+
+## Verification notes (2026-10-03)
+
+Checked in headed Chrome on the real GPU, window parked offscreen, against the production build served by `vite preview` and the dev page. Captures are in `D:/screenshots/CoreWiseLearn/games/web-playground/`.
+
+- Mouse only: name entry, hub tile, a full round with an empty-sky click, a wrong ball (glow appears, `wrong` 1), idle glow after 4 s in a later round, a wrong connect point, early celebration tap ignored, sticker choice (early click ignored), rest, Again, Home mid-round (no award), sticker book page 4 showing the new stickers.
+- Keyboard only: name entry, hub by arrows, a full round with any keys, celebration first key ignored, Escape during the celebration keeps the gift pending, re-entry resumes at the choice with the same 3 stars (no second award), first key only focuses, arrows move, break nudge at the rest and resume without a restart, rest focus and Home.
+- Two profiles in one browser keep separate rounds, stars and stickers.
+- Hub with five tiles (three temporary stub entries, not committed) at 1366x768, 800x600 and 390x600.
+- Work time at 1366x768: game ring `workMax` 0.2 to 0.6 ms, loop `workMax` 0.3 to 0.6 ms. Zero console errors or warnings.
