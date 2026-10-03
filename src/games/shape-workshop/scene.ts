@@ -6,7 +6,7 @@
 
 import type { AppServices } from '../../app/services';
 import type { Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
-import { playSfx, type SfxName, type SfxOptions, type SfxVariant } from '../../audio/sfx';
+import { playSfx, prepareSfxStep, type SfxName, type SfxOptions, type SfxVariant } from '../../audio/sfx';
 import { startMusic, stopMusic } from '../../audio/music';
 import { createButton, type Button } from '../../ui/button';
 import { OUTLINE, drawSprite } from '../../ui/draw';
@@ -37,6 +37,14 @@ const GUARD_MS = 320, HINT_IDLE = 9, HINT_REPEAT = 12, ASSIST_SECONDS = 8, LAND_
 /** Break points in creative play: a free-build pause this long after a stamp, and the wait before a due nudge may show. */
 const FREE_PAUSE = 3, PAUSE_DELAY = 0.35;
 const DONE_SECONDS = 1.1, SEND_SECONDS = 0.85, DEAL_SECONDS = 0.55;
+/** Seconds into the alive animation before a key or click may move it on (and before keys reach the top buttons). */
+const SKIP_AFTER = 1.2;
+/** A ringed top button needs its ring shown this long before Enter presses it, so a fast Tab then Enter does nothing. */
+const FOCUS_HOLD_MS = 400;
+/** Seconds a piece is held (clicked or dragged) before its matching outline lights up. */
+const HELD_RING = 1;
+/** Gap between the screen edge and Home or the speaker: Bubble Bay's corner place. */
+const CORNER_PAD = 12;
 /** Drop tolerance: half the 96 px minimum target around an outline's centre, and a rim around the drawn outline. */
 const MIN_HIT = 48, DROP_PAD = 12;
 /** Milliseconds per frame spent baking a new picture's paper parts. */
@@ -75,7 +83,9 @@ export interface WorkshopStats {
   readonly workMean: number; readonly workMax: number;
   readonly learnHits: number; readonly learnMisses: number; readonly motorHits: number; readonly motorMisses: number;
   spots(): { x: number; y: number; w: number; h: number; rot: number; shape: string; open: boolean; placed: boolean; hit: number; reach: number }[];
-  pieces(): { x: number; y: number; w: number; h: number; shape: string; state: string; extra: boolean; cell: number }[];
+  pieces(): { x: number; y: number; w: number; h: number; shape: string; state: string; extra: boolean; cell: number; shown: boolean; selected: boolean }[];
+  readonly focus: number;
+  readonly fanfareReady: boolean;
   buttons(): { id: string; x: number; y: number; r: number; visible: boolean }[];
   frames(): { id: string; x: number; y: number; size: number; made: boolean }[];
   swatches(): { x: number; y: number; r: number }[];
@@ -113,12 +123,14 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   let areaTop = 0, toolTop = 0, freeTop = 0, areaBottom = 0, areaLeft = 0, areaRight = 0, swatchCycle = false, narrowBuild = false, narrowFree = false;
   /** Build on a narrow portrait screen: the mode buttons stand in a column under the speaker, beside the sheet. */
   let buildColumn = false;
-  let time = 0, sceneT = 0, phaseT = 0, inputAfter = 0, lastPlace = 0, lastHint = -99, hintShape = '', hintAt = -99;
+  let time = 0, sceneT = 0, phaseT = 0, inputAfter = 0, lastPlace = 0, lastHint = -99, hintShape = '', hintAt = -99, hinted = false;
   /** When a due break nudge may show (a natural pause in creative play), or -1; and whether free build has stamped since the last pause. */
   let boundaryAt = -1, stampedSincePause = false, lastStampAt = 0;
   let bg: HTMLCanvasElement | undefined;
   let bgDirty = true;
-  let pointerDown = false, downX = 0, downY = 0, kbActive = false, focus = -1;
+  let pointerDown = false, downX = 0, downY = 0, kbActive = false, focus = -1, focusAt = 0;
+  /** The round-end fanfare is rendered ahead once per session: first step under the enter fade, the rest in idle periods. */
+  let fanfareStarted = false, fanfareAsked = false, idleHandle = 0;
 
   // ---------------------------------------------------------------- top buttons
   const press = (fn: () => void) => () => { if (performance.now() < inputAfter) return; fn(); };
@@ -134,6 +146,19 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     if (variant) sfxOpts.variant = variant; else delete sfxOpts.variant;
     playSfx(audio, name, sfxOpts);
   }
+  /**
+   * Render the picture-done fanfare ahead, as Bubble Bay does, so the frame it plays never builds its notes.
+   * The first step is the one long one (about 4 ms, 16 ms on a slow laptop): it runs on entry under the enter
+   * fade, or at a mode change when the sound was not ready on entry. The short note steps follow in idle periods.
+   */
+  function startFanfare(): void {
+    if (!fanfareStarted && audio.context) { fanfareStarted = true; if (prepareSfxStep(audio, 'fanfare')) fanfareAsked = true; }
+  }
+  function fanfareIdle(deadline: IdleDeadline): void {
+    idleHandle = 0;
+    while (!fanfareAsked && deadline.timeRemaining() >= 4) if (prepareSfxStep(audio, 'fanfare')) fanfareAsked = true;
+  }
+  function stopIdle(): void { if (idleHandle) cancelIdleCallback(idleHandle); idleHandle = 0; }
   const guard = (): void => { inputAfter = performance.now() + GUARD_MS; };
   /** The motor tier in use; ?debug&tier=N forces it. */
   const tierNow = (): 0 | 1 | 2 => services.debug.tier ?? (data.tier === 1 ? 1 : data.tier === 2 ? 2 : 0);
@@ -151,6 +176,13 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   let boardDirty = true, boardSlide = 1, artPending = false;
   let sheetX = 0, sheetY = 0, sheetW = 0, sheetH = 0, boxX = 0, boxY = 0, P = 600;
   let trayX = 0, trayY = 0, trayCols = 2, cell = 120;
+  /**
+   * Tray rows shown, and how many cells they hold. On a narrow portrait screen the rows are capped so
+   * the sheet keeps its size; pieces in later cells wait out of sight below the tray (not drawn, not
+   * reachable) and slide up into the cells that free as pieces go in.
+   */
+  let trayRows = 1, trayCap = 3;
+  const shown = (p: Piece): boolean => p.cell < trayCap;
   let held: Piece | undefined;
   let keyPiece = 0;
   let learnHits = 0, learnMisses = 0, motorHits = 0, motorMisses = 0, pointerPlacements = 0, keyPlacements = 0;
@@ -198,15 +230,19 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   function layout(width: number, height: number): void {
     W = width; H = height; dpr = services.canvas.dpr;
     u = Math.min(1.5, Math.max(0.5, Math.min(W / 1366, H / 768))) * services.config.uiScale;
-    margin = Math.max(10, 16 * u); btnR = Math.max(48, 52 * u);
+    margin = Math.max(10, 16 * u);
+    // Home and the speaker take Bubble Bay's corner place and size at every screen size, so the break
+    // nudge's own speaker covers this one exactly. The mode buttons share that size.
+    const cu = Math.min(1.5, Math.max(0.4, Math.min(W / 1366, H / 768))) * services.config.uiScale;
+    btnR = Math.max(48, Math.min(60 * cu, W / 8, H / 6));
     portrait = W < H * 0.95;
-    const top = margin + btnR;
-    home.x = margin + btnR; home.y = top; home.radius = btnR;
-    sound.x = W - margin - btnR; sound.y = top; sound.radius = btnR;
+    const top = CORNER_PAD + btnR;
+    home.x = CORNER_PAD + btnR; home.y = top; home.radius = btnR;
+    sound.x = W - CORNER_PAD - btnR; sound.y = top; sound.radius = btnR;
     galleryBtn.radius = btnR; brushBtn.radius = btnR;
     areaTop = top + btnR + margin * 0.6; areaBottom = H - margin; areaLeft = margin; areaRight = W - margin;
     // Build shows four buttons, free build three (no brush). A row too narrow for them drops the mode buttons to a second row.
-    narrowBuild = W < btnR * 8 + margin * 5; narrowFree = W < btnR * 6 + margin * 4;
+    narrowBuild = W < btnR * 8 + margin * 3 + CORNER_PAD * 2; narrowFree = W < btnR * 6 + margin * 2 + CORNER_PAD * 2;
     const secondRow = top + btnR * 2 + margin + btnR + margin * 0.6;
     toolTop = narrowBuild ? secondRow : areaTop;
     freeTop = narrowFree ? secondRow : areaTop;
@@ -218,7 +254,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
 
   /** Mode buttons in the top row, or in a second row (a column on a portrait build screen) when this mode's buttons do not fit in one. */
   function placeButtons(): void {
-    const top = margin + btnR;
+    const top = CORNER_PAD + btnR;
     galleryBtn.x = sound.x - btnR * 2 - margin; galleryBtn.y = top;
     brushBtn.x = galleryBtn.x - btnR * 2 - margin; brushBtn.y = top;
     if (mode === 'build' && buildColumn) {
@@ -242,18 +278,23 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
       const side = Math.min(trayX - margin - areaLeft, availH);
       sheetW = sheetH = side; sheetX = areaLeft + (trayX - margin - areaLeft - side) / 2; sheetY = toolTop + (availH - side) / 2;
     } else {
-      trayCols = Math.max(1, Math.floor(availW / 104)); rows = Math.ceil(n / trayCols);
+      trayCols = Math.max(1, Math.floor(availW / 104));
       cell = Math.max(100, Math.min(130 * u, availW / trayCols));
+      // Only as many rows as leave the sheet a fair share of the height (at 390 x 600: two rows of three).
+      const fullH = areaBottom - areaTop;
+      const maxRows = Math.max(Math.ceil(3 / trayCols), Math.floor((fullH - Math.min(availW, fullH * 0.55) - margin) / cell));
+      rows = Math.max(1, Math.min(Math.ceil(n / trayCols), maxRows));
       trayY = areaBottom - rows * cell; trayX = areaLeft + (availW - trayCols * cell) / 2;
       // Too narrow for the mode buttons in the top row: a second row of buttons above the sheet, or a
       // column of them under the speaker beside the sheet, whichever leaves the bigger sheet.
       const rowSide = Math.min(availW, trayY - margin - toolTop);
-      const colRight = W - margin - btnR * 2 - margin, colBottom = margin + btnR * 6 + margin * 2;
+      const colRight = sound.x - btnR - margin, colBottom = CORNER_PAD + btnR * 6 + margin * 2;
       const colSide = Math.min(colRight - areaLeft, trayY - margin - areaTop);
       buildColumn = narrowBuild && colSide > rowSide && trayY - margin >= colBottom;
       const side = Math.max(120, buildColumn ? colSide : rowSide), top = buildColumn ? areaTop : toolTop, right = buildColumn ? colRight : areaRight;
       sheetW = sheetH = side; sheetX = areaLeft + (right - areaLeft - side) / 2; sheetY = top + (trayY - margin - top - side) / 2;
     }
+    trayRows = rows; trayCap = trayCols * rows;
     placeButtons();
     P = sheetW * 0.86 * TIERS[tierNow()].scale;
     boxX = sheetX + (sheetW - P) / 2; boxY = sheetY + (sheetH - P) / 2;
@@ -270,6 +311,9 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
       s.baked = bakeNow ? bakeSpot(s) : undefined;
     }
     for (const p of pieces) placeInTray(p, bakeNow);
+    // The keyboard ring never rests on a piece waiting out of sight.
+    const kp = pieces[keyPiece];
+    if (kp && !shown(kp)) moveKeyPiece(1);
     artPending = !bakeNow;
     boardDirty = true;
   }
@@ -412,12 +456,14 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     }
     for (let i = pieces.length - 1; i > 0; i--) { const j = Math.floor(random() * (i + 1)); const t = pieces[i]!; pieces[i] = pieces[j]!; pieces[j] = t; }
     pieces.forEach((p, i) => { p.cell = i; });
-    keyPiece = Math.max(0, pieces.findIndex(p => !p.extra));
+    keyPiece = 0;
     learnHits = learnMisses = motorHits = motorMisses = pointerPlacements = keyPlacements = 0;
-    held = undefined; hintAt = -99; lastHint = time; lastPlace = time;
-    phase = 'deal'; phaseT = 0; boardSlide = 0; cue = 0;
+    held = undefined; hintAt = -99; hinted = false; lastHint = time; lastPlace = time;
+    // A ring on a top button belongs to the celebration just ended; play keys must not press it.
+    phase = 'deal'; phaseT = 0; boardSlide = 0; cue = 0; focus = -1;
     sfx('whoosh', 'D', 0, 0.6);
     layoutBuild(false);
+    keyPiece = Math.max(0, pieces.findIndex(p => !p.extra && shown(p)));
     for (const p of pieces) { p.x = p.hx + W * 0.4; p.y = p.hy; }
     save();
   }
@@ -576,7 +622,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     const n = pieces.length;
     for (let k = 1; k <= n; k++) {
       const i = ((keyPiece + step * k) % n + n) % n, p = pieces[i]!;
-      if (!p.extra && (p.state === 'tray' || p.state === 'held' || p.state === 'back')) { keyPiece = i; return; }
+      if (!p.extra && shown(p) && (p.state === 'tray' || p.state === 'held' || p.state === 'back')) { keyPiece = i; return; }
     }
   }
 
@@ -590,7 +636,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     services.save.flush();
     thumbDirty[PICTURE_IDS.indexOf(pic.id)] = 1;
     phase = 'done'; phaseT = 0; cue = 0; held = undefined; handStop();
-    for (const p of pieces) if (p.state !== 'gone' && p.state !== 'fly') { fx.spawn(FX_PUFF, p.x, p.y, 0, -30 * u, 0.6, p.w * 0.8, -1); p.state = 'gone'; }
+    for (const p of pieces) if (p.state !== 'gone' && p.state !== 'fly') { if (shown(p)) fx.spawn(FX_PUFF, p.x, p.y, 0, -30 * u, 0.6, p.w * 0.8, -1); p.state = 'gone'; }
   }
 
   function adjustDifficulty(): void {
@@ -620,7 +666,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     if (mode === 'free' || next === 'gallery') naturalPause();
     if (mode === 'free') { flushLive(); thumbDirty[6 + sheetIndex] = 1; }
     mode = next; focus = -1; guard(); handStop(); held = undefined; pointerDown = false;
-    placeButtons();
+    placeButtons(); startFanfare();
     for (const p of pieces) if (p.state === 'held') returnPiece(p);
     fx.clear();
   }
@@ -733,6 +779,8 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
         const delay = phase === 'deal' ? i * 0.05 : 0;
         if (phase !== 'deal' || phaseT > delay) { p.x = approach(p.x, p.hx, 14, dt); p.y = approach(p.y, p.hy, 14, dt); }
       } else if (p.state === 'held') {
+        // Its outline lights up now (see renderBuild): that is a hint for this shape, as the hand's is.
+        if (!p.extra && hand.kind !== KIND_DEMO && p.t >= HELD_RING && p.t - dt < HELD_RING) { hintShape = p.shape; hintAt = time; }
         if (p.drag) { p.x = approach(p.x, input.pointer.x, 32, dt); p.y = approach(p.y, input.pointer.y, 32, dt); }
         else if (hand.kind === KIND_DEMO && hand.piece === i) { p.x = hand.x; p.y = hand.y + p.h * 0.35; }
         else { p.x = approach(p.x, p.hx, 18, dt); p.y = approach(p.y, p.hy - 6 * u, 18, dt); }
@@ -755,7 +803,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     if (phase === 'play') {
       // Idle help: never during a drag, a demonstration, or the first moments.
       const idle = time - Math.max(lastPlace, lastHint);
-      if (!hand.kind && !held && !pointerDown && idle > (hintAt < 0 ? HINT_IDLE : HINT_REPEAT)) handStart(KIND_HINT);
+      if (!hand.kind && !held && !pointerDown && idle > (hinted ? HINT_REPEAT : HINT_IDLE)) { hinted = true; handStart(KIND_HINT); }
     } else if (phase === 'done') {
       if (phaseT >= 0.3 && cue === 0) { cue = 1; sfx('fanfare'); fx.confetti(boxX + P / 2, boxY + P * 0.3, P * 0.35, 36, random); }
       if (phaseT >= DONE_SECONDS) { phase = 'alive'; phaseT = 0; cue = 0; }
@@ -871,11 +919,21 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     hand.press = 0;
     if (hand.kind === KIND_DEMO || hand.kind === KIND_HINT) {
       if (step === 0) {
-        const pi = pieces.findIndex(p => !p.extra && p.state === 'tray');
+        // A hint helps with a piece already picked up by a click first, else the first piece in the tray.
+        let pi = hand.kind === KIND_HINT ? pieces.findIndex(p => p.selected && !p.extra) : -1;
+        const picked = pi >= 0;
+        if (!picked) pi = pieces.findIndex(p => !p.extra && p.state === 'tray' && shown(p));
         const p = pieces[pi];
         const si = p ? nearestSpot(p.shape, p.hx, p.hy, true) : -1;
-        if (!p || si < 0) { handStop(); return; }
+        // Nothing to show now: try again after the usual wait, not on the next frame.
+        if (!p || si < 0) { lastHint = time; handStop(); return; }
         hand.piece = pi; hand.spot = si;
+        if (picked) {
+          // The piece is already in hand: the hand glides straight to its outline and taps it.
+          hintShape = p.shape; hintAt = time; lastHint = time; sfx('hover');
+          hand.step = 3; handGo(spots[si]!.x, spots[si]!.y, 0.9);
+          return;
+        }
         handGo(p.hx, p.hy, hand.kind === KIND_DEMO ? 0.9 : 0.8);
       } else if (step === 1) {
         hand.press = 1; handGo(hand.x, hand.y, 0.3);
@@ -1044,7 +1102,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
 
   function renderBuild(ctx: CanvasRenderingContext2D): void {
     const livePicture = phase === 'done' || phase === 'alive' || phase === 'send';
-    if (tray) drawBaked(ctx, tray, trayX + trayCols * cell / 2, trayY + Math.ceil(Math.max(3, pieces.length) / trayCols) * cell / 2);
+    if (tray) drawBaked(ctx, tray, trayX + trayCols * cell / 2, trayY + trayRows * cell / 2);
     if (artPending) return;
     drawBoard(ctx, !livePicture);
     if (livePicture) { renderLivePicture(ctx); return; }
@@ -1064,9 +1122,17 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
       if (si >= 0) drawSpotRing(ctx, spots[si]!, 0.9);
     }
     if (hand.kind === KIND_HINT && hand.step >= 2 && hand.spot >= 0 && spots[hand.spot]) drawSpotRing(ctx, spots[hand.spot]!, 0.8);
+    // A piece held for a moment (picked up by a click, or dragged) lights its nearest matching outline.
+    if (phase === 'play' && hand.kind !== KIND_DEMO) {
+      for (const p of pieces) {
+        if (p.state !== 'held' || p.extra || p.t < HELD_RING) continue;
+        const si = nearestSpot(p.shape, p.x, p.y, true);
+        if (si >= 0) drawSpotRing(ctx, spots[si]!, 0.8 * clamp01((p.t - HELD_RING) / 0.3));
+      }
+    }
     for (let i = 0; i < pieces.length; i++) {
       const p = pieces[i]!;
-      if (p.state === 'gone' || !p.baked) continue;
+      if (p.state === 'gone' || !p.baked || !shown(p)) continue;
       if (phase === 'play' && i === keyPiece && (p.state === 'tray' || p.state === 'held') && !hand.kind) squareRing(ctx, p.hx, p.hy, cell, true);
       if (p.state === 'fly') continue;
       const sway = p.state === 'tray' ? Math.cos(time * 1.3 + i * 1.5) * 0.05 : 0;
@@ -1082,9 +1148,20 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
       if (p.state !== 'fly' || !p.baked) continue;
       const s = spots[p.target]!, k = easeOutCubic(clamp01(p.t / FLY_SECONDS));
       const x = lerp(p.fromX, s.x, k), y = lerp(p.fromY, s.y, k) - Math.sin(Math.PI * k) * 24 * u;
-      drawBaked(ctx, p.baked, x, y, lerp(0, s.rot, k), lerp(1, s.w / p.w, k), lerp(1, s.h / p.h, k));
-      // A piece flying in under parts already on the sheet passes beneath them, so they stay in sight.
-      for (let j = p.target + 1; j < spots.length; j++) drawPart(ctx, spots[j]!);
+      const rot = lerp(0, s.rot, k), sx = lerp(1, s.w / p.w, k), sy = lerp(1, s.h / p.h, k);
+      drawBaked(ctx, p.baked, x, y, rot, sx, sy);
+      // A piece flying in under later parts passes beneath them, so they stay in sight: parts already
+      // on the sheet, and the dashed outlines of open parts that sit on top of it. They are drawn again
+      // only inside the piece's shape, where it covers the board's copy, so nothing shows twice.
+      ctx.save();
+      ctx.translate(x, y); ctx.rotate(rot); ctx.scale(sx, sy);
+      tracePath(ctx, p.shape, 0, 0, p.w, p.h); ctx.clip();
+      ctx.scale(1 / sx, 1 / sy); ctx.rotate(-rot); ctx.translate(-x, -y);
+      for (let j = p.target + 1; j < spots.length; j++) {
+        const q = spots[j]!;
+        if (q.open && !q.placed && !q.reserved) drawOutline(ctx, q, 0, 0); else drawPart(ctx, q);
+      }
+      ctx.restore();
     }
   }
 
@@ -1132,13 +1209,11 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
       const k = slamScale(clamp01(s.t / 0.32), 0.3), b = stampBaked(s.shape, s.color), scale = freeW * s.size / 1000 / STAMP_REF * k;
       drawBaked(ctx, b, freeX + s.x / 1000 * freeW, freeY + s.y / 1000 * freeH, s.rot * Math.PI / 180, scale, scale);
     }
-    if (!hand.kind) {
-      // The keyboard's stamp spot is always shown; it is fainter until a key is used.
+    if (!hand.kind && kbActive) {
+      // The keyboard's stamp spot shows only after a key, so a mouse player never sees a ring that looks like a target.
       const x = freeX + cursorX * freeW, y = freeY + cursorY * freeH, r = 34 * u;
-      ctx.globalAlpha = kbActive ? 1 : 0.45;
       focusRing(ctx, x, y, r);
       ctx.beginPath(); ctx.arc(x, y, 6 * u, 0, Math.PI * 2); ctx.fillStyle = OUTLINE; ctx.fill();
-      ctx.globalAlpha = 1;
     }
     for (let i = 0; i < SHAPES.length; i++) {
       const b = trayBaked(i, selColor), sel = i === selShape;
@@ -1241,14 +1316,14 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   function pieceAt(x: number, y: number): number {
     for (let i = 0; i < pieces.length; i++) {
       const p = pieces[i]!;
-      if (p.state !== 'tray' && !(p.state === 'held' && p.selected)) continue;
+      if ((p.state !== 'tray' && !(p.state === 'held' && p.selected)) || !shown(p)) continue;
       if (Math.abs(x - p.hx) <= cell / 2 && Math.abs(y - p.hy) <= cell / 2) return i;
     }
     return -1;
   }
 
   function buildDown(x: number, y: number): void {
-    if (phase === 'alive' && phaseT > 1.2) { phase = 'send'; phaseT = 0; return; }
+    if (phase === 'alive' && phaseT > SKIP_AFTER) { phase = 'send'; phaseT = 0; return; }
     if ((phase !== 'play' && phase !== 'deal') || artPending) return;
     if (hand.kind === KIND_DEMO) return;
     if (hand.kind === KIND_HINT) handStop();
@@ -1281,7 +1356,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   }
 
   function buildKey(code: string): void {
-    if (phase === 'alive' && phaseT > 1.2) { phase = 'send'; phaseT = 0; return; }
+    if (phase === 'alive' && phaseT > SKIP_AFTER) { phase = 'send'; phaseT = 0; return; }
     if (phase !== 'play' || hand.kind === KIND_DEMO) return;
     if (hand.kind === KIND_HINT) handStop();
     lastHint = time;
@@ -1294,7 +1369,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
       let best = -1, bestD = Infinity;
       for (let i = 0; i < n; i++) {
         const q = pieces[i]!;
-        if (i === keyPiece || (q.state !== 'tray' && q.state !== 'held' && q.state !== 'back' && q.state !== 'hop')) continue;
+        if (i === keyPiece || !shown(q) || (q.state !== 'tray' && q.state !== 'held' && q.state !== 'back' && q.state !== 'hop')) continue;
         const ddx = (q.cell % trayCols) - (p.cell % trayCols), ddy = Math.floor(q.cell / trayCols) - Math.floor(p.cell / trayCols);
         const along = ddx * dc + ddy * dr;
         if (along <= 0) continue;
@@ -1394,7 +1469,9 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     get workMean() { let sum = 0; for (let i = 0; i < workCount; i++) sum += work[i]!; return workCount ? sum / workCount : 0; },
     get workMax() { let max = 0; for (let i = 0; i < workCount; i++) max = Math.max(max, work[i]!); return max; },
     spots() { return spots.map(s => ({ x: s.x, y: s.y, w: s.w, h: s.h, rot: s.rot, shape: s.part.shape, open: s.open, placed: s.placed, hit: s.hit, reach: s.reach })); },
-    pieces() { return pieces.map(p => ({ x: p.hx, y: p.hy, w: p.w, h: p.h, shape: p.shape, state: p.state, extra: p.extra, cell: p.cell })); },
+    pieces() { return pieces.map(p => ({ x: p.hx, y: p.hy, w: p.w, h: p.h, shape: p.shape, state: p.state, extra: p.extra, cell: p.cell, shown: shown(p), selected: p.selected })); },
+    get focus() { return focus; },
+    get fanfareReady() { return fanfareAsked; },
     buttons() { return allButtons.map((b, i) => ({ id: ['home', 'brush', 'gallery', 'sound'][i]!, x: b.x, y: b.y, r: Math.max(48, b.radius), visible: b.visible })); },
     frames() { return Array.from({ length: 12 }, (_, i) => ({ id: i < 6 ? PICTURES[i]!.id : `sheet-${i - 6}`, x: frameX[i]!, y: frameY[i]!, size: frameSize, made: i < 6 ? (data.made[PICTURES[i]!.id] ?? 0) > 0 : (data.sheets[i - 6]?.length ?? 0) > 0 })); },
     swatches() { return Array.from({ length: SWATCHES }, (_, i) => ({ x: swatchX[i]!, y: swatchY[i]!, r: swatchR })); },
@@ -1423,10 +1500,15 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
       startPicture(data.currentId || nextPictureId(PICTURE_IDS[PICTURE_IDS.length - 1]!));
       for (const [i, b] of allButtons.entries()) b.popIn(0.05 + i * 0.04);
       startMusic(audio, 'workshop');
+      startFanfare();
     },
-    pause() { stopMusic(audio); flushLive(); services.save.flush(); pointerDown = false; },
-    resume() { guard(); startMusic(audio, 'workshop'); },
-    exit() { stopMusic(audio); flushLive(); services.save.flush(); },
+    pause() { stopMusic(audio); stopIdle(); flushLive(); services.save.flush(); pointerDown = false; },
+    resume() {
+      // Back on top after the break nudge: keys pressed into it must not act here. The input guard starts
+      // over as on entry and no top button stays ringed.
+      guard(); focus = -1; startMusic(audio, 'workshop');
+    },
+    exit() { stopMusic(audio); stopIdle(); flushLive(); services.save.flush(); },
     resize: layout,
     update(dt) {
       const started = performance.now();
@@ -1437,6 +1519,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
       updateHand(dt);
       // Warm the stamp art one piece per frame, so thumbnails and stamping never bake many at once.
       if (sceneT > 1) { const k = stampArt.indexOf(undefined); if (k >= 0) stampBaked(Math.floor(k / SWATCHES), k % SWATCHES); }
+      if (fanfareStarted && !fanfareAsked && !idleHandle) idleHandle = requestIdleCallback(fanfareIdle, { timeout: 500 });
       if (boundaryAt >= 0 && time >= boundaryAt && !pointerDown && !held && !hand.kind) {
         boundaryAt = -1;
         // Once a new picture is under way, its own finish is the next break point.
@@ -1488,17 +1571,23 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
         return;
       }
       if (event.type !== 'anykey') return;
-      const code = event.info.code;
+      const code = event.info.code, now = performance.now();
       kbActive = true;
-      if (code === 'Escape') { leave(); return; }
-      if (code === 'Tab') { focus = focus + 1 >= buttons.length ? -1 : focus + 1; sfx('hover'); return; }
-      if (focus >= 0) {
+      if (now < inputAfter) return;
+      // While a picture is being built every key plays, Escape, Tab and Enter included: mashing never leaves
+      // or rings a button. The top buttons take keys in free build, in the gallery, and once the finished
+      // picture's alive animation may be moved on. Escape goes Home from the gallery only; in free build it stamps.
+      const nav = mode !== 'build' || phase === 'send' || (phase === 'alive' && phaseT > SKIP_AFTER);
+      if (nav && code === 'Escape' && mode === 'gallery') { leave(); return; }
+      if (nav && code === 'Tab') { focus = focus + 1 >= buttons.length ? -1 : focus + 1; focusAt = now; sfx('hover'); return; }
+      if (focus >= 0 && nav) {
         const b = buttons[focus];
-        if (code.startsWith('Arrow')) { focus = (focus + (code === 'ArrowLeft' || code === 'ArrowUp' ? buttons.length - 1 : 1)) % buttons.length; sfx('hover'); return; }
-        if (code === 'Enter' || code === 'NumpadEnter' || code === 'Space') { if (b) b.pointerDown(b.x, b.y); return; }
-        focus = -1;
+        if (code.startsWith('Arrow')) { focus = (focus + (code === 'ArrowLeft' || code === 'ArrowUp' ? buttons.length - 1 : 1)) % buttons.length; focusAt = now; sfx('hover'); return; }
+        // Only Enter presses a ringed button, and only once its ring has been in sight for FOCUS_HOLD_MS.
+        if ((code === 'Enter' || code === 'NumpadEnter') && b && now - focusAt >= FOCUS_HOLD_MS) { b.pointerDown(b.x, b.y); return; }
       }
-      if (performance.now() < inputAfter) return;
+      // Any other key (Space, or an Enter that came too soon) drops the ring and plays.
+      focus = -1;
       if (mode === 'build') buildKey(code); else if (mode === 'free') freeKey(code); else galleryKey(code);
     },
   };
