@@ -71,6 +71,8 @@ interface Piece {
   x: number; y: number; hx: number; hy: number; w: number; h: number;
   state: PieceState; t: number; fromX: number; fromY: number; target: number;
   tried: boolean; drag: boolean; selected: boolean; baked: Baked | undefined;
+  /** Whether this held piece's matching outline is lit now (see updateBuild); placing it while lit is assisted. */
+  lit: boolean;
 }
 interface Stamp { active: boolean; shape: number; color: number; x: number; y: number; size: number; rot: number; t: number }
 
@@ -510,7 +512,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   }
 
   function newPiece(shape: Shape, color: number, part: number): Piece {
-    return { shape, color, extra: part < 0, part, cell: 0, x: 0, y: 0, hx: 0, hy: 0, w: 0, h: 0, state: 'tray', t: 0, fromX: 0, fromY: 0, target: -1, tried: false, drag: false, selected: false, baked: undefined };
+    return { shape, color, extra: part < 0, part, cell: 0, x: 0, y: 0, hx: 0, hy: 0, w: 0, h: 0, state: 'tray', t: 0, fromX: 0, fromY: 0, target: -1, tried: false, drag: false, selected: false, baked: undefined, lit: false };
   }
 
   function returnPiece(p: Piece): void {
@@ -531,9 +533,12 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     return best;
   }
 
-  /** Whether this piece's shape was hinted within ASSIST_SECONDS, whatever was hinted since, or the keyboard ring shows its outline now. */
+  /**
+   * Whether this piece's shape was hinted within ASSIST_SECONDS, whatever was hinted since, the keyboard ring
+   * shows its outline now, or the piece itself is held with its matching outline lit, however long it was held.
+   */
   function assisted(p: Piece): boolean {
-    return time - hintAt[SHAPES.indexOf(p.shape)]! < ASSIST_SECONDS || (ringSpot >= 0 && spots[ringSpot]?.part.shape === p.shape);
+    return p.lit || time - hintAt[SHAPES.indexOf(p.shape)]! < ASSIST_SECONDS || (ringSpot >= 0 && spots[ringSpot]?.part.shape === p.shape);
   }
 
   /**
@@ -838,12 +843,15 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     for (let i = 0; i < pieces.length; i++) {
       const p = pieces[i]!;
       p.t += dt;
+      // A piece held a moment lights its matching outline (see renderBuild): help for this shape, as the hand's is.
+      // While lit, placing it is assisted however long it was held; the shape's hint time is set when the light
+      // comes on and again when it goes off (never per frame), so the ASSIST_SECONDS window runs from the end.
+      const lit = phase === 'play' && hand.kind !== KIND_DEMO && p.state === 'held' && !p.extra && p.t >= HELD_RING;
+      if (lit !== p.lit) { p.lit = lit; hint(p.shape); }
       if (p.state === 'tray') {
         const delay = phase === 'deal' ? i * 0.05 : 0;
         if (phase !== 'deal' || phaseT > delay) { p.x = approach(p.x, p.hx, 14, dt); p.y = approach(p.y, p.hy, 14, dt); }
       } else if (p.state === 'held') {
-        // Its outline lights up now (see renderBuild): that is a hint for this shape, as the hand's is.
-        if (!p.extra && hand.kind !== KIND_DEMO && p.t >= HELD_RING && p.t - dt < HELD_RING) hint(p.shape);
         if (p.drag) { p.x = approach(p.x, input.pointer.x, 32, dt); p.y = approach(p.y, input.pointer.y, 32, dt); }
         else if (hand.kind === KIND_DEMO && hand.piece === i) { p.x = hand.x; p.y = hand.y + p.h * 0.35; }
         else { p.x = approach(p.x, p.hx, 18, dt); p.y = approach(p.y, p.hy - 6 * u, 18, dt); }
