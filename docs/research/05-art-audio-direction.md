@@ -1,5 +1,7 @@
 # Art and audio direction
 
+> Historical research: the owner superseded all reduced-motion support and motionScale configuration proposals on 2026-10-02. The shipped game always uses its normal animation, even when the browser or operating system requests reduced motion. See ../plans/v1.1-implementation.md for the current contract.
+
 Research digest section 5. Date: 2026-10-02. Every sourced claim links to its source. Items marked **(judgment)** are expert judgment with no direct source; tune them by watching the two children play.
 
 ## Decisions this section makes

@@ -34,7 +34,7 @@ From shipped code, as starting values:
 ## Safety and comfort
 
 - Flash limits: at most 3 flashes in any second, or space them 334 ms apart; flashed area under about 20 percent of the frame; no saturated red flashes. A full-screen white hit frame counts as a flash.
-- Honor `prefers-reduced-motion`: drop zoom, parallax, spin and shake; keep dissolves, colour changes and every celebration.
+- Keep the full normal animation regardless of the browser or operating-system motion preference. Reward reveals remain brief and the final rest screen remains still.
 - Pause everything when the tab is hidden; the loop already does this.
 
 ## Sound sync

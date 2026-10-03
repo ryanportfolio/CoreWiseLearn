@@ -45,3 +45,7 @@ In the Canvas 2D perf probe, opening `chrome://gpu` as a second tab of the probe
 ## 2026-10-02: this development machine is a desktop with a discrete GPU
 
 The box is an AMD Radeon RX 6600 XT desktop with a 100 Hz panel, not the children's laptop. Frame times measured here say nothing about integrated-GPU fill rate; Chrome CPU throttling (4x) slows only the main thread. Treat every GPU-side cost under 10 ms as unmeasured, and read `.claude/reference/tech-stack.md` "Performance caps" for the numbers that were derived from the probe.
+
+## 2026-10-03: running loop does not mean the name screen accepts input
+
+`bootApp` starts the loop on a loading scene before the initial art promises finish and name entry is installed. A probe that typed after `loop.running` alone lost its first letters and created the wrong profile. Wait for the actual name scene (`window.__nameEntry` in a dev build; production needs the installed scene with `handleInput`) and its input guard before typing; verify the name before Enter. Production navigation and offline probes must use the same readiness condition.

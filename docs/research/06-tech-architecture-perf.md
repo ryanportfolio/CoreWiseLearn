@@ -1,5 +1,7 @@
 # 06. Technical architecture and performance
 
+> Historical research: the owner superseded all reduced-motion support and motionScale configuration proposals on 2026-10-02. The shipped game always uses its normal animation, even when the browser or operating system requests reduced motion. See ../plans/v1.1-implementation.md for the current contract.
+
 Research digest, 2026-10-02. Scope: Canvas 2D on a weak integrated GPU, the game loop and pooling, the asset pipeline, Web Audio, PWA delivery on GitHub Pages, hardening input against accidental browser actions, and the game registry. Items marked "judgment" are expert judgment, not a sourced result.
 
 ## What the scaffold gets right, and four things to change

@@ -1,5 +1,7 @@
 # Proposed amendments to the v1 build prompt
 
+> Historical research: the owner superseded all reduced-motion support and motionScale configuration proposals on 2026-10-02. The shipped game always uses its normal animation, even when the browser or operating system requests reduced motion. See ../plans/v1.1-implementation.md for the current contract.
+
 Date: 2026-10-02. Each item names a change to the build prompt and a one-line rationale with its source section. The prompt is not rewritten here; the owner applies what they accept. Where sections disagree, the call recorded in [README.md](README.md#where-the-sections-disagree) is used.
 
 ## Amendments

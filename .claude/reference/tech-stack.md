@@ -12,8 +12,8 @@ A browser game hub for two children aged four and five who cannot read. It runs 
 - **Canvas 2D, not WebGL.** On an integrated GPU, Canvas 2D is hardware accelerated for the fills, images and text these games draw, and it has no shader compile, context loss or driver variance to debug. Device pixel ratio is capped at 1.5 in `canvas.ts` so the backing store never grows past what the GPU can fill at 60 Hz.
 - **Fixed 60 Hz update with render interpolation** (`loop.ts`). Game logic runs the same number of steps per second regardless of the display refresh rate, which keeps movement and timing-based difficulty consistent. The loop pauses while the tab is hidden and clamps long gaps so a sleep or debugger stop does not fast-forward the simulation.
 - **Vite** for the build. Fast dev server, one config file, static output that GitHub Pages can host. `base` is `/CoreWiseLearn/` because Pages serves project sites under the repository name.
-- **vite-plugin-pwa** with `registerType: 'autoUpdate'` and every built asset precached. The hub installs to the desktop and works offline after the first visit; new builds replace the old cache on the next load without a prompt a child would have to read.
-- **No runtime dependencies.** The only packages are dev-time: `vite`, `typescript`, `vite-plugin-pwa`. Nothing ships to the browser that the project did not write, so the bundle stays small and there is no third-party code to audit for a children's app.
+- **vite-plugin-pwa** uses `registerType: 'prompt'` with every runtime asset precached. Updates wait for a hub boundary and preserve saves before reload. `scripts/check-precache.mjs` checks every public asset and reports total precache bytes; the former 5 MB limit was removed by owner direction.
+- **No runtime dependencies.** Development packages are `vite`, `typescript`, `vite-plugin-pwa`, and `sharp` for offline image preparation. Andika is bundled locally with its OFL license. The service worker includes generated Workbox code.
 - **Strict TypeScript** with `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes` and `verbatimModuleSyntax`. The cost is a few `?? 0` guards on typed-array reads; the benefit is catching the undefined-index bugs that otherwise show up as NaN positions on screen.
 - **GitHub Pages via GitHub Actions** (`.github/workflows/deploy.yml`) as the eventual host. No hosting account, no secrets, no server. The workflow is manual-trigger only until Pages is enabled; see `deployment.md`.
 - **localStorage for saves** (`save.ts`), versioned with a `schemaVersion` and a migration hook. The data is a few kilobytes per child; IndexedDB would be more machinery for no gain.
@@ -31,7 +31,7 @@ From the Canvas 2D probe of 2026-10-02 (`.tmp/perf-probe/` on the dev box; resul
 | Live particles | 1500, drawn with `arc` + `fill` | Measured cliff: `drawImage` of a 4 px sprite goes from 3 ms at 500 to 28 ms at 3000, while `arc` for 3000 adds about 1 ms |
 | Total `drawImage` calls per frame | under 1500 | Past roughly 2000 Chrome stops batching cheaply |
 | `shadowBlur` | banned | 2x CPU measured; the per-draw blur pass is known to hurt integrated GPUs |
-| Device pixel ratio | ship at 1; 1.5 only if a runtime frame-time check on the real laptop shows headroom | The desktop GPU hid the 2.25x pixel cost completely |
+| Device pixel ratio | cap 1.5 and about 1.5 million backing pixels; runtime scale 1 / 0.85 / 0.7 | Delivered-frame and work measurements trigger sustained-load downscaling with hysteresis |
 | Per-frame gradients, static `fillText` | cache anyway | Measured free on this GPU, unmeasured on an integrated one |
 | Digits that change every frame | draw as cached sprites | Not measured; the only text in the games |
 
@@ -39,4 +39,6 @@ From the Canvas 2D probe of 2026-10-02 (`.tmp/perf-probe/` on the dev box; resul
 
 - DPR: see the caps table. The engine's cap lives in `src/engine/canvas.ts` (`MAX_DPR`).
 - Keep `dist/` precached in full. The hub must open with no network.
-- Keep game text adult-facing only; the players read icons and hear sounds.
+- Reading is never needed to navigate. Letters and words may be learning material with demonstration or speech support.
+
+retired 2026-10-02: autoUpdate service workers and fixed DPR 1; reason: approved v1.1 safe-update and adaptive-resolution design.

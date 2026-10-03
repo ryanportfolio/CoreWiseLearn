@@ -1,5 +1,7 @@
 # Design principles for ages 4 to 5
 
+> Historical research: the owner superseded all reduced-motion support and motionScale configuration proposals on 2026-10-02. The shipped game always uses its normal animation, even when the browser or operating system requests reduced motion. See ../plans/v1.1-implementation.md for the current contract.
+
 Research digest, section 1. Compiled 2026-10-02.
 
 Rules that apply to every screen: input, discoverability without text, attention, how a 4 year old differs from a 5 year old, and accessibility. Each claim links to its source; "(expert judgment)" marks reasoning without a study behind it. Most child research is old, small or done on tablets, so treat numbers as starting values to tune by watching the two children.

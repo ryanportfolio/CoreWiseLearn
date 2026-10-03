@@ -19,4 +19,4 @@ Local only for now (owner decision, 2026-10-02). Nothing is published. The hub i
 2. In `deploy.yml`, restore the `push: branches: [main]` trigger, or run the workflow by hand from the Actions tab.
 3. After the first deploy, open the site, confirm the service worker installs, then reload with the network off to confirm offline play.
 
-No database, no secrets, no server. Art under `public/art/` and icons under `public/icons/` ship as static files; keep each under 1 MB and the whole initial payload under 5 MB.
+No database, no secrets, no server. Art under `public/art/` and icons under `public/icons/` ship as static files; prepare new artwork as WebP with alpha, preserve accepted quality, and measure download and rendering cost after visual acceptance. There is no total 5 MB cap.
