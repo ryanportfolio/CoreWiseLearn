@@ -124,17 +124,12 @@ export function bootApp(options: BootOptions = {}): AppServices {
     toStickerBook: options.nav?.toStickerBook ?? missing('toStickerBook'),
   };
 
-  let persistenceRequested = false;
   const services: AppServices = {
     config,
     debug,
     random: debug.enabled ? seededRandom(debug.seed) : Math.random,
     roundBoundary() {
       save.flush();
-      if (!persistenceRequested) {
-        persistenceRequested = true;
-        void navigator.storage?.persist?.().catch(() => false);
-      }
       session.roundBoundary();
       options.onRoundBoundary?.();
     },
