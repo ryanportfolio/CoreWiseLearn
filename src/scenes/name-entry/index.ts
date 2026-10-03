@@ -38,8 +38,8 @@ const MAX_KEY_GAP = 0.25;
 const MAX_KEY = 200;
 /** Letter glyph size as a fraction of the key diameter. */
 const GLYPH_RATIO = 0.62;
-/** Width the key page arrow takes at the right edge, with its gap to the keys. */
-const ARROW_LANE = 104;
+/** Width the key page arrow takes at the right edge, with its gap to the keys (the old layout's lane, so as many keys fit beside it). */
+const ARROW_LANE = 100;
 /** Mascot's drawn extent as fractions of its sprite size: width, and height from the feet up (measured from the idle and cheer art). */
 const MASCOT_W = 0.8;
 const MASCOT_H = 0.66;
@@ -217,7 +217,7 @@ export function createNameEntryScene(services: AppServices, options: { renamePro
   const guest = createButton({ x: 0, y: 0, radius: 48, fill: '#ffe08a', icon: renaming ? 'buttons/home' : GUEST, iconScale: 0.84, onPress: () => { if (!leaving) { if (renaming) { leaving = true; services.nav.toHub(); } else playAsGuest(); } } });
   const profileNext = createButton({ x: 0, y: 0, radius: 48, fill: '#a78bfa', onPress: () => { profilePage = (profilePage + 1) % profilePages; buildProfiles(); layout(); keyboard.focus(profileNext); } });
   const keyNext = createButton({ x: 0, y: 0, radius: 48, fill: '#a78bfa', onPress: () => { keyPage = (keyPage + 1) % keyPages; layout(); keyboard.focus(keyNext); } });
-  const keys = ALPHABET.split('').map((_, i) => createButton({ x: 0, y: 0, radius: 48, fill: COLORS[i % COLORS.length]!, squareHit: true, onPress: () => typeLetter(i) }));
+  const keys = ALPHABET.split('').map((_, i) => createButton({ x: 0, y: 0, radius: 48, fill: COLORS[i % COLORS.length]!, onPress: () => typeLetter(i) }));
 
   function buildProfiles(): void {
     const query = normalizeName(name);
@@ -294,20 +294,27 @@ export function createNameEntryScene(services: AppServices, options: { renamePro
     const availH = Math.max(96, height - keyTop - 12);
     const maxKey = Math.max(96, MAX_KEY * scale);
     const gap = Math.min(MAX_KEY_GAP, Math.max(MIN_KEY_GAP, KEY_GAP / scale));
-    // The key size of the touching-keys layout this replaced, for the same window and uiScale.
+    // The touching-keys layout this replaced, for the same window and uiScale: its key size and rows.
+    const oldTarget = Math.max(96, Math.min(128, 100 * scale));
     const oldRows = Math.max(1, Math.min(3, Math.floor(availH / 100)));
-    const oldKey = Math.max(96, Math.min(128, 100 * scale, availH / oldRows - 4));
+    const oldKey = Math.max(96, Math.min(oldTarget, availH / oldRows - 4));
     const qwerty = services.config.keyboardLayout === 'qwerty';
     const order = qwerty ? 'QWERTYUIOPASDFGHJKLZXCVBNM' : ALPHABET;
     const rowSizes = qwerty ? [10, 9, 7] : [9, 9, 8];
-    const full = Math.min(fitKeys(width - 24, rowSizes[0]!, MIN_KEY_GAP), fitKeys(availH, 3, MIN_KEY_GAP)) >= 96;
-    let cols = rowSizes[0]!, rows = 3, areaW = width - 24, perPage = 26;
+    // Keys that fit in a span: 96 px keys with the smallest gap, or the old touching keys where more of
+    // those fit (the gap then closes, below), so no page holds fewer keys than the old layout's.
+    const count = (span: number, oldCount: number) => Math.max(1, oldCount, Math.floor((span + MIN_KEY_GAP * 96) / (96 * (1 + MIN_KEY_GAP))));
+    const across = (span: number) => count(span, Math.floor(span / oldTarget));
+    const maxRows = Math.min(3, count(availH, oldRows));
+    let areaW = width - 24;
+    // One page of the 9/9/8 or 10/9/7 rows whenever they fit the full width; the page arrow's lane is only taken when keys must page.
+    const full = maxRows === 3 && across(areaW) >= rowSizes[0]!;
+    let cols = rowSizes[0]!, rows = 3, perPage = 26;
     if (!full) {
-      // Pages of keys: the fewest pages 96 px keys allow, then the grid with the largest keys for that many pages.
-      const count = (span: number) => Math.max(1, Math.floor((span + MIN_KEY_GAP * 96) / (96 * (1 + MIN_KEY_GAP))));
-      const maxRows = Math.min(3, count(availH));
-      let maxCols = Math.min(9, count(width - 24 - ARROW_LANE));
-      if (maxCols * maxRows >= 26) maxCols = Math.min(9, count(areaW)); else areaW = width - 24 - ARROW_LANE;
+      // Pages of keys: one page in a grid if the full width allows it, else the fewest pages beside the
+      // arrow; then the grid with the largest keys for that many pages.
+      let maxCols = Math.min(9, across(areaW));
+      if (maxCols * maxRows < 26) { areaW = width - 24 - ARROW_LANE; maxCols = Math.min(9, across(areaW)); }
       const pages = Math.ceil(26 / (maxCols * maxRows));
       let best = -1;
       for (let r = 1; r <= maxRows; r++) for (let c = 1; c <= maxCols; c++) {
@@ -350,11 +357,20 @@ export function createNameEntryScene(services: AppServices, options: { renamePro
     const px = Math.round(size * GLYPH_RATIO);
     if (px !== glyphPx) { glyphPx = px; for (let i = 0; i < 26; i++) glyphs[i] = makeTextSprite(ALPHABET[i]!, px, services.canvas.dpr); }
   }
-  /** The visible key nearest a point in the gaps between keys, so the whole key block stays a target. */
+  /**
+   * For a press in the gaps of the key block (within half a key pitch of some visible key), the
+   * visible key whose centre is nearest, so the whole block stays a target. Farther out, none.
+   */
   function keyNear(x: number, y: number): Button | undefined {
     const reach = (keySize + keyGap) / 2;
-    for (const b of keys) if (b.visible && Math.abs(x - b.x) <= reach && Math.abs(y - b.y) <= reach) return b;
-    return undefined;
+    let near = false, best: Button | undefined, bestD = Infinity;
+    for (const b of keys) {
+      if (!b.visible) continue;
+      const dx = x - b.x, dy = y - b.y, d = dx * dx + dy * dy;
+      if (Math.abs(dx) <= reach && Math.abs(dy) <= reach) near = true;
+      if (d < bestD) { bestD = d; best = b; }
+    }
+    return near ? best : undefined;
   }
   function rebuildBackground(): void {
     const canvas = document.createElement('canvas');
