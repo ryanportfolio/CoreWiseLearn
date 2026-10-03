@@ -3,6 +3,8 @@
  * call this, then push a scene and start the loop.
  */
 
+import { config, readDebug, seededRandom } from './config';
+import { ensureDisplayFont } from './font';
 import { createCanvas } from '../engine/canvas';
 import { createLoop } from '../engine/loop';
 import { createInput } from '../engine/input';
@@ -13,7 +15,10 @@ import { createSpriteStore } from '../engine/sprites';
 import { createSessionTimer } from '../engine/session';
 import type { AppServices, Nav } from './services';
 
+await ensureDisplayFont();
+
 export interface BootOptions {
+  onRoundBoundary?: () => void;
   nav?: Partial<Nav>;
   nudgeAfterSeconds?: number;
   onNudge?: (elapsedSeconds: number) => void;
@@ -27,14 +32,16 @@ export function bootApp(options: BootOptions = {}): AppServices {
   const element = document.getElementById('game');
   if (!(element instanceof HTMLCanvasElement)) throw new Error('#game canvas missing');
 
+  const debug = readDebug();
   const canvas = createCanvas(element);
   const input = createInput(element);
-  const audio = createAudio();
+  const audio = createAudio(config.masterTrimDb);
   const scenes = createSceneManager(input);
   const save = createSaveStore();
+  save.seedProfiles(config.profiles);
   const sprites = createSpriteStore();
   const session = createSessionTimer({
-    ...(options.nudgeAfterSeconds !== undefined ? { nudgeAfterSeconds: options.nudgeAfterSeconds } : {}),
+    nudgeAfterSeconds: options.nudgeAfterSeconds ?? config.breakAfterSeconds,
     ...(options.onNudge ? { onNudge: options.onNudge } : {}),
   });
 
@@ -48,13 +55,33 @@ export function bootApp(options: BootOptions = {}): AppServices {
     },
   };
 
+  let overlayAt = 0;
+  let overlay = '';
   const loop = createLoop({
+    frame: (seconds) => { if (save.active) session.tick(seconds); },
     update: (dt) => {
-      session.tick(dt);
       scenes.update(dt);
+      input.endFrame();
     },
-    render: (alpha) => scenes.render(view, alpha),
-  });
+    render: (alpha) => {
+      scenes.render(view, alpha);
+      if (debug.enabled) {
+        const now = performance.now();
+        if (now >= overlayAt) {
+          overlay = 'DEBUG  frame p95 ' + loop.stats.p95.toFixed(1) + ' ms   work p95 ' + loop.stats.workP95.toFixed(1) + ' ms   scale ' + canvas.resolutionScale + '   DPR ' + canvas.dpr.toFixed(2) + '   [R] resolution';
+          overlayAt = now + 250;
+        }
+        const ctx = canvas.ctx;
+        ctx.save();
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = '#172038'; ctx.fillRect(0, 0, canvas.width, 24);
+        ctx.fillStyle = '#fff'; ctx.font = '12px monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText(overlay, 8, 12);
+        ctx.restore();
+      }
+    },
+    afterFrame: (interval, work) => canvas.observeFrame(interval, work),
+  }, { timeScale: debug.timeScale });
 
   sprites.setPixelRatio(canvas.dpr);
   canvas.onResize((w, h) => {
@@ -64,8 +91,24 @@ export function bootApp(options: BootOptions = {}): AppServices {
   // The canvas sized itself before this listener existed; seed the manager so
   // the first pushed scene receives resize() with real dimensions.
   scenes.resize(canvas.width, canvas.height);
-  input.on('pointerdown', () => void audio.unlock());
-  input.on('anykey', () => void audio.unlock());
+  let firstGesture = true;
+  const onGesture = (event: Event): void => {
+    void audio.unlock();
+    if (!firstGesture || !event.isTrusted || (event instanceof KeyboardEvent && event.key === 'Escape')) return;
+    firstGesture = false;
+    const root = document.documentElement;
+    const keyboard = (navigator as Navigator & { keyboard?: { lock(keys: string[]): Promise<void> } }).keyboard;
+    if (!document.fullscreenElement && root.requestFullscreen) {
+      void root.requestFullscreen().then(() => keyboard?.lock(['Space', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])).catch(() => {});
+    }
+  };
+  window.addEventListener('pointerdown', onGesture, { capture: true });
+  window.addEventListener('keydown', onGesture, { capture: true });
+  if (debug.enabled) window.addEventListener('keydown', (event) => {
+    if (event.code !== 'KeyR' || event.repeat || event.ctrlKey || event.metaKey) return;
+    const scale = canvas.resolutionScale;
+    canvas.setResolutionScale(scale === 1 ? 0.85 : scale === 0.85 ? 0.7 : 1);
+  }, { capture: true });
 
   const rawBase = import.meta.env.BASE_URL;
   const base = rawBase.endsWith('/') ? rawBase : `${rawBase}/`;
@@ -77,7 +120,20 @@ export function bootApp(options: BootOptions = {}): AppServices {
     toStickerBook: options.nav?.toStickerBook ?? missing('toStickerBook'),
   };
 
+  let persistenceRequested = false;
   const services: AppServices = {
+    config,
+    debug,
+    random: debug.enabled ? seededRandom(debug.seed) : Math.random,
+    roundBoundary() {
+      save.flush();
+      if (!persistenceRequested) {
+        persistenceRequested = true;
+        void navigator.storage?.persist?.().catch(() => false);
+      }
+      session.roundBoundary();
+      options.onRoundBoundary?.();
+    },
     canvas,
     input,
     audio,

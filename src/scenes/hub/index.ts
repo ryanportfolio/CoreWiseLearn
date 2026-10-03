@@ -7,11 +7,12 @@ import type { Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
 import type { AppServices } from '../../app/services';
 import { allGames } from '../../engine/registry';
 import { accentFor, avatarPath, avatarSpriteName } from '../../app/avatar';
+import { createKeyboardNavigation } from '../../ui/navigation';
 import { createButton, dispatchDown, dispatchUp, type Button } from '../../ui/button';
 import { chunkyCircle, chunkyPanel, drawSprite, groundShadow, OUTLINE, roundedRect } from '../../ui/draw';
 import { starPath } from '../../ui/celebrate';
 import { approach, arriveAlpha, arriveScale, springStep } from '../../ui/tween';
-import { drawEnterFade, reducedMotion } from '../../ui/motion';
+import { drawEnterFade } from '../../ui/motion';
 import { drawMascotAt } from '../../ui/mascot';
 import { playSfx } from '../../audio/sfx';
 import { startMusic, stopMusic } from '../../audio/music';
@@ -76,7 +77,7 @@ function hubArt(services: AppServices): ArtRequest[] {
     ...soundArt(services),
   ];
   const profile = services.profile();
-  if (profile) reqs.push({ name: avatarSpriteName(profile.name), url: services.art(avatarPath(profile.name)), kind: 'blob', color: accentFor(profile.name) });
+  if (profile) reqs.push({ name: avatarSpriteName(profile), url: services.art(avatarPath(profile)), kind: 'blob', color: accentFor(profile) });
   allGames().forEach((g, i) => {
     reqs.push({ name: gameIconName(g.id), url: gameIconUrl(services, g.icon), kind: 'blob', color: TILE_COLORS[(i + 2) % TILE_COLORS.length] ?? '#ffffff' });
   });
@@ -175,6 +176,7 @@ export function createHubScene(services: AppServices): Scene {
     icon: artName(SILHOUETTE),
     iconScale: 0.8,
     onPress: () => {
+      if (cooldown > 0) return; cooldown = 0.6;
       playSfx(audio, 'button');
       nav.toNameEntry();
     },
@@ -189,17 +191,20 @@ export function createHubScene(services: AppServices): Scene {
     iconScale: 0.64,
     wobble: false,
     onPress: () => {
+      if (cooldown > 0) return; cooldown = 0.6;
       playSfx(audio, 'button');
       nav.toStickerBook();
     },
   };
   const stickerButton = createButton(stickerOptions);
   const soundButton = createSoundButton(services);
-  const buttons: Button[] = [avatarButton, stickerButton, soundButton];
+  const renameButton = createButton({ x: 0, y: 0, radius: 48, fill: '#ffd23f', onPress: () => { if (cooldown > 0) return; const profile = services.profile(); if (profile) { cooldown = 0.6; nav.toNameEntry(profile.id); } } });
+  const buttons: Button[] = [avatarButton, renameButton, stickerButton, soundButton];
   const hoverPrev: boolean[] = [false, false, false];
 
   const tiles: Tile[] = [];
-  let pressedTile: Tile | null = null;
+  const tileButtons: Button[] = [];
+  const keyboard = createKeyboardNavigation(() => [...tileButtons, ...buttons]);
 
   const layoutInfo: HubLayout = { targets: [] };
 
@@ -212,6 +217,8 @@ export function createHubScene(services: AppServices): Scene {
       games.forEach((g, i) => tiles.push(newTile(g.id, artName(gameIconName(g.id)), TILE_COLORS[i % TILE_COLORS.length] ?? '#ffffff')));
     }
     singleGame = games.length === 1;
+    tileButtons.length = 0;
+    for (const tile of tiles) tileButtons.push(createButton({ x: 0, y: 0, radius: 48, fill: tile.color, onPress: () => activate(tile) }));
   }
 
   function newTile(id: string | null, iconName: string, color: string): Tile {
@@ -238,14 +245,15 @@ export function createHubScene(services: AppServices): Scene {
     const h = height;
     margin = Math.max(16, Math.round(h * 0.03));
 
-    const ar = buttonRadius(h, 0.085, 84);
+    const ar = buttonRadius(h, 0.085 * services.config.uiScale, 84);
     avatarButton.radius = ar;
     avatarButton.x = margin + ar;
     avatarButton.y = margin + ar;
-    nameX = avatarButton.x + ar + 14;
+    renameButton.x = avatarButton.x + ar + 60; renameButton.y = avatarButton.y;
+    nameX = renameButton.x + 62;
     nameY = avatarButton.y;
 
-    const br = buttonRadius(h, 0.075, 72);
+    const br = buttonRadius(h, 0.075 * services.config.uiScale, 72);
     soundButton.radius = br;
     soundButton.x = w - margin - br;
     soundButton.y = margin + br;
@@ -262,7 +270,7 @@ export function createHubScene(services: AppServices): Scene {
     mascotGround = h - margin;
 
     // Tile band between the top buttons and the mascot.
-    const bandTop = margin + ar * 2 + h * 0.05;
+    const bandTop = margin + ar * 2 + h * 0.05 + (w < 1000 ? 50 : 0);
     const bandBottom = h * 0.76;
     const bandH = Math.max(100, bandBottom - bandTop);
     const bandW = w - margin * 4;
@@ -298,9 +306,12 @@ export function createHubScene(services: AppServices): Scene {
       }
     }
 
+    tiles.forEach((t, i) => { const b = tileButtons[i]!; b.x = t.x; b.y = t.y; b.radius = t.size / 2; });
+    if (w < 1000) { nameX = margin; nameY = avatarButton.y + ar + 30; }
     if (import.meta.env.DEV) {
       layoutInfo.targets = [
         circleTarget('avatar', avatarButton),
+        circleTarget('rename', renameButton),
         circleTarget('sticker-book', stickerButton),
         circleTarget('sound', soundButton),
         ...tiles.map((t, i) => ({ id: `tile:${t.id ?? `placeholder-${i}`}`, x: t.x - t.size / 2, y: t.y - t.size / 2, w: t.size, h: t.size })),
@@ -313,14 +324,14 @@ export function createHubScene(services: AppServices): Scene {
     const profile = services.profile();
     const dpr = services.canvas.dpr;
     if (profile) {
-      accent = accentFor(profile.name);
+      accent = accentFor(profile);
       avatarButton.fill = accent;
-      const avatar = avatarSpriteName(profile.name);
+      const avatar = avatarSpriteName(profile);
       avatarButton.icon = artName(avatar);
-      void loadArt(services, { name: avatar, url: services.art(avatarPath(profile.name)), kind: 'blob', color: accent }).then(() => {
+      void loadArt(services, { name: avatar, url: services.art(avatarPath(profile)), kind: 'blob', color: accent }).then(() => {
         avatarButton.icon = artName(avatar);
       });
-      nameSprite = makeTextSprite(profile.name, Math.round(Math.max(34, Math.min(56, height * 0.06))), dpr);
+      nameSprite = profile.unnamed ? undefined : makeTextSprite(profile.name, Math.round(Math.max(34, Math.min(56, height * 0.06))), dpr);
     } else {
       accent = '#c7d2fe';
       avatarButton.fill = accent;
@@ -366,12 +377,12 @@ export function createHubScene(services: AppServices): Scene {
 
   function renderTile(ctx: CanvasRenderingContext2D, t: Tile, i: number): void {
     if (t.delay > 0) return;
-    const calm = reducedMotion();
+    const calm = false;
     const alpha = arriveAlpha(t.pop);
     if (alpha <= 0) return;
     const s = t.size;
     const base = (t.scale[0] ?? 1) * arriveScale(t.pop, calm);
-    const squash = t.squash[0] ?? 0;
+    const squash = (t.squash[0] ?? 0) * 1;
     const sx = base * (1 + 0.08 * squash);
     const sy = base * (1 - 0.12 * squash);
     // Idle sway on its own phase, running from the pop-in on; a quicker wobble while hovered.
@@ -386,6 +397,7 @@ export function createHubScene(services: AppServices): Scene {
     const half = s / 2;
     const radius = s * 0.17;
     chunkyPanel(ctx, -half, -half, s, s, t.color, OUTLINE, radius, Math.max(6, s * 0.03));
+    if (tileButtons[i]?.focused || t.hovered) { ctx.strokeStyle = '#fff8b2'; ctx.lineWidth = 7; roundedRect(ctx, -half + 10, -half + 10, s - 20, s - 20, radius); ctx.stroke(); }
     // Flat highlight band, the house style's "gloss".
     ctx.globalAlpha = 0.28;
     ctx.fillStyle = '#ffffff';
@@ -415,7 +427,7 @@ export function createHubScene(services: AppServices): Scene {
       /* covered by the break nudge: keep music and layout as they are */
     },
     resume() {
-      /* nothing to replay when the nudge closes */
+      cooldown = 0.4;
     },
     enter() {
       width = services.canvas.width;
@@ -426,9 +438,10 @@ export function createHubScene(services: AppServices): Scene {
       void loadHubAssets(services).then(bindArt);
       time = 0;
       mascotT = 0;
-      cooldown = 0;
-      pressedTile = null;
+      cooldown = 0.4;
+      keyboard.focus(tileButtons[0] ?? avatarButton);
       avatarButton.popIn(0);
+      renameButton.popIn(0.02);
       stickerButton.popIn(0.04);
       soundButton.popIn(0.08);
       badgePop = 0;
@@ -472,9 +485,10 @@ export function createHubScene(services: AppServices): Scene {
         const over = inside && px >= t.x - half && px <= t.x + half && py >= t.y - half && py <= t.y + half;
         if (over && !t.hovered) playSfx(audio, 'hover');
         t.hovered = over;
-        t.hover = approach(t.hover, over ? 1 : 0, 10, dt);
-        const zeta = reducedMotion() ? 1 : TILE_ZETA;
-        springStep(t.scale, over && !t.pressed ? 1.08 : 1, TILE_OMEGA, zeta, dt);
+        const focused = tileButtons[tiles.indexOf(t)]?.focused ?? false;
+        t.hover = approach(t.hover, over || focused ? 1 : 0, 10, dt);
+        const zeta = false ? 1 : TILE_ZETA;
+        springStep(t.scale, (over || focused) && !t.pressed ? 1 + 0.08 * 1 : 1, TILE_OMEGA, zeta, dt);
         springStep(t.squash, t.pressed ? 1 : 0, TILE_OMEGA * 1.4, zeta, dt);
         t.wobble += dt;
       }
@@ -489,7 +503,7 @@ export function createHubScene(services: AppServices): Scene {
 
       // Mascot behind the tiles: pops in waving, then idle (or point at a lone game). The bob runs
       // from enter so the pose swap does not jump, and every pose is drawn from its feet.
-      const calm = reducedMotion();
+      const calm = false;
       const pose = mascotT < WAVE_SECONDS ? WAVE : singleGame ? POINT : IDLE;
       const lift = calm ? 0 : (Math.sin(time * 2.2) + 1) * mascotSize * 0.025;
       const rot = mascotT < WAVE_SECONDS && !calm ? Math.sin(mascotT * 6) * 0.06 * (1 - mascotT / WAVE_SECONDS) : 0;
@@ -504,9 +518,12 @@ export function createHubScene(services: AppServices): Scene {
       for (let i = 0; i < tiles.length; i++) renderTile(ctx, tiles[i] as Tile, i);
 
       for (const b of buttons) b.render(ctx, services.sprites);
+      ctx.save(); ctx.translate(renameButton.x, renameButton.y); ctx.rotate(-Math.PI / 4);
+      chunkyPanel(ctx, -10, -26, 20, 45, '#fff4dc', OUTLINE, 4, 4);
+      ctx.beginPath(); ctx.moveTo(-10, 19); ctx.lineTo(0, 34); ctx.lineTo(10, 19); ctx.closePath(); ctx.fillStyle = OUTLINE; ctx.fill(); ctx.restore();
       if (nameSprite) drawTextSprite(ctx, nameSprite, nameX, nameY, 'left');
       if (badgeSprite && badgeCount > 0 && badgeDelay <= 0) {
-        const s = arriveScale(badgePop, reducedMotion());
+        const s = arriveScale(badgePop, false);
         const a = arriveAlpha(badgePop);
         if (a > 0) {
           ctx.save();
@@ -522,38 +539,15 @@ export function createHubScene(services: AppServices): Scene {
       drawEnterFade(ctx, width, height, time);
     },
     handleInput(event: SceneInputEvent) {
+      if (cooldown > 0) return;
       if (event.type === 'pointerdown') {
-        const { x, y } = event.info;
-        if (dispatchDown(buttons, x, y)) return;
-        const t = tileAt(x, y);
-        if (t && t.delay <= 0) {
-          t.pressed = true;
-          pressedTile = t;
-        }
+        if (dispatchDown(buttons, event.info.x, event.info.y)) return;
+        const tile = tileAt(event.info.x, event.info.y);
+        if (tile) activate(tile);
       } else if (event.type === 'pointerup') {
-        const { x, y } = event.info;
-        dispatchUp(buttons, x, y);
-        const t = pressedTile;
-        if (t) {
-          pressedTile = null;
-          t.pressed = false;
-          if (tileAt(x, y) === t) activate(t);
-        }
-      } else if (event.type === 'anykey') {
-        // Any key acts on whatever the pointer rests on, so a child who typed
-        // their name can keep going without reaching for the mouse.
-        for (const t of tiles) {
-          if (t.hovered && t.delay <= 0) {
-            activate(t);
-            return;
-          }
-        }
-        for (const b of buttons) {
-          if (b.hovered && b.pointerDown(b.x, b.y)) {
-            b.pointerUp(b.x, b.y);
-            return;
-          }
-        }
+        dispatchUp(buttons, event.info.x, event.info.y);
+      } else if (event.type === 'keydown' && !event.info.repeat) {
+        keyboard.key(event.info.key);
       }
     },
     resize(w: number, h: number) {

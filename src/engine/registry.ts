@@ -19,6 +19,12 @@ export interface GameDefinition {
   icon: string;
   /** Free-form tags such as "numbers", "letters", "colours", "motor". */
   themes: string[];
+  /** Round games award on completion; creative games save when the child leaves. */
+  mode?: 'round' | 'creative';
+  /** Content practice is tracked separately from pointer or keyboard control. */
+  learning?: readonly ('letters' | 'sounds' | 'words' | 'counting' | 'shapes' | 'colors')[];
+  /** Optional future bundle loader. Failure is recovered once at a safe hub boundary. */
+  load?: () => Promise<void>;
   /** Build a fresh scene for a play session. */
   createScene(services: GameServices): Scene;
 }

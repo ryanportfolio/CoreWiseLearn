@@ -10,7 +10,9 @@ export interface PointerState {
   /** Position in logical canvas pixels (same units the render code draws in). */
   x: number;
   y: number;
-  /** True while the primary button (or a touch) is held. */
+  previousX: number;
+  previousY: number;
+  /** True while any pointer button (or a touch) is held. */
   down: boolean;
   /** True if the pointer has been inside the canvas at least once. */
   inside: boolean;
@@ -49,8 +51,10 @@ export interface Input {
   /** True while the named key (KeyboardEvent.code, e.g. "ArrowLeft", "Space") is held. */
   isKeyDown(code: string): boolean;
   on<K extends InputEventName>(event: K, fn: InputListener<K>): () => void;
-  /** Drop all held state (call when a scene changes so stale presses do not leak). */
+  /** Drop scene-held pointer state; physical keys remain held until keyup to suppress repeats. */
   reset(): void;
+  /** Advance the swept pointer origin after a simulation update. */
+  endFrame(): void;
   destroy(): void;
 }
 
@@ -92,8 +96,9 @@ function shouldBlockKey(e: KeyboardEvent): boolean {
 }
 
 export function createInput(canvas: HTMLCanvasElement): Input {
-  const pointer: PointerState = { x: 0, y: 0, down: false, inside: false };
+  const pointer: PointerState = { x: 0, y: 0, previousX: 0, previousY: 0, down: false, inside: false };
   const keys = new Set<string>();
+  let sceneGeneration = 0;
   const listeners: { [K in InputEventName]: Set<InputListener<K>> } = {
     pointerdown: new Set(),
     pointerup: new Set(),
@@ -104,7 +109,7 @@ export function createInput(canvas: HTMLCanvasElement): Input {
   };
 
   function emit<K extends InputEventName>(event: K, info: InputEventMap[K]): void {
-    for (const fn of listeners[event]) fn(info);
+    for (const fn of [...listeners[event]]) if (listeners[event].has(fn)) fn(info);
   }
 
   function toCanvas(e: PointerEvent): PointerEventInfo {
@@ -115,13 +120,10 @@ export function createInput(canvas: HTMLCanvasElement): Input {
   }
 
   const onPointerDown = (e: PointerEvent): void => {
-    if (e.button !== 0 && e.pointerType === 'mouse') {
-      e.preventDefault();
-      return;
-    }
-    canvas.setPointerCapture(e.pointerId);
+    try { canvas.setPointerCapture(e.pointerId); } catch { /* a cancelled pointer has no capture */ }
     canvas.focus({ preventScroll: true });
     const info = toCanvas(e);
+    if (!pointer.inside) { pointer.previousX = info.x; pointer.previousY = info.y; }
     pointer.x = info.x;
     pointer.y = info.y;
     pointer.down = true;
@@ -131,6 +133,7 @@ export function createInput(canvas: HTMLCanvasElement): Input {
   };
   const onPointerMove = (e: PointerEvent): void => {
     const info = toCanvas(e);
+    if (!pointer.inside) { pointer.previousX = info.x; pointer.previousY = info.y; }
     pointer.x = info.x;
     pointer.y = info.y;
     pointer.inside = true;
@@ -138,6 +141,7 @@ export function createInput(canvas: HTMLCanvasElement): Input {
   };
   const onPointerUp = (e: PointerEvent): void => {
     const info = toCanvas(e);
+    if (!pointer.inside) { pointer.previousX = info.x; pointer.previousY = info.y; }
     pointer.x = info.x;
     pointer.y = info.y;
     if (pointer.down) {
@@ -152,12 +156,12 @@ export function createInput(canvas: HTMLCanvasElement): Input {
 
   const onKeyDown = (e: KeyboardEvent): void => {
     if (shouldBlockKey(e)) e.preventDefault();
-    const info: KeyEventInfo = { key: e.key, code: e.code, repeat: e.repeat };
-    if (!e.repeat) {
-      keys.add(e.code);
-      emit('anykey', info);
-    }
-    emit('keydown', info);
+    if (e.repeat || keys.has(e.code)) return;
+    keys.add(e.code);
+    const info: KeyEventInfo = { key: e.key, code: e.code, repeat: false };
+    const generation = sceneGeneration;
+    emit('anykey', info);
+    if (generation === sceneGeneration) emit('keydown', info);
   };
   const onKeyUp = (e: KeyboardEvent): void => {
     keys.delete(e.code);
@@ -199,8 +203,14 @@ export function createInput(canvas: HTMLCanvasElement): Input {
       return () => listeners[event].delete(fn);
     },
     reset() {
-      keys.clear();
+      sceneGeneration++;
       pointer.down = false;
+      pointer.previousX = pointer.x;
+      pointer.previousY = pointer.y;
+    },
+    endFrame() {
+      pointer.previousX = pointer.x;
+      pointer.previousY = pointer.y;
     },
     destroy() {
       canvas.removeEventListener('pointerdown', onPointerDown);

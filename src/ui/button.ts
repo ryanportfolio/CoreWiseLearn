@@ -5,7 +5,6 @@
 
 import type { SpriteStore } from '../engine/sprites';
 import { chunkyCircle, drawSprite } from './draw';
-import { reducedMotion } from './motion';
 import { arriveAlpha, arriveScale, springStep } from './tween';
 
 /** Hover, press and release spring: about 100 ms to grow, a small overshoot on release. */
@@ -27,6 +26,8 @@ export interface ButtonOptions {
   /** Icon size relative to diameter. Default 0.62. */
   iconScale?: number;
   onPress: () => void;
+  /** Rectangle hit area for densely packed letter keys. */
+  squareHit?: boolean;
   /** Gentle idle wobble so the child notices it. Default false. */
   wobble?: boolean;
 }
@@ -40,12 +41,14 @@ export interface Button {
   visible: boolean;
   enabled: boolean;
   hovered: boolean;
+  focused: boolean;
+  activate(): void;
   contains(px: number, py: number): boolean;
   update(dt: number, pointerX: number, pointerY: number): void;
   render(ctx: CanvasRenderingContext2D, sprites: SpriteStore): void;
   /** Call on pointerdown; returns true if consumed. */
   pointerDown(px: number, py: number): boolean;
-  /** Call on pointerup; fires onPress if the press started and ended inside. */
+  /** Release the visual press state; activation happens on pointerdown. */
   pointerUp(px: number, py: number): boolean;
   /** Play the pop-in animation (for example on scene enter). */
   popIn(delaySeconds?: number): void;
@@ -70,11 +73,15 @@ export function createButton(options: ButtonOptions): Button {
     visible: true,
     enabled: true,
     hovered: false,
+    focused: false,
+    activate() {
+      if (button.enabled && button.visible) options.onPress();
+    },
     contains(px, py) {
       const dx = px - button.x;
       const dy = py - button.y;
       const r = Math.max(button.radius, MIN_HIT);
-      return dx * dx + dy * dy <= r * r;
+      return options.squareHit ? Math.abs(dx) <= r && Math.abs(dy) <= r : dx * dx + dy * dy <= r * r;
     },
     update(dt, pointerX, pointerY) {
       if (popDelay > 0) {
@@ -83,13 +90,13 @@ export function createButton(options: ButtonOptions): Button {
         popT = Math.min(1, popT + dt / POP_SECONDS);
       }
       button.hovered = button.enabled && button.visible && button.contains(pointerX, pointerY);
-      targetScale = pressed ? 0.9 : button.hovered ? 1.1 : 1;
-      springStep(spring, targetScale, SPRING_OMEGA, reducedMotion() ? 1 : SPRING_ZETA, dt);
+      targetScale = pressed ? 1 - 0.1 * 1 : (button.hovered || button.focused) ? 1 + 0.1 * 1 : 1;
+      springStep(spring, targetScale, SPRING_OMEGA, false ? 1 : SPRING_ZETA, dt);
       if (options.wobble) wobbleT += dt * 2.4;
     },
     render(ctx, sprites) {
       if (!button.visible || popDelay > 0) return;
-      const calm = reducedMotion();
+      const calm = false;
       const wob = options.wobble && !calm ? Math.sin(wobbleT) * 0.04 : 0;
       const s = (spring[0] ?? 1) * arriveScale(popT, calm);
       const alpha = arriveAlpha(popT);
@@ -100,24 +107,29 @@ export function createButton(options: ButtonOptions): Button {
       if (wob !== 0) ctx.rotate(wob);
       ctx.scale(s, s);
       chunkyCircle(ctx, 0, 0, button.radius, button.fill);
+      if (button.focused || button.hovered) {
+        ctx.beginPath(); ctx.arc(0, 0, Math.max(12, button.radius - 8), 0, Math.PI * 2);
+        ctx.lineWidth = 5; ctx.strokeStyle = '#fff8b2'; ctx.stroke();
+      }
       if (button.icon) drawSprite(ctx, sprites, button.icon, 0, 0, button.radius * 2 * iconScale);
       ctx.restore();
     },
     pointerDown(px, py) {
       if (!button.enabled || !button.visible || !button.contains(px, py)) return false;
       pressed = true;
+      button.activate();
       return true;
     },
     pointerUp(px, py) {
       if (!pressed) return false;
       pressed = false;
       if (button.enabled && button.visible && button.contains(px, py)) {
-        options.onPress();
         return true;
       }
       return false;
     },
     popIn(delaySeconds = 0) {
+      pressed = false;
       popT = 0;
       popDelay = delaySeconds;
       spring[0] = 1;

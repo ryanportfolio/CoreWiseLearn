@@ -3,7 +3,7 @@
 import type { SpriteStore } from '../engine/sprites';
 
 /** Chunky display font. Falls back to system faces; no network fonts. */
-export const DISPLAY_FONT = "'Fredoka', 'Segoe UI Black', 'Arial Rounded MT Bold', 'Arial Black', sans-serif";
+export const DISPLAY_FONT = "'Andika', 'Segoe UI', sans-serif";
 
 export const OUTLINE = '#2b2140';
 

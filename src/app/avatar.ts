@@ -1,3 +1,5 @@
+import type { Profile } from '../engine/save';
+
 /**
  * Deterministic avatar and accent colour for a profile name, so the same
  * name always gets the same animal and colour on every screen.
@@ -17,20 +19,22 @@ function hash(name: string): number {
   return h;
 }
 
-export function avatarFor(name: string): AvatarName {
+export function avatarFor(name: string | Profile): AvatarName {
+  if (typeof name !== 'string') return AVATARS.includes(name.avatar as AvatarName) ? name.avatar as AvatarName : avatarFor(name.id);
   return AVATARS[hash(name) % AVATARS.length] ?? 'fox';
 }
 
 /** Sprite path under public/art/. */
-export function avatarPath(name: string): string {
+export function avatarPath(name: string | Profile): string {
   return `avatars/${avatarFor(name)}.png`;
 }
 
 /** Sprite-store name: `avatar:<animal>`. */
-export function avatarSpriteName(name: string): string {
+export function avatarSpriteName(name: string | Profile): string {
   return `avatar:${avatarFor(name)}`;
 }
 
-export function accentFor(name: string): string {
+export function accentFor(name: string | Profile): string {
+  if (typeof name !== 'string') return name.accent;
   return ACCENTS[(hash(name) >>> 8) % ACCENTS.length] ?? '#ffd23f';
 }

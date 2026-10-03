@@ -7,7 +7,7 @@
  * the right end of the tray row.
  */
 
-export const MAX_LETTERS = 12;
+export const MAX_LETTERS = 10;
 export const KEY_ROWS = [9, 9, 8] as const;
 const MIN_KEY = 96;
 const MAX_KEY = 140;
@@ -138,3 +138,4 @@ export function emptyLayout(): NameEntryLayout {
     mascotX: 0, mascotGroundY: 0, mascotSize: 0,
   };
 }
+

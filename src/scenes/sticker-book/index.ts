@@ -1,5 +1,5 @@
 /**
- * The sticker book: one slot per sticker across the album's two pages.
+ * Three collection pages, eight stickers each. Owned stickers can play and move.
  * Earned stickers show in full colour with a white sticker border; the rest
  * are dotted circles holding a faint grey version. Stickers earned since the
  * last visit drop in one by one with confetti.
@@ -7,26 +7,20 @@
 
 import type { Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
 import type { AppServices, RewardsBag } from '../../app/services';
-import { createParticleSystem } from '../../engine/particles';
 import { STICKERS, stickerSpriteName, type StickerDef } from '../../app/stickers';
-import { createButton, dispatchDown, dispatchUp, MIN_HIT, type Button } from '../../ui/button';
+import { createButton, dispatchDown, dispatchUp, type Button } from '../../ui/button';
 import { chunkyCircle, OUTLINE, roundedRect } from '../../ui/draw';
-import { confettiBurst } from '../../ui/celebrate';
-import { arriveAlpha, arriveScale, easeOutBack, pulse } from '../../ui/tween';
-import { drawEnterFade, reducedMotion } from '../../ui/motion';
+import { drawEnterFade } from '../../ui/motion';
+import { createKeyboardNavigation, drawPageArrow } from '../../ui/navigation';
 import { playSfx } from '../../audio/sfx';
 import { startMusic, stopMusic } from '../../audio/music';
 import {
   artName,
   artRequest,
   bakeBackground,
-  buttonRadius,
   circleTarget,
-  coverRect,
   createSoundButton,
-  hoverSounds,
   loadAllArt,
-  makeTextSprite,
   markSeen,
   rewardsOrUndefined,
   soundArt,
@@ -34,7 +28,6 @@ import {
   unseenStickers,
   type ArtRequest,
   type LayoutTarget,
-  type Rect,
   type TextSprite,
 } from '../hub/shared';
 
@@ -48,17 +41,6 @@ const PAGES = [
 ] as const;
 
 const PLACEHOLDER_HUES = ['#ff8a5c', '#5fd36b', '#c084fc', '#ffd23f', '#ff6b6b', '#ffb84d', '#a855f7', '#facc15', '#60a5fa', '#38bdf8'];
-const DASH: number[] = [14, 11];
-const NO_DASH: number[] = [];
-const DROP_SECONDS = 0.75;
-/** easeOutBack(1.4) first reaches the slot at this fraction of the drop: the touchdown, where the sound and confetti go. */
-const DROP_OVERSHOOT = 1.4;
-const DROP_CONTACT = 1 / (DROP_OVERSHOOT + 1);
-const MIN_SLOT = 140;
-/** Slots pop in one after another on enter, 30 ms apart, each over SLOT_POP seconds. */
-const SLOT_STAGGER = 0.03;
-const SLOT_POP_DELAY = 0.12;
-const SLOT_POP = 0.4;
 
 function stickerArt(services: AppServices): ArtRequest[] {
   return [
@@ -133,7 +115,7 @@ function buildSlotCanvases(services: AppServices, slot: Slot, d: number): void {
     return;
   }
   const px = Math.max(8, Math.round(d * dpr));
-  const art = px * 0.8;
+  const art = d * 0.8;
   const longest = Math.max(img.naturalWidth, img.naturalHeight) || 1;
   const scaled = services.sprites.scaled(name, art / longest);
   if (!scaled) return;
@@ -172,12 +154,11 @@ function buildSlotCanvases(services: AppServices, slot: Slot, d: number): void {
   const data = gctx.getImageData(0, 0, px, px);
   const p = data.data;
   for (let i = 0; i < p.length; i += 4) {
-    const l = 0.3 * (p[i] ?? 0) + 0.59 * (p[i + 1] ?? 0) + 0.11 * (p[i + 2] ?? 0);
-    const v = 120 + l * 0.45;
+    const v = 105;
     p[i] = v;
     p[i + 1] = v;
     p[i + 2] = v + 10;
-    p[i + 3] = (p[i + 3] ?? 0) * 0.2;
+    p[i + 3] = (p[i + 3] ?? 0) * 0.35;
   }
   gctx.putImageData(data, 0, 0);
   slot.grey = grey;
@@ -185,374 +166,166 @@ function buildSlotCanvases(services: AppServices, slot: Slot, d: number): void {
 
 export function createStickerBookScene(services: AppServices): Scene {
   const { audio, input, nav } = services;
-  const particles = createParticleSystem(400);
-
-  let width = services.canvas.width;
-  let height = services.canvas.height;
-  let bg: HTMLCanvasElement | undefined;
-  let bgDirty = true;
-  let canvasesDirty = true;
-  let slotD = MIN_SLOT;
+  let width = services.canvas.width, height = services.canvas.height;
+  let time = 0, page = 0, leaving = false;
   let bag: RewardsBag | undefined;
-  let pending: string[] = [];
-  let leaving = false;
-
-  const homeButton = createButton({
-    x: 0,
-    y: 0,
-    radius: 64,
-    fill: '#fb923c',
-    icon: artName(HOME),
-    iconScale: 0.6,
-    onPress: () => {
-      if (leaving) return;
-      leaving = true;
-      playSfx(audio, 'button');
-      nav.toHub();
-    },
-  });
-  const soundButton = createSoundButton(services);
-  const buttons: Button[] = [homeButton, soundButton];
-  const hoverPrev: boolean[] = [false, false];
-
-  const slots: Slot[] = STICKERS.map((def, index) => ({
-    def,
-    x: 0,
-    y: 0,
-    r: MIN_SLOT / 2,
-    count: 0,
-    countText: undefined,
-    color: undefined,
-    grey: undefined,
-    bounce: -1,
-    wobble: -1,
-    drop: -1,
-    dropDelay: 0,
-    landed: false,
-    index,
-  }));
-  /** Seconds since enter. */
-  let time = 0;
-  let pressedSlot: Slot | null = null;
+  let selected: Slot | undefined;
+  let background: HTMLCanvasElement | undefined;
+  let dirty = true;
+  const slots: Slot[] = STICKERS.map((def, index) => ({ def, index, x: 0, y: 0, r: 48, count: 0, countText: undefined, color: undefined, grey: undefined, bounce: -1, wobble: -1, drop: -1, dropDelay: 0, landed: true }));
+  const home = createButton({ x: 0, y: 0, radius: 48, fill: '#fb923c', icon: artName(HOME), onPress: () => { if (!leaving) { leaving = true; playSfx(audio, 'button'); nav.toHub(); } } });
+  const sound = createSoundButton(services);
+  const previous = createButton({ x: 0, y: 0, radius: 48, fill: '#a78bfa', onPress: () => changePage(-1) });
+  const next = createButton({ x: 0, y: 0, radius: 48, fill: '#a78bfa', onPress: () => changePage(1) });
+  const slotButtons = slots.map((slot) => createButton({ x: 0, y: 0, radius: 48, fill: '#fff4dc', onPress: () => tap(slot) }));
+  const controls = [home, previous, next, sound];
+  const keyboard = createKeyboardNavigation(() => keyboardButtons);
   const layoutInfo: StickerBookLayout = { targets: [] };
-  const imgRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
-
-  function layout(): void {
-    const w = width;
-    const h = height;
-    const margin = Math.max(16, Math.round(h * 0.03));
-    const br = buttonRadius(h, 0.085, 80);
-    homeButton.radius = br;
-    homeButton.x = margin + br;
-    homeButton.y = h - margin - br;
-    const sr = buttonRadius(h, 0.075, 72);
-    soundButton.radius = sr;
-    soundButton.x = w - margin - sr;
-    soundButton.y = margin + sr;
-
-    const img = services.sprites.get(BG);
-    if (img) coverRect(img.naturalWidth, img.naturalHeight, w, h, imgRect);
-    else coverRect(w, h, w, h, imgRect);
-
-    // Split stickers across the pages, then pick the grid that gives the biggest slots.
-    const perPage = [Math.ceil(slots.length / 2), Math.floor(slots.length / 2)];
-    let best = 0;
-    const pageRects: Rect[] = [];
-    for (let p = 0; p < 2; p++) {
-      const f = PAGES[p];
-      if (!f) continue;
-      const x0 = Math.max(margin, imgRect.x + imgRect.w * f.x0);
-      const x1 = Math.min(w - margin, imgRect.x + imgRect.w * f.x1);
-      const y0 = Math.max(margin, imgRect.y + imgRect.h * f.y0);
-      const y1 = Math.min(h - margin, imgRect.y + imgRect.h * f.y1);
-      pageRects.push({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
-    }
-    const grids: { cols: number; rows: number }[] = [];
-    for (let p = 0; p < 2; p++) {
-      const n = perPage[p] ?? 0;
-      const r = pageRects[p];
-      let pick = { cols: 1, rows: Math.max(1, n) };
-      let pickSize = 0;
-      if (r && n > 0) {
-        for (let cols = 1; cols <= n; cols++) {
-          const rows = Math.ceil(n / cols);
-          const size = Math.min(r.w / cols, r.h / rows);
-          if (size > pickSize) {
-            pickSize = size;
-            pick = { cols, rows };
-          }
-        }
-      }
-      grids.push(pick);
-      best = p === 0 ? pickSize : Math.min(best, pickSize);
-    }
-    const d = Math.max(MIN_SLOT, best * 0.84);
-    if (Math.abs(d - slotD) > 0.5) canvasesDirty = true;
-    slotD = d;
-
-    let k = 0;
-    for (let p = 0; p < 2; p++) {
-      const n = perPage[p] ?? 0;
-      const r = pageRects[p];
-      const g = grids[p];
-      if (!r || !g) continue;
-      const cellW = r.w / g.cols;
-      const cellH = r.h / g.rows;
-      for (let i = 0; i < n; i++) {
-        const s = slots[k++];
-        if (!s) continue;
-        const row = Math.floor(i / g.cols);
-        const inRow = row === g.rows - 1 ? n - row * g.cols : g.cols;
-        const col = i - row * g.cols;
-        const rowOffset = ((g.cols - inRow) * cellW) / 2;
-        s.x = r.x + rowOffset + cellW * (col + 0.5);
-        s.y = r.y + cellH * (row + 0.5);
-        s.r = d / 2;
-      }
-    }
-
-    // On small screens a corner slot can reach under a corner button; nudge it clear.
-    for (const s of slots) {
-      for (const b of buttons) {
-        const dx = s.x - b.x;
-        const dy = s.y - b.y;
-        const dist = Math.hypot(dx, dy) || 1;
-        const need = s.r + Math.max(b.radius, MIN_HIT) + 6 - dist;
-        if (need > 0) {
-          s.x += (dx / dist) * need;
-          s.y += (dy / dist) * need;
-        }
-      }
-    }
-
-    if (import.meta.env.DEV) {
-      layoutInfo.targets = [
-        circleTarget('home', homeButton),
-        circleTarget('sound', soundButton),
-        ...slots.map((s) => ({ id: `slot:${s.def.id}`, x: s.x - s.r, y: s.y - s.r, w: s.r * 2, h: s.r * 2 })),
-      ];
-    }
-    bgDirty = true;
+  let activeSlots: Slot[] = [];
+  let activeButtons: Button[] = [];
+  let slotHitOrder: Button[] = [];
+  let keyboardButtons: Button[] = [];
+  function visibleSlots(): Slot[] { return activeSlots; }
+  function positions(): Record<string, { x: number; y: number }> {
+    const raw = bag?.['positions'];
+    return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, { x: number; y: number }> : {};
   }
-
-  function refreshCounts(): void {
+  function savePosition(slot: Slot): void {
+    if (!bag) return;
+    bag['positions'] = { ...positions(), [slot.def.id]: { x: slot.x / width, y: slot.y / height } };
+    services.save.save();
+  }
+  function tap(slot: Slot): void {
+    if (slot.count < 1) return;
+    if (selected === slot) { selected = undefined; return; }
+    selected = slot;
+    slot.bounce = 0;
+    keyboard.focus(slotButtons[slot.index]);
+    playSfx(audio, 'sticker');
+  }
+  function place(slot: Slot, x: number, y: number): void {
+    slot.x = Math.max(slot.r + 12, Math.min(width - slot.r - 12, x));
+    slot.y = Math.max(slot.r + 12, Math.min(height - 120 - slot.r, y));
+    const b = slotButtons[slot.index]!; b.x = slot.x; b.y = slot.y;
+    savePosition(slot);
+  }
+  function changePage(step: number): void {
+    selected = undefined;
+    page = (page + step + Math.ceil(STICKERS.length / 8)) % Math.ceil(STICKERS.length / 8);
+    layout(); markVisibleSeen(); keyboard.focus(step > 0 ? next : previous);
+    playSfx(audio, 'whoosh');
+  }
+  function refresh(): void {
     bag = rewardsOrUndefined(services);
-    const earned = bag && Array.isArray(bag.stickers) ? bag.stickers : [];
-    const dpr = services.canvas.dpr;
-    for (const s of slots) {
-      let c = 0;
-      for (const id of earned) if (id === s.def.id) c++;
-      s.count = c;
-      s.countText = c > 1 ? makeTextSprite(String(c), Math.round(Math.max(24, s.r * 0.3)), dpr) : undefined;
-    }
+    for (const slot of slots) slot.count = bag?.stickers.includes(slot.def.id) ? 1 : 0;
   }
-
-  function bindArt(): void {
-    homeButton.icon = artName(HOME);
-    syncSoundIcon(soundButton, services);
-    layout();
-    canvasesDirty = true;
+  function markVisibleSeen(): void {
+    const unseen = unseenStickers(bag).filter(id => activeSlots.some(slot => slot.def.id === id));
+    if (bag && unseen.length) markSeen(services, bag, unseen);
   }
-
-  function slotAt(x: number, y: number): Slot | null {
-    for (const s of slots) {
-      const dx = x - s.x;
-      const dy = y - s.y;
-      if (dx * dx + dy * dy <= s.r * s.r) return s;
+  function layout(): void {
+    activeSlots = slots.slice(page * 8, page * 8 + 8);
+    const visibleButtons = activeSlots.map((s) => slotButtons[s.index]!);
+    activeButtons = [...controls, ...visibleButtons];
+    slotHitOrder = visibleButtons.slice().reverse();
+    keyboardButtons = [...visibleButtons, ...controls];
+    const radius = Math.max(48, Math.min(64, 52 * services.config.uiScale, (width - 48) / 8));
+    const y = height - radius - 12;
+    [home, previous, next, sound].forEach((b, i) => { b.radius = radius; b.x = (i + 0.5) * width / 4; b.y = y; });
+    const cols = width >= 640 ? 4 : width >= 420 ? 3 : 2;
+    const rows = Math.ceil(8 / cols);
+    const availableHeight = height - 2 * radius - 38;
+    const cellW = (width - 24) / cols, cellH = availableHeight / rows;
+    const d = Math.max(96, Math.min(190 * services.config.uiScale, cellW - 12, cellH - 8));
+    const saved = positions();
+    for (let i = 0; i < visibleSlots().length; i++) {
+      const slot = visibleSlots()[i]!;
+      slot.r = d / 2;
+      slot.x = 12 + cellW * (i % cols + 0.5);
+      slot.y = 12 + cellH * (Math.floor(i / cols) + 0.5);
+      const position = saved[slot.def.id];
+      if (slot.count && position && Number.isFinite(position.x) && Number.isFinite(position.y)) {
+        slot.x = Math.max(slot.r + 12, Math.min(width - slot.r - 12, position.x * width));
+        slot.y = Math.max(slot.r + 12, Math.min(availableHeight - slot.r, position.y * height));
+      }
+      const button = slotButtons[slot.index]!; button.x = slot.x; button.y = slot.y; button.radius = slot.r; button.enabled = slot.count > 0;
     }
-    return null;
+    layoutInfo.targets = [...controls.map((b, i) => circleTarget(['home', 'previous', 'next', 'sound'][i]!, b)), ...visibleSlots().map((s) => circleTarget(`slot:${s.def.id}`, slotButtons[s.index]!))];
+    dirty = true; background = undefined;
   }
-
-  function finishSeen(): void {
-    if (bag && pending.length > 0) markSeen(services, bag, pending);
-    pending = [];
-  }
-
-  function renderSlot(ctx: CanvasRenderingContext2D, s: Slot): void {
-    const d = s.r * 2;
-    const calm = reducedMotion();
-    // Pop-in on enter: from 0.9 with a small overshoot, fading in.
-    const popK = (time - SLOT_POP_DELAY - s.index * SLOT_STAGGER) / SLOT_POP;
-    if (popK <= 0) return;
-    const pop = arriveScale(popK, calm);
-    const alpha = arriveAlpha(popK);
-    const earnedNow = s.count > 0 && (s.drop < 0 || s.dropDelay <= 0);
-    // Empty slot outline (also shown under a sticker that has not dropped yet).
-    if (!earnedNow || s.drop >= 0) {
-      let rot = 0;
-      if (s.wobble >= 0 && !calm) rot = Math.sin(s.wobble * 18) * 0.12 * (1 - s.wobble / 0.6);
-      ctx.save();
-      if (alpha < 1) ctx.globalAlpha = alpha;
-      ctx.translate(s.x, s.y);
-      if (rot !== 0) ctx.rotate(rot);
-      if (pop !== 1) ctx.scale(pop, pop);
-      ctx.beginPath();
-      ctx.arc(0, 0, s.r * 0.94, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(150, 140, 190, 0.22)';
-      ctx.fill();
-      ctx.setLineDash(DASH);
-      ctx.lineWidth = 5;
-      ctx.strokeStyle = '#6f6597';
-      ctx.stroke();
-      ctx.setLineDash(NO_DASH);
-      if (s.grey) ctx.drawImage(s.grey, -s.r, -s.r, d, d);
-      ctx.restore();
-    }
-    if (!earnedNow) return;
-
-    let y = s.y;
-    let scale = pop;
-    if (s.drop >= 0) {
-      const e = easeOutBack(s.drop, DROP_OVERSHOOT);
-      y = s.y - (s.y + d) * (1 - e);
-      scale = 1.15 - 0.15 * Math.min(1, s.drop);
-    }
-    if (s.bounce >= 0) scale *= 1 + 0.22 * pulse(s.bounce / 0.45);
-    // Earned stickers sway slowly, each on its own phase.
-    const sway = calm || s.drop >= 0 ? 0 : Math.cos(time * 1.0 + s.index * 1.5) * 0.04;
-    ctx.save();
-    if (alpha < 1 && s.drop < 0) ctx.globalAlpha = alpha;
-    ctx.translate(s.x, y);
-    if (sway !== 0) ctx.rotate(sway);
-    if (scale !== 1) ctx.scale(scale, scale);
-    if (s.color) ctx.drawImage(s.color, -s.r, -s.r, d, d);
-    else chunkyCircle(ctx, 0, 0, s.r * 0.8, '#ffd23f');
-    if (s.countText) {
-      const bx = s.r * 0.66;
-      const by = s.r * 0.66;
-      const br = Math.max(22, s.r * 0.24);
-      chunkyCircle(ctx, bx, by, br, '#ef4444', OUTLINE, 5);
-      const t = s.countText;
-      const k = Math.min(1, (br * 1.7) / t.w);
-      ctx.drawImage(t.canvas, bx - (t.w * k) / 2, by - (t.h * k) / 2, t.w * k, t.h * k);
-    }
-    ctx.restore();
-  }
-
-  layout();
+  function bindArt(): void { home.icon = artName(HOME); syncSoundIcon(sound, services); dirty = true; background = undefined; }
   void loadStickerBookAssets(services).then(bindArt);
-
   const scene: Scene & { layout?: StickerBookLayout } = {
     enter() {
-      width = services.canvas.width;
-      height = services.canvas.height;
-      leaving = false;
-      pressedSlot = null;
-      particles.clear();
-      layout();
-      refreshCounts();
-      void loadStickerBookAssets(services).then(bindArt);
-      pending = unseenStickers(bag);
-      time = 0;
-      for (const s of slots) {
-        s.bounce = -1;
-        s.wobble = -1;
-        s.drop = -1;
-        s.dropDelay = 0;
-        s.landed = false;
-      }
-      pending.forEach((id, i) => {
-        const s = slots.find((x) => x.def.id === id);
-        if (!s) return;
-        s.drop = 0;
-        s.dropDelay = 0.6 + i * 0.4;
-      });
-      homeButton.popIn(0.1);
-      soundButton.popIn(0.14);
+      width = services.canvas.width; height = services.canvas.height; time = 0; leaving = false; selected = undefined;
+      refresh(); layout(); markVisibleSeen(); keyboard.focus(keyboardButtons.find((b) => b.enabled) ?? home);
       startMusic(audio, 'sticker-book');
     },
-    /** Covered by the break nudge: keep the page and any drop in progress, quiet the music. */
-    pause() {
-      stopMusic(audio);
-    },
-    resume() {
-      startMusic(audio, 'sticker-book');
-    },
-    exit() {
-      stopMusic(audio);
-    },
+    pause() { stopMusic(audio); },
+    resume() { time = 0; startMusic(audio, 'sticker-book'); },
+    exit() { stopMusic(audio); },
+    resize(w, h) { width = w; height = h; layout(); },
     update(dt) {
       time += dt;
-      const inside = input.pointer.inside;
-      const px = inside ? input.pointer.x : -9999;
-      const py = inside ? input.pointer.y : -9999;
-      for (const b of buttons) b.update(dt, px, py);
-      hoverSounds(services, buttons, hoverPrev);
-      syncSoundIcon(soundButton, services);
-      particles.update(dt);
-
-      let animating = false;
-      for (const s of slots) {
-        if (s.bounce >= 0) {
-          s.bounce += dt;
-          if (s.bounce > 0.45) s.bounce = -1;
-        }
-        if (s.wobble >= 0) {
-          s.wobble += dt;
-          if (s.wobble > 0.6) s.wobble = -1;
-        }
-        if (s.drop >= 0) {
-          animating = true;
-          if (s.dropDelay > 0) {
-            s.dropDelay -= dt;
-            if (s.dropDelay <= 0) playSfx(audio, 'whoosh', { volume: 0.5 });
-            continue;
-          }
-          s.drop += dt / DROP_SECONDS;
-          if (!s.landed && s.drop >= DROP_CONTACT) {
-            // Touchdown: the sound, the confetti and the bounce start on the frame it reaches the slot.
-            s.landed = true;
-            confettiBurst(particles, s.x, s.y, 60, 380);
-            playSfx(audio, 'sticker');
-            s.bounce = 0;
-          }
-          if (s.drop >= 1) s.drop = -1;
-        }
-      }
-      if (!animating && pending.length > 0) finishSeen();
+      for (const b of activeButtons) b.update(dt, input.pointer.inside ? input.pointer.x : -9999, input.pointer.inside ? input.pointer.y : -9999);
+      syncSoundIcon(sound, services);
+      for (const slot of slots) if (slot.bounce >= 0) { slot.bounce += dt; if (slot.bounce >= 3) slot.bounce = -1; }
     },
-    render(view: SceneContext) {
-      const { ctx } = view;
-      if (bgDirty || !bg) {
-        bg = bakeBackground(services, BG, width, height, fallbackAlbum, bg);
-        bgDirty = false;
+    render({ ctx }: SceneContext) {
+      if (!background) background = bakeBackground(services, BG, width, height, fallbackAlbum, undefined);
+      ctx.drawImage(background, 0, 0, width, height);
+      if (dirty) { for (const slot of visibleSlots()) buildSlotCanvases(services, slot, slot.r * 2); dirty = false; }
+      for (const slot of visibleSlots()) {
+        const b = slotButtons[slot.index]!;
+        const owned = slot.count > 0;
+        ctx.save(); ctx.translate(slot.x, slot.y);
+        if (slot.bounce >= 0 && owned) {
+          const amount = Math.sin(Math.PI * slot.bounce / 3) * 1;
+          ctx.rotate(Math.sin(slot.bounce * 6) * 0.12 * amount);
+          const scale = 1 + Math.sin(slot.bounce * 4) * 0.1 * amount; ctx.scale(scale, scale);
+        }
+        if (owned && (selected === slot || b.focused || b.hovered)) {
+          chunkyCircle(ctx, 0, 0, slot.r, selected === slot ? '#ffe48c' : '#fff4dc', OUTLINE, 4);
+        }
+        if (!owned) {
+          ctx.setLineDash([9, 9]); ctx.beginPath(); ctx.arc(0, 0, slot.r * 0.82, 0, Math.PI * 2); ctx.strokeStyle = '#9283a5'; ctx.lineWidth = 4; ctx.stroke(); ctx.setLineDash([]);
+        }
+        const image = owned ? slot.color : slot.grey;
+        if (image) ctx.drawImage(image, -slot.r, -slot.r, slot.r * 2, slot.r * 2);
+        ctx.restore();
       }
-      if (canvasesDirty) {
-        for (const s of slots) buildSlotCanvases(services, s, slotD);
-        canvasesDirty = false;
-      }
-      ctx.drawImage(bg, 0, 0, width, height);
-      // Settled slots first, then anything falling so it passes over its neighbours.
-      for (const s of slots) if (s.drop < 0) renderSlot(ctx, s);
-      for (const s of slots) if (s.drop >= 0) renderSlot(ctx, s);
-      for (const b of buttons) b.render(ctx, services.sprites);
-      particles.render(ctx);
+      for (const b of controls) b.render(ctx, services.sprites);
+      drawPageArrow(ctx, previous, -1); drawPageArrow(ctx, next, 1);
+      for (let i = 0; i < Math.ceil(STICKERS.length / 8); i++) chunkyCircle(ctx, width / 2 + (i - 1) * 20, height - 16, 6, i === page ? '#ffd23f' : '#d8c9ef', OUTLINE, 2);
       drawEnterFade(ctx, width, height, time);
     },
     handleInput(event: SceneInputEvent) {
+      if (leaving || time < 0.4) return;
       if (event.type === 'pointerdown') {
         const { x, y } = event.info;
-        if (dispatchDown(buttons, x, y)) return;
-        pressedSlot = slotAt(x, y);
-      } else if (event.type === 'pointerup') {
-        const { x, y } = event.info;
-        dispatchUp(buttons, x, y);
-        const s = pressedSlot;
-        pressedSlot = null;
-        if (!s || slotAt(x, y) !== s || s.drop >= 0) return;
-        if (s.count > 0) {
-          s.bounce = 0;
-          playSfx(audio, 'sticker');
-        } else {
-          s.wobble = 0;
+        if (dispatchDown(controls, x, y)) return;
+        if (selected) { place(selected, x, y); selected = undefined; return; }
+        dispatchDown(slotHitOrder, x, y);
+      } else if (event.type === 'pointerup') dispatchUp(activeButtons, event.info.x, event.info.y);
+      else if (event.type === 'keydown' && !event.info.repeat) {
+        const key = event.info.key;
+        if (selected) {
+          if (key === 'Enter' || key === ' ' || key === 'Escape') { selected = undefined; return; }
+          const vector = { ArrowLeft: [-32, 0], ArrowRight: [32, 0], ArrowUp: [0, -32], ArrowDown: [0, 32] }[key];
+          if (vector) { place(selected, selected.x + vector[0]!, selected.y + vector[1]!); return; }
         }
+        // Reading order stays reachable even when the child stacks stickers together.
+        if (key === 'ArrowLeft' || key === 'ArrowRight') {
+          const step = key === 'ArrowRight' ? 1 : -1;
+          const from = keyboardButtons.indexOf(keyboard.selected as Button);
+          for (let offset = 1; offset <= keyboardButtons.length; offset++) {
+            const button = keyboardButtons[(from + step * offset + keyboardButtons.length * 2) % keyboardButtons.length]!;
+            if (button.enabled && button.visible) { keyboard.focus(button); break; }
+          }
+          return;
+        }
+        keyboard.key(key);
       }
-    },
-    resize(w: number, h: number) {
-      width = w;
-      height = h;
-      layout();
-      refreshCounts();
     },
   };
   if (import.meta.env.DEV) scene.layout = layoutInfo;

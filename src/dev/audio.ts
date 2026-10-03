@@ -103,6 +103,8 @@ function offlineAudio(ctx: OfflineAudioContext): Audio {
   const noop = (): void => {};
   return {
     ready: true,
+    state: 'on',
+    setMasterTrimDb: noop,
     muted: false,
     setMuted: noop,
     toggleMuted: () => false,

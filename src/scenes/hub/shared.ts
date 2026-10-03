@@ -19,7 +19,7 @@ import { playSfx } from '../../audio/sfx';
 // Art loading with placeholders
 
 /** What to draw when an art file is missing. 'none' draws nothing (backgrounds have their own fallback). */
-export type PlaceholderKind = 'none' | 'blob' | 'star' | 'speaker-on' | 'speaker-off' | 'home' | 'play' | 'person';
+export type PlaceholderKind = 'none' | 'blob' | 'star' | 'speaker-on' | 'speaker-off' | 'speaker-waiting' | 'home' | 'play' | 'person';
 
 export interface ArtRequest {
   /** Sprite-store name, for example 'mascot/idle' or 'sticker:crab'. */
@@ -85,7 +85,8 @@ function drawPlaceholder(ctx: CanvasRenderingContext2D, kind: PlaceholderKind, c
       outlined(ctx, color);
       break;
     case 'speaker-on':
-    case 'speaker-off': {
+    case 'speaker-off':
+    case 'speaker-waiting': {
       ctx.beginPath();
       ctx.moveTo(s * 0.18, s * 0.38);
       ctx.lineTo(s * 0.34, s * 0.38);
@@ -105,6 +106,8 @@ function drawPlaceholder(ctx: CanvasRenderingContext2D, kind: PlaceholderKind, c
         ctx.beginPath();
         ctx.arc(s * 0.56, c, s * 0.3, -0.3 * Math.PI, 0.3 * Math.PI);
         ctx.stroke();
+      } else if (kind === 'speaker-waiting') {
+        for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(s * 0.67, s * (0.32 + i * 0.18), 9, 0, Math.PI * 2); ctx.fillStyle = color; ctx.fill(); }
       } else {
         ctx.beginPath();
         ctx.moveTo(s * 0.64, s * 0.36);
@@ -199,11 +202,13 @@ export function artRequest(services: AppServices, path: string, kind: Placeholde
 /** Art used by more than one scene. */
 export const SOUND_ON = 'buttons/sound-on';
 export const SOUND_OFF = 'buttons/sound-off';
+export const SOUND_WAITING = 'buttons/sound-waiting';
 
 export function soundArt(services: AppServices): ArtRequest[] {
   return [
     artRequest(services, `${SOUND_ON}.png`, 'speaker-on', '#ffffff'),
     artRequest(services, `${SOUND_OFF}.png`, 'speaker-off', '#ffffff'),
+    { name: SOUND_WAITING, url: placeholderUrl('speaker-waiting', '#ffffff'), kind: 'speaker-waiting' },
   ];
 }
 
@@ -308,6 +313,7 @@ export function createSoundButton(services: AppServices): Button {
     icon: artName(services.audio.muted ? SOUND_OFF : SOUND_ON),
     iconScale: 0.6,
     onPress: () => {
+      if (services.audio.state === 'waiting') { void services.audio.unlock(); return; }
       const muted = services.audio.toggleMuted();
       if (!muted) playSfx(services.audio, 'button');
       syncSoundIcon(button, services);
@@ -317,7 +323,8 @@ export function createSoundButton(services: AppServices): Button {
 }
 
 export function syncSoundIcon(button: Button, services: AppServices): void {
-  button.icon = artName(services.audio.muted ? SOUND_OFF : SOUND_ON);
+  button.icon = artName(services.audio.state === 'waiting' ? SOUND_WAITING : services.audio.muted ? SOUND_OFF : SOUND_ON);
+  button.fill = services.audio.state === 'waiting' ? '#8c78ba' : '#3b82f6';
 }
 
 /** Plays 'hover' when the pointer moves onto a button. `prev` holds last frame's state per button. */

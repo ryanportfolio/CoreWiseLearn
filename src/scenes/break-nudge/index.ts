@@ -9,19 +9,19 @@
 
 import type { Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
 import type { AppServices } from '../../app/services';
+import { createKeyboardNavigation } from '../../ui/navigation';
 import { createButton, dispatchDown, dispatchUp } from '../../ui/button';
 import { chunkyText, OUTLINE } from '../../ui/draw';
 import { starPath } from '../../ui/celebrate';
 import { clamp01, easeInOutSine, easeOutBack, easeOutCubic, pulse } from '../../ui/tween';
-import { reducedMotion } from '../../ui/motion';
 import { drawMascotAt, mascotFeetY } from '../../ui/mascot';
 import { playSfx } from '../../audio/sfx';
-import { artName, artRequest, buttonRadius, circleTarget, loadAllArt, type LayoutTarget } from '../hub/shared';
+import { artName, artRequest, buttonRadius, circleTarget, createSoundButton, soundArt, syncSoundIcon, loadAllArt, type LayoutTarget } from '../hub/shared';
 
 const YAWN = 'mascot/yawn';
 const PLAY = 'buttons/play-arrow';
 const DIM = 0.55;
-const BUTTON_DELAY = 1;
+const BUTTON_DELAY = 0;
 const SLIDE_SECONDS = 0.9;
 const DRIFTERS = 10;
 /** The dim fades in over this long, then the pre-dimmed snapshot takes over. */
@@ -32,7 +32,7 @@ const YAWN_EVERY = 6;
 
 /** Load (or finish loading) the nudge's art. Never rejects. */
 export function loadBreakNudgeAssets(services: AppServices): Promise<void> {
-  return loadAllArt(services, [artRequest(services, `${YAWN}.png`, 'blob', '#3b9bff'), artRequest(services, `${PLAY}.png`, 'play', '#ffffff')]);
+  return loadAllArt(services, [artRequest(services, `${YAWN}.png`, 'blob', '#3b9bff'), artRequest(services, `${PLAY}.png`, 'play', '#ffffff'), artRequest(services, 'buttons/home.png', 'home', '#ffffff'), ...soundArt(services)]);
 }
 
 export interface BreakNudgeLayout {
@@ -100,11 +100,14 @@ export function createBreakNudgeScene(services: AppServices): Scene {
     onPress: () => dismiss(),
   });
   playButton.visible = false;
-  const buttons = [playButton];
+  const homeButton = createButton({ x: 0, y: 0, radius: 80, fill: '#fb923c', icon: artName('buttons/home'), onPress: () => { if (dismissed || time < 0.4) return; dismissed = true; void scenes.pop().then(() => services.nav.toHub()); } });
+  const soundButton = createSoundButton(services);
+  const buttons = [homeButton, playButton, soundButton];
+  const keyboard = createKeyboardNavigation(() => buttons);
   const layoutInfo: BreakNudgeLayout = { targets: [] };
 
   function dismiss(): void {
-    if (dismissed || !playButton.visible) return;
+    if (dismissed || !playButton.visible || time < 0.4) return;
     dismissed = true;
     playSfx(audio, 'button');
     void scenes.pop();
@@ -115,11 +118,13 @@ export function createBreakNudgeScene(services: AppServices): Scene {
     mascotSize = Math.min(height * 0.62, width * 0.5);
     mascotX = width / 2;
     mascotY = height * 0.4;
-    const r = buttonRadius(height, 0.1, 92);
+    const r = buttonRadius(height, 0.1 * services.config.uiScale, 92);
     playButton.radius = r;
-    playButton.x = width / 2;
+    playButton.x = width / 2 + r + 18;
     playButton.y = Math.min(height - r - Math.max(16, height * 0.04), mascotY + mascotSize * 0.36 + r + 12);
-    if (import.meta.env.DEV) layoutInfo.targets = [circleTarget('play', playButton)];
+    homeButton.radius = r; homeButton.x = width / 2 - r - 18; homeButton.y = playButton.y;
+    soundButton.radius = 48; soundButton.x = width - 60; soundButton.y = 60;
+    if (import.meta.env.DEV) layoutInfo.targets = [circleTarget('home', homeButton), circleTarget('play', playButton), circleTarget('sound', soundButton)];
   }
 
   /** Draw the scene beneath once and keep a dimmed copy at device resolution. */
@@ -138,7 +143,7 @@ export function createBreakNudgeScene(services: AppServices): Scene {
     const dctx = dim.getContext('2d');
     if (dctx) {
       dctx.drawImage(src, 0, 0);
-      dctx.fillStyle = `rgba(16, 12, 36, ${DIM})`;
+      dctx.fillStyle = `rgba(70, 47, 99, ${DIM})`;
       dctx.fillRect(0, 0, dim.width, dim.height);
     }
     dimmed = dim;
@@ -165,7 +170,7 @@ export function createBreakNudgeScene(services: AppServices): Scene {
 
   layout();
   void loadBreakNudgeAssets(services).then(() => {
-    playButton.icon = artName(PLAY);
+    playButton.icon = artName(PLAY); homeButton.icon = artName('buttons/home');
   });
 
   const scene: Scene & { layout?: BreakNudgeLayout } = {
@@ -178,7 +183,8 @@ export function createBreakNudgeScene(services: AppServices): Scene {
       time = 0;
       dismissed = false;
       spawnTimer = 0.5;
-      playButton.visible = false;
+      playButton.visible = true;
+      keyboard.focus(homeButton);
       age.fill(0);
       life.fill(0);
       playSfx(audio, 'yawn');
@@ -189,10 +195,11 @@ export function createBreakNudgeScene(services: AppServices): Scene {
         playButton.visible = true;
         playButton.popIn(0);
       }
-      playButton.update(dt, input.pointer.inside ? input.pointer.x : -9999, input.pointer.inside ? input.pointer.y : -9999);
+      for (const button of buttons) button.update(dt, input.pointer.inside ? input.pointer.x : -9999, input.pointer.inside ? input.pointer.y : -9999);
+      syncSoundIcon(soundButton, services);
       spawnTimer -= dt;
       if (spawnTimer <= 0 && time > SLIDE_SECONDS * 0.6) {
-        spawnDrifter();
+        if (1 > 0) spawnDrifter();
         spawnTimer = 0.75;
       }
       for (let i = 0; i < DRIFTERS; i++) {
@@ -221,10 +228,10 @@ export function createBreakNudgeScene(services: AppServices): Scene {
 
       // Slides up from below, then breathes and yawns slowly: a long stretch up and a sink back,
       // the first one with the yawn sound. Drawn from its feet so the stretch grows upward.
-      const calm = reducedMotion();
-      const slide = easeOutBack(Math.min(1, time / SLIDE_SECONDS), 1.2);
+      const calm = false;
+      const slide = calm ? 1 : easeOutBack(Math.min(1, time / SLIDE_SECONDS), 1.2);
       const breathe = calm ? 0 : Math.sin(time * 1.8) * 0.02;
-      const yawn = easeInOutSine(pulse(clamp01((time % YAWN_EVERY) / YAWN_SECONDS)));
+      const yawn = easeInOutSine(pulse(clamp01((time % YAWN_EVERY) / YAWN_SECONDS))) * 1;
       const sy = 1 + 0.07 * yawn - breathe;
       const sx = 1 - 0.04 * yawn + breathe;
       const ground = mascotY + mascotFeetY(YAWN) * mascotSize + (height - mascotY + mascotSize) * (1 - slide);
@@ -243,15 +250,16 @@ export function createBreakNudgeScene(services: AppServices): Scene {
       }
       ctx.globalAlpha = saved;
 
-      playButton.render(ctx, services.sprites);
+      for (const button of buttons) button.render(ctx, services.sprites);
     },
     handleInput(event: SceneInputEvent) {
+      if (dismissed || time < 0.4) return;
       if (event.type === 'pointerdown') {
         dispatchDown(buttons, event.info.x, event.info.y);
       } else if (event.type === 'pointerup') {
         dispatchUp(buttons, event.info.x, event.info.y);
-      } else if (event.type === 'anykey' && (event.info.key === 'Enter' || event.info.key === 'Escape')) {
-        dismiss();
+      } else if (event.type === 'keydown' && !event.info.repeat) {
+        keyboard.key(event.info.key);
       }
     },
     resize(w: number, h: number) {

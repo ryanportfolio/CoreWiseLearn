@@ -22,6 +22,20 @@ export const STICKERS: readonly StickerDef[] = [
   { id: 'pufferfish', path: 'creatures/pufferfish.png', game: 'bubble-pop' },
   { id: 'dolphin', path: 'creatures/dolphin.png', game: 'bubble-pop' },
   { id: 'whale-small', path: 'creatures/whale-small.png', game: 'bubble-pop' },
+  { id: 'fox', path: 'avatars/fox.png', game: 'bubble-pop' },
+  { id: 'panda', path: 'avatars/panda.png', game: 'bubble-pop' },
+  { id: 'frog', path: 'avatars/frog.png', game: 'bubble-pop' },
+  { id: 'bunny', path: 'avatars/bunny.png', game: 'bubble-pop' },
+  { id: 'lion', path: 'avatars/lion.png', game: 'bubble-pop' },
+  { id: 'penguin', path: 'avatars/penguin.png', game: 'bubble-pop' },
+  { id: 'koala', path: 'avatars/koala.png', game: 'bubble-pop' },
+  { id: 'owl', path: 'avatars/owl.png', game: 'bubble-pop' },
+  { id: 'rainbow-unicorn', path: 'tiles/unicorn-rainbow.png', game: 'bubble-pop' },
+  { id: 'red-rocket', path: 'tiles/rocket-red.png', game: 'bubble-pop' },
+  { id: 'green-dino', path: 'tiles/dino-green.png', game: 'bubble-pop' },
+  { id: 'rainbow-candy', path: 'tiles/candy-rainbow.png', game: 'bubble-pop' },
+  { id: 'ocean-friend', path: 'tiles/ocean-octopus.png', game: 'bubble-pop' },
+  { id: 'happy-star', path: 'buttons/sticker-star.png', game: 'bubble-pop' },
 ];
 
 export function stickerById(id: string): StickerDef | undefined {

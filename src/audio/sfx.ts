@@ -56,6 +56,8 @@ export const SFX_VARIANT_IDS: readonly SfxVariant[] = ['A', 'B', 'C', 'D'];
 export interface SfxOptions {
   /** 0-based index for pitch climbs (combo count, letter index). */
   index?: number;
+  /** Bubble diameter divided by 144; changes the noise body, never the count pitch. */
+  bodySize?: number;
   /** 0..1 volume scale. Default 1. */
   volume?: number;
   /** Which version of the sound. Default: the one set with setSfxVariants, else 'A'. */
@@ -271,6 +273,10 @@ export function playSfx(audio: Audio, name: SfxName, options: SfxOptions = {}): 
   kit.last.set(key, t);
   const v = new Voice(ctx, t, volume);
   const out = lowpassInto(ctx, bus, finite(p.brightness, 3000, 100));
+  // This low-pass belongs to the shared bus. A voice must not disconnect it.
+  const bodySize = Math.min(2, Math.max(0.5, finite(options.bodySize ?? 1, 1, 0.01)));
+  const popBody = name === 'pop' || name === 'pop-big' ? makeFilter(ctx, 'bandpass', 1800 / bodySize, 1, out) : undefined;
+  if (popBody) v.own(popBody);
   /** MIDI note to Hz, shifted by the patch register. */
   const register = finite(p.register, 0);
   const hz = (midi: number): number => midiHz(midi + register);
@@ -281,7 +287,7 @@ export function playSfx(audio: Audio, name: SfxName, options: SfxOptions = {}): 
     case 'pop': {
       // Pitch climbs C4..A5 along the scale.
       bubble(v, t, hz(pentaMidi(5 + climb(index), 48)), 0.28, out, shaped(p, { ...BUBBLE, decay: 0.12 }));
-      v.noise(t, 0.001, dc(0.03), 0.2 * p.noise, kit.popBand);
+      v.noise(t, 0.001, dc(0.03), 0.2 * p.noise, popBody ?? kit.popBand);
       break;
     }
     case 'pop-big': {
@@ -291,7 +297,7 @@ export function playSfx(audio: Audio, name: SfxName, options: SfxOptions = {}): 
         const o = v.tone(body.shape, f * 0.5 * detune, t, body.attack, body.decay, 0.17, out);
         o.frequency.exponentialRampToValueAtTime(f * detune, t + 0.05);
       }
-      v.noise(t, 0.001, dc(0.05), 0.26 * body.noise, kit.popBand);
+      v.noise(t, 0.001, dc(0.05), 0.26 * body.noise, popBody ?? kit.popBand);
       // Quiet sparkle tail: C5 E5 G5 C6.
       const sparkle = [72, 76, 79, 84];
       const bt = shaped(p, { ...BELL, decay: 0.25 });
@@ -456,7 +462,7 @@ export function playSfx(audio: Audio, name: SfxName, options: SfxOptions = {}): 
       squish.frequency.exponentialRampToValueAtTime(hz(49), t + 0.07);
       const pt = t + 0.06;
       bubble(v, pt, hz(81), 0.2, out, shaped(p, { ...BUBBLE, decay: 0.08 }));
-      v.noise(pt, 0.001, dc(0.03), 0.14 * tone.noise, kit.popBand);
+      v.noise(pt, 0.001, dc(0.03), 0.14 * tone.noise, popBody ?? kit.popBand);
       const sparkle = [76, 79, 84]; // E5 G5 C6
       const bt = shaped(p, { ...BELL, decay: 0.28 });
       for (let i = 0; i < sparkle.length; i++) bell(v, t + 0.14 + i * 0.06, hz(sparkle[i] ?? 76), 0.05 * tone.overtone, out, bt);

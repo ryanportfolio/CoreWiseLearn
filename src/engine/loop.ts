@@ -14,12 +14,16 @@ export interface LoopCallbacks {
   update(dt: number): void;
   /** Draw the current state. alpha is the fraction of a step elapsed since the last update. */
   render(alpha: number): void;
+  /** Unscaled visible wall time, independent of simulation catch-up. */
+  frame?(seconds: number): void;
+  afterFrame?(intervalMs: number, workMs: number): void;
 }
 
 export interface LoopOptions {
   /** Simulation updates per second. Default 60. */
   hz?: number;
-  /** Longest frame gap (seconds) the loop will simulate before dropping time. Default 0.25. */
+  timeScale?: number;
+  /** Longest frame gap (seconds) the loop will simulate before dropping time. Default 0.1. */
   maxFrameTime?: number;
   /** Number of frame timings kept for stats. Default 120. */
   statsCapacity?: number;
@@ -46,6 +50,9 @@ export interface FrameStats {
   readonly workMean: number;
   /** Largest work time in the ring buffer. */
   readonly workMax: number;
+  readonly p95: number;
+  readonly workP95: number;
+  workSamples(): number[];
   /** Copy of the ring buffer in chronological order, for measurement scripts. */
   samples(): number[];
 }
@@ -62,7 +69,7 @@ export interface GameLoop {
 export function createLoop(callbacks: LoopCallbacks, options: LoopOptions = {}): GameLoop {
   const hz = options.hz ?? 60;
   const step = 1 / hz;
-  const maxFrameTime = options.maxFrameTime ?? 0.25;
+  const maxFrameTime = options.maxFrameTime ?? 0.1;
   const capacity = options.statsCapacity ?? 120;
 
   const ring = new Float32Array(capacity);
@@ -99,9 +106,10 @@ export function createLoop(callbacks: LoopCallbacks, options: LoopOptions = {}):
 
     let frameSeconds = (now - lastTime) / 1000;
     lastTime = now;
-    pushSample(frameSeconds * 1000);
-    if (frameSeconds > maxFrameTime) frameSeconds = maxFrameTime;
-    accumulator += frameSeconds;
+    const intervalMs = frameSeconds * 1000;
+    callbacks.frame?.(Math.max(0, frameSeconds));
+    frameSeconds = Math.max(0, Math.min(frameSeconds, maxFrameTime));
+    accumulator += Math.min(maxFrameTime, frameSeconds * (options.timeScale ?? 1));
 
     const workStart = performance.now();
     let updates = 0;
@@ -113,6 +121,8 @@ export function createLoop(callbacks: LoopCallbacks, options: LoopOptions = {}):
     updatesLastFrame = updates;
     callbacks.render(accumulator / step);
     workLast = performance.now() - workStart;
+    pushSample(intervalMs);
+    callbacks.afterFrame?.(intervalMs, workLast);
   }
 
   function onVisibility(): void {
@@ -123,7 +133,17 @@ export function createLoop(callbacks: LoopCallbacks, options: LoopOptions = {}):
     }
   }
 
+  function percentile(values: Float32Array): number {
+    if (!ringCount) return 0;
+    const sorted = Array.from(values.subarray(0, ringCount)).sort((a, b) => a - b);
+    return sorted[Math.max(0, Math.ceil(sorted.length * 0.95) - 1)] ?? 0;
+  }
   const stats: FrameStats = {
+    get p95() { return percentile(ring); },
+    get workP95() { return percentile(work); },
+    workSamples() {
+      return Array.from({ length: ringCount }, (_, i) => work[(ringCount < capacity ? i : ringIndex + i) % capacity] ?? 0);
+    },
     get last() {
       return lastFrameMs;
     },

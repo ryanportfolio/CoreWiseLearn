@@ -2,10 +2,10 @@
  * Web Audio wrapper. The AudioContext is created lazily and resumed on the
  * first user gesture, because browsers refuse to start audio before one.
  *
- * Graph: source -> sfx bus or music bus -> master gain -> destination.
+ * Graph: source -> sfx/music bus -> master gain -> compressor -> soft clip -> destination.
  */
 
-const MUTE_KEY = 'corewise.audio.muted';
+const MUTE_KEY = 'cwl.v1.audio.muted';
 
 export interface BlipOptions {
   /** Oscillator frequency in Hz. Default 440. */
@@ -27,10 +27,12 @@ export interface Audio {
   /** True once the context exists and is running. */
   readonly ready: boolean;
   readonly muted: boolean;
+  readonly state: 'on' | 'muted' | 'waiting';
   setMuted(muted: boolean): void;
   toggleMuted(): boolean;
   /** 0..1 */
   setMasterVolume(v: number): void;
+  setMasterTrimDb(db: number): void;
   setSfxVolume(v: number): void;
   setMusicVolume(v: number): void;
   /** Call from any user gesture handler; safe to call repeatedly. */
@@ -64,7 +66,7 @@ export interface Audio {
 
 function readMuted(): boolean {
   try {
-    return localStorage.getItem(MUTE_KEY) === '1';
+    return (localStorage.getItem(MUTE_KEY) ?? localStorage.getItem('corewise.audio.muted')) === '1';
   } catch {
     return false;
   }
@@ -78,7 +80,7 @@ function writeMuted(muted: boolean): void {
   }
 }
 
-export function createAudio(): Audio {
+export function createAudio(masterTrimDb = -6): Audio {
   let ctx: AudioContext | undefined;
   let master: GainNode | undefined;
   let sfx: GainNode | undefined;
@@ -86,8 +88,9 @@ export function createAudio(): Audio {
   let musicSource: AudioBufferSourceNode | undefined;
   let muted = readMuted();
   let masterVolume = 1;
+  let trim = Math.pow(10, Math.min(0, Math.max(-40, Number.isFinite(masterTrimDb) ? masterTrimDb : -6)) / 20);
   let sfxVolume = 1;
-  let musicVolume = 0.4; // music sits at 40% of the sfx level
+  let musicVolume = Math.pow(10, -12 / 20); // starting trim; owner tunes the actual track
   const unlockListeners = new Set<() => void>();
 
   function fireUnlock(): void {
@@ -113,7 +116,25 @@ export function createAudio(): Audio {
     music = ctx.createGain();
     sfx.connect(master);
     music.connect(master);
-    master.connect(ctx.destination);
+    const compressor = ctx.createDynamicsCompressor();
+    compressor.threshold.value = -12;
+    compressor.knee.value = 12;
+    compressor.ratio.value = 4;
+    compressor.attack.value = 0.003;
+    compressor.release.value = 0.12;
+    const clip = ctx.createWaveShaper();
+    const curve = new Float32Array(4097);
+    const ceiling = Math.pow(10, -3 / 20);
+    for (let i = 0; i < curve.length; i++) {
+      const x = (2 * i) / (curve.length - 1) - 1;
+      const a = Math.abs(x);
+      curve[i] = Math.sign(x) * (a <= 0.5 ? a : 0.5 + (ceiling - 0.5) * Math.tanh((a - 0.5) / (ceiling - 0.5)));
+    }
+    clip.curve = curve;
+    clip.oversample = '2x';
+    master.connect(compressor);
+    compressor.connect(clip);
+    clip.connect(ctx.destination);
     ctx.addEventListener('statechange', fireUnlock);
     applyVolumes();
     return ctx;
@@ -122,7 +143,7 @@ export function createAudio(): Audio {
   function applyVolumes(): void {
     if (!ctx || !master || !sfx || !music) return;
     const t = ctx.currentTime;
-    master.gain.setTargetAtTime(muted ? 0 : masterVolume, t, 0.01);
+    master.gain.setTargetAtTime(muted ? 0 : masterVolume * trim, t, 0.01);
     sfx.gain.setTargetAtTime(sfxVolume, t, 0.01);
     music.gain.setTargetAtTime(musicVolume, t, 0.01);
   }
@@ -131,7 +152,7 @@ export function createAudio(): Audio {
   const onGesture = (): void => {
     void unlock();
   };
-  for (const ev of gestureEvents) window.addEventListener(ev, onGesture, { passive: true });
+  for (const ev of gestureEvents) window.addEventListener(ev, onGesture, { passive: true, capture: true });
 
   async function unlock(): Promise<void> {
     const c = ensureGraph();
@@ -144,7 +165,7 @@ export function createAudio(): Audio {
       }
     }
     if (c.state === 'running') {
-      for (const ev of gestureEvents) window.removeEventListener(ev, onGesture);
+      for (const ev of gestureEvents) window.removeEventListener(ev, onGesture, true);
       fireUnlock();
     }
   }
@@ -153,6 +174,7 @@ export function createAudio(): Audio {
     get ready() {
       return ctx?.state === 'running';
     },
+    get state() { return muted ? 'muted' : ctx?.state === 'running' ? 'on' : 'waiting'; },
     get muted() {
       return muted;
     },
@@ -164,6 +186,11 @@ export function createAudio(): Audio {
     toggleMuted() {
       this.setMuted(!muted);
       return muted;
+    },
+    setMasterTrimDb(db) {
+      if (!Number.isFinite(db)) return;
+      trim = Math.pow(10, Math.min(0, Math.max(-40, db)) / 20);
+      applyVolumes();
     },
     setMasterVolume(v) {
       masterVolume = Math.min(1, Math.max(0, v));
@@ -179,7 +206,7 @@ export function createAudio(): Audio {
     },
     unlock,
     blip(options = {}) {
-      if (!ctx || !sfx || ctx.state !== 'running') return;
+      if (!ctx || !sfx || ctx.state !== 'running' || muted) return;
       const {
         frequency = 440,
         duration = 0.12,

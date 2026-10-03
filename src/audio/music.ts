@@ -3,7 +3,7 @@
  *
  * startMusic(audio, track) loads `<base>music/<track>.mp3` (or `.ogg` if there
  * is no MP3), decodes it once, and loops it on the music bus. The engine's
- * music bus sits at 40% of the sound-effects level by default. Switching
+ * music bus starts 12 dB below the sound-effects bus. Switching
  * tracks crossfades; a missing file means silence, with one console.info.
  * See public/music/README.md for the file names and export advice.
  */
@@ -15,6 +15,8 @@ export type MusicTrack = 'name-entry' | 'hub' | 'ocean' | 'sticker-book';
 export const MUSIC_TRACKS: readonly MusicTrack[] = ['name-entry', 'hub', 'ocean', 'sticker-book'];
 
 const EXTENSIONS = ['mp3', 'ogg'] as const;
+/** The build lists existing files so absent owner music creates no offline requests. */
+declare const __MUSIC_FILES__: readonly string[];
 
 function defaultFolder(): string {
   const base = import.meta.env.BASE_URL;
@@ -47,6 +49,7 @@ function fetchBytes(track: MusicTrack): Promise<ArrayBuffer | undefined> {
   if (p) return p;
   p = (async () => {
     for (const ext of EXTENSIONS) {
+      if (folder === defaultFolder() && !__MUSIC_FILES__.includes(`${track}.${ext}`)) continue;
       try {
         const res = await fetch(`${folder}${track}.${ext}`);
         // A dev server may answer a missing file with the HTML app shell.

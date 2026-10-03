@@ -16,7 +16,53 @@ import { createBreakNudgeScene, loadBreakNudgeAssets } from './scenes/break-nudg
 import { playSfx } from './audio/sfx';
 import { OUTLINE } from './ui/draw';
 
-registerSW({ immediate: true });
+let updatePending = false;
+let applyingUpdate = false;
+let reloadPending = false;
+let workerReloadReady = false;
+let route: 'loading' | 'name' | 'hub' | 'book' | 'game' = 'loading';
+const RELOAD_KEY = 'cwl.v1.chunk-reload';
+const updateSW = registerSW({
+  immediate: true,
+  onNeedRefresh() {
+    updatePending = true;
+    void applyPendingUpdate();
+  },
+  onNeedReload() {
+    // Another tab can activate a worker while this child is still playing.
+    // Override Workbox's default immediate reload for every controlling event.
+    updatePending = false;
+    workerReloadReady = true;
+    applyingUpdate = false;
+    void applyPendingUpdate();
+  },
+});
+
+async function applyPendingUpdate(): Promise<void> {
+  if (route !== 'hub' || nudging || applyingUpdate || navigationBusy) return;
+  if (!updatePending && !reloadPending && !workerReloadReady) return;
+  services.save.flush();
+  applyingUpdate = true;
+  if (workerReloadReady) {
+    location.reload();
+  } else if (updatePending) {
+    try { await updateSW(true); }
+    catch (error) { applyingUpdate = false; console.warn('Update deferred.', error); }
+  } else if (reloadPending) {
+    // One recovery per tab session. Repeated failures stay on the playable hub.
+    try {
+      if (sessionStorage.getItem(RELOAD_KEY)) { applyingUpdate = false; return; }
+      sessionStorage.setItem(RELOAD_KEY, '1');
+      location.reload();
+    } catch { applyingUpdate = false; }
+  }
+}
+
+window.addEventListener('vite:preloadError', (event) => {
+  event.preventDefault();
+  reloadPending = true;
+  void applyPendingUpdate();
+});
 
 /** Shown while art loads: a soft pulsing bubble, nothing to read. */
 function createLoadingScene(): Scene {
@@ -42,6 +88,20 @@ function createLoadingScene(): Scene {
 
 let services: AppServices;
 let nudging = false;
+let navigationBusy = false;
+
+async function navigate(next: typeof route, scene: Scene): Promise<void> {
+  if (navigationBusy || applyingUpdate) return;
+  navigationBusy = true;
+  try {
+    // Leaving a nudge also removes the game it covered.
+    while (services.scenes.depth > 1) await services.scenes.pop();
+    nudging = false;
+    await services.scenes.replace(scene);
+    route = next;
+  } finally { navigationBusy = false; }
+  if (next === 'hub') void applyPendingUpdate();
+}
 
 function showNudge(): void {
   if (nudging) return;
@@ -58,9 +118,9 @@ function showNudge(): void {
 
 services = bootApp({
   nav: {
-    toNameEntry: () => void services.scenes.replace(createNameEntryScene(services)),
-    toHub: () => void services.scenes.replace(createHubScene(services)),
-    toStickerBook: () => void services.scenes.replace(createStickerBookScene(services)),
+    toNameEntry: (profileId) => void navigate('name', createNameEntryScene(services, profileId ? { renameProfileId: profileId } : undefined)),
+    toHub: () => void navigate('hub', createHubScene(services)),
+    toStickerBook: () => void navigate('book', createStickerBookScene(services)),
     toGame: (id) => {
       const def = findGame(id);
       if (!def) {
@@ -68,10 +128,15 @@ services = bootApp({
         playSfx(services.audio, 'miss');
         return;
       }
-      void services.scenes.replace(def.createScene(services));
+      if (def.load) {
+        void def.load().then(() => navigate('game', def.createScene(services))).catch((error: unknown) => {
+          console.warn('Game bundle unavailable; returning to the hub.', error);
+          reloadPending = true;
+          void navigate('hub', createHubScene(services));
+        });
+      } else void navigate('game', def.createScene(services));
     },
   },
-  nudgeAfterSeconds: 20 * 60,
   onNudge: showNudge,
 });
 
@@ -86,4 +151,4 @@ await Promise.all([
 ]);
 
 // Always start at name entry: a returning child taps their bubble, a new one types.
-void services.scenes.replace(createNameEntryScene(services));
+await navigate('name', createNameEntryScene(services));
