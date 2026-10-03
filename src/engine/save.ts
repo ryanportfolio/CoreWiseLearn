@@ -354,8 +354,16 @@ export function createSaveStore(options: SaveOptions = {}): SaveStore {
     renameProfile(profileId, name) {
       const profile = data.profiles.find(p => p.id === profileId);
       const clean = name.normalize('NFKC').slice(0, 10);
+      if (!profile || !normalizeName(clean)) return false;
+      // Another tab may have created or renamed a child to this name since this
+      // tab loaded. Check the stored names and aliases too, not just this tab's.
+      adoptStoredProfiles();
       const collision = getProfile(clean);
-      if (!profile || !normalizeName(clean) || (collision && collision.id !== profileId)) return false;
+      if (collision && collision.id !== profileId) return false;
+      const wanted = normalizeName(clean);
+      const deleted = (p: Profile) => baseline.profiles.some(q => q.id === p.id) && !data.profiles.some(q => q.id === p.id);
+      if (stored()?.profiles.some(p => p.id !== profileId && !deleted(p) &&
+        ((!p.unnamed && normalizeName(p.name) === wanted) || !!p.aliases?.some(a => normalizeName(a) === wanted)))) return false;
       // Keep the old name as an alias: typing it still finds this child, and a
       // configured child renamed here is matched again on the next boot.
       const old = profile.unnamed ? '' : profile.name;

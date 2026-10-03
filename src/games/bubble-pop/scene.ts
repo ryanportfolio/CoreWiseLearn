@@ -36,6 +36,7 @@ const OPEN_SECONDS = 0.3, OPEN_SWAP = 0.4, FLASH_SECONDS = 0.3, SPARKLES = 12, R
 const SPARKLE_COLORS = ['#ffcf3a', '#ff7f5c'] as const;
 // Art that has not loaded is looked for again after 0.5, 1, 2 and 4 s, then only when the end-of-round sizes are next planned.
 const WARM_RETRIES = 4;
+const IDLE_OPTIONS: IdleRequestOptions = { timeout: 500 };
 const REWARD_ART = ['rewards/shell-coral.webp', 'rewards/shell-mint.webp', 'rewards/shell-closed-coral.webp', 'rewards/shell-closed-mint.webp', 'rewards/counting-tray.webp', 'rewards/gold-star.webp'];
 const BUTTON_PLAY_PATH = 'buttons/play-arrow.png', BUTTON_HOME_PATH = 'buttons/home.png';
 type Phase = 'intro' | 'play' | 'celebration' | 'choice' | 'sticker' | 'rest';
@@ -55,7 +56,7 @@ export interface BubblePopStats {
   readonly warmPending: number;
   /** Times the end-of-round preparation went round again for art that had not loaded; stops at 4. */
   readonly warmRetries: number;
-  /** Result-screen layout in CSS px, for checks: vertical extents of the stars, total bubble (0 when hidden) and tray, offer and rest shells, controls. */
+  /** Result-screen layout in CSS px, for checks: vertical extents of the stars, total bubble (0 when hidden) and tray, offer and rest shells, controls; the corner buttons, the offer hit radius and the backdrop as drawn. */
   resultLayout(): Record<string, number | boolean>;
   items(): { x: number; y: number; r: number; hitRadius: number; decoy: boolean; onScreen: boolean; highlighted: boolean }[];
   controls(): { x: number; y: number; radius: number; id: string }[];
@@ -125,6 +126,9 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
   let data: GameData;
   let W = 1366, H = 768, u = 1, diameter = 144, bgX = 0, bgY = 0;
   let bgCanvas: HTMLCanvasElement | undefined;
+  // Pixel ratio the backdrop and the warmed sizes were made at. The engine's adaptive resolution changes it without
+  // changing the CSS size, and the sprite store drops every scaled canvas when it does.
+  let artRatio = 0;
   let phase: Phase = 'intro', wave: Wave = 'warmup', tier: Tier = 0;
   let intro = true, elapsed = 0, duration = ROUND_SECONDS, time = 0, sceneT = 0, phaseT = 0;
   let count = 0, combo = 0, bestCombo = 0, lastPop = -99, lastInput = -99, spawnT = 0;
@@ -169,8 +173,11 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
     diameter = Math.max(96 / TIERS[tier].hitScale, TIERS[tier].diameter * u);
     for (const b of bubbles) if (b.active) { b.r = diameter / 2; b.x0 = Math.min(W - b.r, Math.max(b.r, b.x0)); b.x = b.x0; b.y = Math.min(H - b.r, Math.max(b.r, b.y)); }
     if (oldDiameter !== diameter) { for (const { name } of artList(theme)) sprites.clearScaled(name); warmDone.clear(); }
-    // Rescaling the full-screen backdrop is costly; only a new canvas size needs it.
-    if (resized || !bgCanvas) { sprites.clearScaled(bgName); bgCanvas = undefined; }
+    // Rescaling the full-screen backdrop is costly; only a new canvas size or pixel ratio needs it.
+    const reratio = sprites.pixelRatio !== artRatio;
+    artRatio = sprites.pixelRatio;
+    if (reratio) warmDone.clear();
+    if (resized || reratio || !bgCanvas) { sprites.clearScaled(bgName); bgCanvas = undefined; }
     jarW = Math.min(W * 0.55, 290 * u); jarH = Math.max(83, 132 * u); jarX = W / 2; jarY = jarH / 2 + 20 * u;
     placeResult();
   }
@@ -184,7 +191,8 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
     const trayBottom = trayY + trayWidth * 0.386 / 2;
     shellSize = Math.min(370 * Math.min(1.25, H / 768), (W - 60) / 2);
     restSize = Math.min(300 * Math.min(1.25, H / 768), W * 0.64);
-    controlsRadius = Math.min(Math.max(48 * services.config.uiScale, 62 * u), W / 5);
+    // Never under 48 px (96 px across), whatever uiScale the config sets.
+    controlsRadius = Math.max(48, Math.min(Math.max(48 * services.config.uiScale, 62 * u), W / 5));
     controlsY = H - controlsRadius - 22;
     restY = (trayBottom + controlsY - controlsRadius) / 2;
     restSize = Math.min(restSize, controlsY - controlsRadius - trayBottom - 26);
@@ -264,13 +272,14 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
       warmDone.add(warmKeys[madeIndex]!); madeIndex = -1;
     }
     if (prepIndex >= warmNames.length && warmRetry >= 0 && sceneT >= warmRetry) { prepIndex = 0; warmRetry = -1; warmRetries++; }
-    if ((prepIndex < warmNames.length || fanfareDue()) && !idleHandle) idleHandle = requestIdleCallback(prepareIdle, { timeout: 500 });
+    if ((prepIndex < warmNames.length || fanfareDue()) && !idleHandle) idleHandle = requestIdleCallback(prepareIdle, IDLE_OPTIONS);
   }
   function stopWarm(): void { if (idleHandle) cancelIdleCallback(idleHandle); idleHandle = 0; }
   function controlX(index: number, choices = false): number {
     if (!choices && flank) return W / 2 + (index === 0 ? -flankOffset : flankOffset);
     const n = choices ? pending?.choices.length ?? 0 : 2;
-    return W / 2 + (index - (n - 1) / 2) * (choices ? shellSize + Math.max(24, shellSize * 0.18) : controlsRadius * 3.2);
+    // Small offers (high uiScale on a small screen) keep their 96 px hit circles apart.
+    return W / 2 + (index - (n - 1) / 2) * (choices ? Math.max(shellSize + Math.max(24, shellSize * 0.18), 2 * choiceRadius + 8) : controlsRadius * 3.2);
   }
   const choiceY = () => shellY;
   function ensureBackground(): void {
@@ -756,7 +765,9 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
       return { width: W, height: H, count, flank, starTop: starY - starSize / 2, starBottom: starY + starSize / 2,
         totalTop: narrowTotal ? starY + starSize / 2 + 10 : 0, totalBottom: narrowTotal ? starY + starSize / 2 + 78 : 0,
         trayTop: trayY - trayHalf, trayBottom: trayY + trayHalf, shellY, shellSize, restY, restSize, controlsY, controlsRadius,
-        controlsLeft: controlX(0) - controlsRadius, controlsRight: controlX(1) + controlsRadius };
+        controlsLeft: controlX(0) - controlsRadius, controlsRight: controlX(1) + controlsRadius,
+        cornerRadius, cornerY, homeX, soundX, choiceRadius, backdropRatio: bgCanvas ? artRatio : 0,
+        backdropLeft: bgX, backdropTop: bgY, backdropWidth: bgCanvas ? bgCanvas.width / sprites.pixelRatio : 0, backdropHeight: bgCanvas ? bgCanvas.height / sprites.pixelRatio : 0 };
     },
     resetWork() { workHead = workCount = 0; },
   };
@@ -797,7 +808,7 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
     },
     render(view: SceneContext) {
       const started = performance.now(), ctx = view.ctx;
-      if (view.width !== W || view.height !== H) layout(view.width, view.height);
+      if (view.width !== W || view.height !== H || sprites.pixelRatio !== artRatio) layout(view.width, view.height);
       ensureBackground();
       if (!playable() || elapsed >= 0.5) warm(ctx);
       if (bgCanvas) ctx.drawImage(bgCanvas, bgX, bgY, bgCanvas.width / sprites.pixelRatio, bgCanvas.height / sprites.pixelRatio); else { ctx.fillStyle = pal.water; ctx.fillRect(0, 0, W, H); }

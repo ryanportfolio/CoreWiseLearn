@@ -438,7 +438,7 @@ export function createStickerBookScene(services: AppServices, options: StickerBo
       const button = slotButtons[slot.index]!; button.x = slot.x; button.y = slot.y; button.radius = slot.r; button.enabled = slot.count > 0;
     }
     if (import.meta.env.DEV) layoutInfo.dots = Array.from({ length: pageCount }, (_, i) => ({ x: dotX(i), y: dotY, r: DOT_R }));
-    layoutInfo.targets = [...controls.map((b, i) => circleTarget(['home', 'previous', 'next', 'sound'][i]!, b)), ...visibleSlots().map((s) => circleTarget(`slot:${s.def.id}`, slotButtons[s.index]!))];
+    if (import.meta.env.DEV) layoutInfo.targets = [...controls.map((b, i) => circleTarget(['home', 'previous', 'next', 'sound'][i]!, b)), ...visibleSlots().map((s) => circleTarget(`slot:${s.def.id}`, slotButtons[s.index]!))];
     dirty = true;
   }
   function dotX(i: number): number { return width / 2 + (i - (pageCount - 1) / 2) * dotStep; }

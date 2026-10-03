@@ -157,7 +157,8 @@ function glyphsFor(sizePx: number): Glyph[] {
       advance = measure.measureText(text).width;
     }
     const w = Math.ceil(advance + pad * 2);
-    // Drawn at 1 logical px per device px: the canvas DPR is capped at 1 (MAX_DPR).
+    // Drawn at 1 device px per logical px. The game canvas renders at up to MAX_DPR (1.5) device px per logical px,
+    // so there the digits are scaled up slightly; they are sized in logical px and stay valid when the ratio changes.
     canvas.width = Math.max(1, w);
     canvas.height = Math.max(1, h);
     const c = canvas.getContext('2d');
