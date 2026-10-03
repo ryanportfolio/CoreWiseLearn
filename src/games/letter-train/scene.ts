@@ -86,6 +86,11 @@ export interface LetterTrainStats {
   blocks(): { letter: string; x: number; y: number; state: BlockState; size: number }[];
   cars(): { letter: string; x: number; y: number; filled: boolean; open: boolean; size: number }[];
   controls(): { x: number; y: number; w: number; h: number; id: string }[];
+  /** Pixel ratios the cached art was built at, the backdrop's drawn rectangle and the corner buttons. */
+  view(): {
+    pixelRatio: number; artRatio: number; glyphDpr: number; dimStarDpr: number; blockDpr: number[]; slotDpr: number[];
+    backdrop: { x: number; y: number; w: number; h: number } | null; corners: { x: number; y: number; w: number; h: number; id: string }[];
+  };
   resetWork(): void;
 }
 export interface LetterTrainScene extends Scene { readonly stats: LetterTrainStats }
@@ -176,6 +181,8 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
   let kbActive = false;
   /** Device pixel ratio the dim star and glyph canvases were baked for. */
   let glyphDpr = 1;
+  /** Pixel ratio the backdrop and the queued round-end art were scaled at; the canvas lowers or raises it on slow or fast frames. */
+  let artRatio = 0;
   let kbBlock = -1, kbCar = -1, idleT = 0, nextHintAt = IDLE_FIRST, hintT = -1, hintBlock = -1, hintCar = -1;
   let demoT = -1, demoBlock = -1, demoCar = -1, demoPlaced = false;
   let pending: Pending | null = null, menuSelected = -1, inputAfter = 0, focusAt = 0;
@@ -211,10 +218,14 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
   const onPlatform = (b: Block) => b.state === 'idle' || b.state === 'selected' || b.state === 'return';
 
   function layout(width: number, height: number): void {
-    W = width; H = height; glyphDpr = services.canvas.dpr;
+    const resized = width !== W || height !== H, reratio = sprites.pixelRatio !== artRatio;
+    W = width; H = height; glyphDpr = services.canvas.dpr; artRatio = sprites.pixelRatio;
     u = Math.min(1.4, Math.max(0.4, Math.min(W / 1366, H / 768))) * services.config.uiScale;
     bgS = Math.max(W / 1536, H / 1024); bgX = (W - 1536 * bgS) / 2; bgY = (H - 1024 * bgS) / 2;
-    sprites.clearScaled(SPR_TOWN); bgCanvas = undefined;
+    // The backdrop is scaled for both the view size and the pixel ratio; a new ratio alone (same CSS size) rebuilds it too.
+    if (resized || reratio || !bgCanvas) { sprites.clearScaled(SPR_TOWN); bgCanvas = undefined; }
+    // A new ratio empties the sprite cache, so the queued round-end art is scaled again, one image per update.
+    if (reratio) prepHead = 0;
     trackY = bgY + 0.548 * 1024 * bgS; platformTop = bgY + 0.585 * 1024 * bgS;
     // Corner buttons take Bubble Bay's place and size at every view size, so the break nudge's sound button covers ours.
     const cu = Math.min(1.5, Math.max(0.4, Math.min(W / 1366, H / 768))) * services.config.uiScale;
@@ -224,8 +235,15 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     starSize = Math.round(Math.max(44, 64 * u)); starRowY = cornerY;
     // A rider (wagon plus passenger) reaches 0.62 widths above its centre and 0.23 below.
     const top = starRowY + starSize / 2 + 14;
-    choiceW = Math.max(150, Math.min(440 * u + 60, (W - 72) / 2, (H - 24 - top) / 0.92));
-    choiceY = top + choiceW * 0.66;
+    const offerWidth = (t: number) => Math.max(150, Math.min(440 * u + 60, (W - 72) / 2, (H - 24 - t) / 0.92));
+    choiceW = offerWidth(top);
+    // The two offers' tap areas (12 px past each wagon, gap between) reach this far from the middle. Where that is
+    // beside a corner button (narrow screens, large uiScale), the offers start below the corner buttons instead.
+    let choiceTop = top;
+    if (W / 2 - (choiceW + Math.max(24, choiceW * 0.12) / 2 + 12) < homeX + cornerRadius + 8) {
+      choiceTop = Math.max(top, cornerY + cornerRadius + 8); choiceW = offerWidth(choiceTop);
+    }
+    choiceY = choiceTop + choiceW * 0.66;
     controlsR = Math.max(52, Math.min(66 * u, W / 6));
     controlsY = H - controlsR - 22;
     restW = Math.max(150, Math.min(choiceW * 1.05, W * 0.6, (controlsY - controlsR - 14 - top) / 0.88));
@@ -235,18 +253,35 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
   /** Block size and train position for the current plan at the current view size. */
   function fitTrain(): void {
     const base = Math.max(96, TIERS[tier].block * u);
+    // Car row width and whole-train length, in train units.
+    const units = (Math.max(1, nCars) - 1) * PITCH + CAR_W, length = units - 0.08 + ENGINE_H * 640 / 356;
     const room = (W - 32) / (Math.max(1, nCars) * PITCH + 0.3 + ENGINE_H * 640 / 356);
     const below = (H - platformTop - 16) / 1.2, above = (trackY - starRowY - starSize / 2 - 12) / 1.65;
-    const next = Math.round(Math.max(96, Math.min(base, room, below, above)));
+    let next = Math.round(Math.max(96, Math.min(base, room, below, above)));
     // The cars shrink below the block size only when their row would not fit the width at it; the blocks on the
     // platform keep at least 96 px and every car's drop zone (pullRadius) stays at least 0.7 block widths around its slot.
-    const car = Math.round(Math.min(next, (W - 24) / ((Math.max(1, nCars) - 1) * PITCH + CAR_W)));
+    let car = Math.round(Math.min(next, (W - 24) / units));
+    // A large uiScale makes the corner buttons reach below the star row. Cars whose tap area (carAt) would reach up
+    // beside a corner button keep between the two buttons: moved along, or narrowed while each stays 96 px wide;
+    // failing that, the whole train gets smaller so its cars sit below the buttons.
+    const rise = 0.67 * CAR_W * 211 / 480 + 1.15, cornerBottom = cornerY + cornerRadius + 8;
+    const left = homeX + cornerRadius + 8, right = soundX - cornerRadius - 8;
+    const parkFor = (c: number) => (c * length > W - 16 ? 8 : (W - c * length) / 2);
+    let minPark = 0, maxPark = Infinity;
+    if (trackY - car * rise < cornerBottom && (parkFor(car) < left || parkFor(car) + units * car > right)) {
+      const fits = Math.floor(Math.min(car, (right - left) / units));
+      if (fits >= 96) { car = fits; minPark = left; maxPark = right - units * car; }
+      else {
+        next = Math.round(Math.max(96, Math.min(base, room, below, (trackY - cornerBottom) / rise)));
+        car = Math.round(Math.min(next, (W - 24) / units));
+      }
+    }
     if (next !== B) { B = next; for (const b of blocks) b.canvas = undefined; }
     if (car !== C) { C = car; for (const c of cars) { c.slot = undefined; c.plateCanvas = undefined; } }
     trainL = engineX() - trainOff + engineW() / 2;
     const oldPark = parkX;
     // Narrow screens: keep every car in view and let the engine run off the right edge (the word picture stays in view).
-    parkX = trainL > W - 16 ? 8 : (W - trainL) / 2;
+    parkX = Math.min(maxPark, Math.max(minPark, parkFor(C)));
     if (phase === 'play' || phase === 'toot') trainOff = parkX; else if (phase === 'arrive') trainOff += parkX - oldPark;
     platformY = Math.min(H - B / 2 - 10, Math.max(platformTop + B * 0.62, platformTop + (H - platformTop) * 0.5));
     const n = nCars, spacing = Math.min(B * 1.4, (W - 24) / Math.max(1, n));
@@ -1002,6 +1037,7 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
   function renderResult(ctx: CanvasRenderingContext2D): void {
     // Stars: during the celebration they slam in one by one; afterwards they sit still.
     const gap = starSize * 1.25;
+    if (phase === 'celebration') ensureDimStar();
     for (let i = 0; i < 3; i++) {
       const x = W / 2 + (i - 1) * gap;
       if (phase === 'celebration') {
@@ -1080,9 +1116,18 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     blocks() { return blocks.slice(0, nCars).map(b => ({ letter: b.letter, x: b.x, y: b.y, state: b.state, size: B })); },
     cars() { return cars.slice(0, nCars).map((c, i) => ({ letter: c.letter, x: slotX(i), y: slotY(), filled: c.filled, open: isOpen(i), size: C })); },
     controls() {
-      if (phase === 'choice') return (pending?.choices ?? []).map((id, i) => ({ x: choiceX(i), y: choiceY - choiceW * 0.1, w: choiceW, h: choiceW * 0.6, id }));
+      // The tap areas hoverMenu uses, centred.
+      const wh = choiceW * 211 / 480, top = choiceY - choiceW * 0.64, bottom = choiceY + wh / 2 + 16;
+      if (phase === 'choice') return (pending?.choices ?? []).map((id, i) => ({ x: choiceX(i), y: (top + bottom) / 2, w: choiceW + 24, h: bottom - top, id }));
       if (phase === 'rest') return [0, 1].map(i => ({ x: controlX(i), y: controlsY, w: controlsR * 2, h: controlsR * 2, id: i === 0 ? 'again' : 'home' }));
       return [];
+    },
+    view() {
+      return {
+        pixelRatio: sprites.pixelRatio, artRatio, glyphDpr, dimStarDpr, blockDpr: blocks.slice(0, nCars).map(b => b.canvasDpr), slotDpr: cars.slice(0, nCars).map(c => c.slotDpr),
+        backdrop: bgCanvas ? { x: bgX, y: bgY, w: bgCanvas.width / sprites.pixelRatio, h: bgCanvas.height / sprites.pixelRatio } : null,
+        corners: [{ x: homeX, y: cornerY, w: cornerRadius * 2, h: cornerRadius * 2, id: 'corner-home' }, { x: soundX, y: cornerY, w: cornerRadius * 2, h: cornerRadius * 2, id: 'corner-sound' }],
+      };
     },
     resetWork() { workHead = workCount = 0; },
   };
@@ -1127,7 +1172,7 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     },
     render(view: SceneContext) {
       const started = performance.now(), ctx = view.ctx;
-      if (view.width !== W || view.height !== H) layout(view.width, view.height);
+      if (view.width !== W || view.height !== H || sprites.pixelRatio !== artRatio) layout(view.width, view.height);
       if (services.canvas.dpr !== glyphDpr) glyphDpr = services.canvas.dpr;
       if (warmed) ensureBackground();
       // The image prepared this update, drawn once where the backdrop covers it, so its upload is done before it shows.
