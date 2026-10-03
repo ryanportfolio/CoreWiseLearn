@@ -81,6 +81,8 @@ export interface WebPlaygroundStats {
   pointsList(): { x: number; y: number; r: number; glyph: string; next: boolean; joined: boolean }[];
   controls(): { x: number; y: number; radius: number; id: string }[];
   corners(): { x: number; y: number; radius: number; id: string }[];
+  /** The connect picture's box in CSS px (outline included, kite tail not) and its point centres, while it shows. */
+  pictureRect(): { x0: number; x1: number; y0: number; y1: number; points: number[] } | null;
   /**
    * Cached art against the canvas pixel ratio, for checks: backdrops in device px with the size the view needs, and
    * how many baked glyph canvases (balls, caught balls, points, sign) match the current ratio and how many do not.
@@ -117,6 +119,8 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
   const soundButton = createSoundButton(services);
   const balls: Ball[] = Array.from({ length: MAX_BALLS }, (_, slot) => ({ active: false, value: 0, slot, home: slot, homeX: 0, homeY: 0, x: 0, y: 0, phase: 0, enter: 1, delay: 0, wiggle: 0, rim: 0, pulled: false, canvas: undefined }));
   const ballCache = new Map<string, HTMLCanvasElement>();
+  // Sticker sprite names built once, so the choice, sticker and rest screens build no strings per frame.
+  const stickerNames = new Map(STICKERS.map(s => [s.id, stickerSpriteName(s.id)]));
   const caught = new Int8Array(CATCHES_PER_ROUND), caughtCanvas: (HTMLCanvasElement | undefined)[] = [];
   const unit = new Float32Array(MAX_POINTS * 2), pts = new Float32Array(MAX_POINTS * 2), outline = new Float32Array(96 * 2);
   const curveT = new Float32Array(MAX_POINTS);
@@ -338,17 +342,20 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     placePoints(); for (let i = 0; i < MAX_POINTS; i++) pointCanvas[i] = undefined;
   }
   /**
-   * Fits the picture again after a resize. During the connect, a view now too small for the round's points (no fit
-   * without overlap at the 100 px floor and the least gap) drops only points still to come: the same picture is laid out
-   * again with the most points that fit, as long as that keeps every joined point and the next one. Points are joined
-   * in index order, so the joined points keep their numerals or letters, the next point keeps its glyph, and the
-   * threads are drawn again between the new positions. Only when even that cannot fit (many points already joined in a
-   * very small view) do the points still to come go as well: the picture keeps as many joined points as fit and closes,
-   * as if the last one had just been joined. Nothing joined is ever undone and no step is counted that the child did
-   * not make. Shrinking the spacing alone cannot help: the points already sit at the floor size and least gap.
+   * Fits the picture again after a resize, in every phase: the finished picture still shows during the complete and
+   * celebration phases, so it is refitted there too (a fit that would overlap points is harmless then, as no points are
+   * drawn). During the connect, a view now too small for the round's points (no fit without overlap at the 100 px floor
+   * and the least gap) drops only points still to come: the same picture is laid out again with the most points that
+   * fit, as long as that keeps every joined point and the next one. Points are joined in index order, so the joined
+   * points keep their numerals or letters, the next point keeps its glyph, and the threads are drawn again between the
+   * new positions. Only when even that cannot fit (many points already joined in a very small view) do the points still
+   * to come go as well, with any joined points past the most that fit: the picture keeps the joined points that fit and
+   * closes, as if the last one had just been joined, so the round ends a step early. No step is counted that the child
+   * did not make. Shrinking the spacing alone cannot help: the points already sit at the floor size and least gap.
    */
   function fitConnect(): void {
-    if (phase !== 'connect' || fitPicture()) { placePoints(); return; }
+    const fits = fitPicture();
+    if (phase !== 'connect' || fits) { placePoints(); return; }
     const kind = PICTURES[picture]!, n0 = nPoints;
     let fallback = 0;
     for (let n = n0 - 1; n >= 5; n--) {
@@ -957,7 +964,7 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     if (focused) focusRing(ctx, x, y, r + 4);
     chunkyCircle(ctx, x, y, r, blue ? '#2f6fe4' : '#e8413b', OUTLINE, 6);
     chunkyCircle(ctx, x, y, r * 0.8, '#fffaf0', OUTLINE, 4);
-    drawSprite(ctx, sprites, stickerSpriteName(id), x, y, Math.round(size * 0.74), 0, scale, scale);
+    drawSprite(ctx, sprites, stickerNames.get(id) ?? '', x, y, Math.round(size * 0.74), 0, scale, scale);
   }
   function controlX(i: number, choice: boolean): number {
     const n = choice ? pending?.choices.length ?? 0 : 2;
@@ -1074,6 +1081,10 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     pointsList() { return Array.from({ length: phase === 'connect' ? nPoints : 0 }, (_, i) => ({ x: pts[i * 2]!, y: pts[i * 2 + 1]!, r: pointD / 2, glyph: glyph(mode, pointValue(i)), next: i === nextPoint, joined: i < nextPoint })); },
     controls() { const choice = phase === 'choice'; return Array.from({ length: choice ? pending?.choices.length ?? 0 : phase === 'rest' ? 2 : 0 }, (_, i) => ({ x: controlX(i, choice), y: choice ? badgeY : controlsY, radius: choice ? badgeSize / 2 : controlsRadius, id: choice ? pending!.choices[i]! : i === 0 ? 'again' : 'home' })); },
     corners() { return [{ x: homeX, y: cornerY, radius: cornerRadius, id: 'home' }, { x: soundX, y: cornerY, radius: cornerRadius, id: 'sound' }]; },
+    pictureRect() {
+      if (phase !== 'connect' && phase !== 'complete' && phase !== 'celebration') return null;
+      return { x0: picX + picBox[0]! * picSX, x1: picX + picBox[1]! * picSX, y0: picY + picBox[2]! * picSY, y1: picY + picBox[3]! * picSY, points: Array.from(pts.subarray(0, nPoints * 2)) };
+    },
     art() {
       const r = dpr(), size = (c: HTMLCanvasElement | undefined): number[] => (c ? [c.width, c.height] : []);
       let glyphs = 0, stale = 0;
