@@ -19,8 +19,9 @@ import { playSfx, type SfxOptions } from '../../audio/sfx';
 import { startMusic, stopMusic } from '../../audio/music';
 import { chunkyCircle, chunkyPanel, drawSprite, roundedRect, OUTLINE } from '../../ui/draw';
 import { createButton, dispatchDown, dispatchUp, MIN_HIT } from '../../ui/button';
-import { clamp01, easeInCubic, easeOutBack, easeOutCubic, lerp } from '../../ui/tween';
-import { confettiBurst, confettiRain, drawCounter, drawStarRow } from '../../ui/celebrate';
+import { arriveAlpha, arriveScale, clamp01, easeInCubic, easeOutCubic, lerp, slamScale, SLAM_CONTACT } from '../../ui/tween';
+import { confettiBurst, confettiRain, drawCounter, drawStarRow, STAR_GAP_SECONDS, STAR_HIT_SECONDS } from '../../ui/celebrate';
+import { drawEnterFade, reducedMotion } from '../../ui/motion';
 import { OCEAN_THEME, spriteName, type BubbleTheme } from './theme';
 
 export const GAME_ID = 'bubble-pop';
@@ -54,8 +55,36 @@ const POOL_SIZE = 24;
 const FX_POOL_SIZE = 24;
 const PARTICLE_CAPACITY = 600;
 const POP_PARTICLES = 18;
+/** Burst: full size in under three frames, then a slow drift while the ring thins. */
 const BURST_SECONDS = 0.35;
-const HOP_SECONDS = 0.5;
+const BURST_GROW = 0.04;
+/** The burst sprite holds for the hit frame, then goes first; the ring and the sparks outlast it. */
+const BURST_HOLD = 0.08;
+const BURST_FADE = 0.12;
+/** Big burst scale; kept so the burst covers well under 20 percent of the frame at the easiest tier. */
+const BIG_BURST = 1.7;
+/** Creature hop: launch stretched (0.6 wide by 1.4 tall), land squashed (1.4 by 0.6), back to 1 at 1.75 per second. */
+const HOP_AIR = 0.34;
+const HOP_SQUASH = 0.4;
+const HOP_RECOVER = 1.75;
+const HOP_EXIT_AT = 0.62;
+const HOP_SECONDS = 0.84;
+/** Scene freeze on a combo milestone: three frames, never more, none on ordinary pops. */
+const HITSTOP_SECONDS = 0.05;
+/** Any-key pops are limited to one per 120 ms, about as fast as a child can click. */
+const KEY_COOLDOWN = 0.12;
+/** Result timeline. Each tally creature slams in; its tick plays on touchdown. */
+const GRID_SLAM = 0.2;
+const GRID_HIT = GRID_SLAM * SLAM_CONTACT;
+/** Quiet gap between the last star and the fanfare. */
+const FANFARE_GAP = 0.3;
+/** Holds with only twinkle and sway: after the last star lands, and after the sticker lands. */
+const STAR_HOLD = 1.6;
+const STICKER_HOLD = 1.6;
+/** Sticker: flies in for STICKER_FLY, then slams down; it touches down at STICKER_HIT. */
+const STICKER_FLY = 0.3;
+const STICKER_SLAM = 0.35;
+const STICKER_HIT = STICKER_FLY + STICKER_SLAM * SLAM_CONTACT;
 const TUTORIAL_RISE_SECONDS = 1.6;
 const TUTORIAL_TIMEOUT = 6;
 const MAX_DECOYS = 2;
@@ -322,6 +351,10 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
   let lastCreature = -1;
   let lastSpawnX = -9999;
   let everInside = false;
+  let hitstop = 0;
+  let keyCooldown = 0;
+  /** Seconds since enter, unscaled, for the enter fade. */
+  let sceneT = 0;
   let hitsRecorded = 0;
   let missesRecorded = 0;
 
@@ -638,11 +671,12 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
     countChangedAt = -99;
     starStart = 0.25 + shown * countStep + 0.35;
     starsPlayed = 0;
-    fanfareAt = starStart + (stars - 1) * 0.45 + 0.6;
+    const lastStarHit = starStart + (stars - 1) * STAR_GAP_SECONDS + STAR_HIT_SECONDS;
+    fanfareAt = lastStarHit + FANFARE_GAP;
     fanfareDone = false;
-    stickerAt = fanfareAt + 0.5;
+    stickerAt = lastStarHit + STAR_HOLD;
     stickerDone = false;
-    buttonsAt = stickerAt + 0.9;
+    buttonsAt = stickerAt + STICKER_HIT + STICKER_HOLD;
     buttonsShown = false;
   }
 
@@ -702,6 +736,7 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
     if (big) {
       playSfx(audio, 'pop-big');
       confettiBurst(particles, b.x, b.y, 70, 420 * u);
+      hitstop = HITSTOP_SECONDS;
     }
     playSfx(audio, 'tick');
 
@@ -793,7 +828,8 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
 
   // ---------------------------------------------------------------- update
 
-  function updateFx(dt: number): void {
+  /** Bursts run on real time so the hit snaps out during a hitstop; hops run on scene time and freeze with it. */
+  function updateFx(dt: number, sceneDt: number): void {
     for (let i = 0; i < FX_POOL_SIZE; i++) {
       const bu = bursts[i] as Fx;
       if (bu.active) {
@@ -802,7 +838,7 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
       }
       const h = hops[i] as Fx;
       if (h.active) {
-        h.t += dt;
+        h.t += sceneDt;
         if (h.t >= HOP_SECONDS) h.active = false;
       }
     }
@@ -879,8 +915,8 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
   function updateResult(dt: number): void {
     resultT += dt;
     const shown = Math.min(count, tallyLen);
-    if (shown > 0 && resultT >= 0.25) {
-      const target = Math.min(shown, Math.floor((resultT - 0.25) / countStep) + 1);
+    if (shown > 0 && resultT >= 0.25 + GRID_HIT) {
+      const target = Math.min(shown, Math.floor((resultT - 0.25 - GRID_HIT) / countStep) + 1);
       if (target > counted) {
         counted = target;
         countChangedAt = resultT;
@@ -892,7 +928,7 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
       counted = count;
       countChangedAt = resultT;
     }
-    if (starsPlayed < stars && resultT >= starStart + starsPlayed * 0.45 + 0.3) {
+    if (starsPlayed < stars && resultT >= starStart + starsPlayed * STAR_GAP_SECONDS + STAR_HIT_SECONDS) {
       sfxOpts.index = starsPlayed;
       sfxOpts.volume = 1;
       playSfx(audio, 'star', sfxOpts);
@@ -903,7 +939,7 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
       playSfx(audio, 'fanfare');
       confettiRain(particles, W, 60);
     }
-    if (!stickerDone && resultT >= stickerAt) {
+    if (!stickerDone && resultT >= stickerAt + STICKER_HIT) {
       stickerDone = true;
       playSfx(audio, 'sticker');
     }
@@ -913,7 +949,7 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
         const b = buttons[i]!;
         b.visible = true;
         b.enabled = true;
-        b.popIn(i * 0.15);
+        b.popIn(i * 0.04);
       }
     }
     const px = input.pointer.x;
@@ -963,21 +999,24 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
   }
 
   function renderBubbles(ctx: CanvasRenderingContext2D): void {
+    const calm = reducedMotion();
     for (let i = 0; i < POOL_SIZE; i++) {
       const b = bubbles[i] as Bubble;
       if (!b.active) continue;
       if (b.decoy) {
         // Rotate only while wobbling, so the common path is a plain blit.
-        const rot = b.wobble > 0 ? Math.sin(b.wobble * 32) * 0.4 * (b.wobble / 0.6) : 0;
+        const rot = b.wobble > 0 && !calm ? Math.sin(b.wobble * 32) * 0.4 * (b.wobble / 0.6) : 0;
         spriteOr(ctx, decoyName, b.x, b.y, decoySize[b.tier]!, rot, 1, 1, pal.placeholderDecoy, '#8f6bd1');
         continue;
       }
-      // No per-bubble rotation: each bubble is two untransformed blits.
+      // No per-bubble rotation: each bubble is two untransformed blits. The creature bobs
+      // slowly inside its bubble, phase-shifted per bubble, from the moment it spawns.
       const c = b.creature;
-      spriteOr(ctx, creatureNames[c]!, b.x, b.y, creatureSize[b.tier]!, 0, 1, 1, creatureFills[c]!, creatureBlobs[c]!);
+      const bob = calm ? 0 : Math.cos(b.age * 1.6 + i * 1.5) * b.r * 0.06;
+      spriteOr(ctx, creatureNames[c]!, b.x, b.y + bob, creatureSize[b.tier]!, 0, 1, 1, creatureFills[c]!, creatureBlobs[c]!);
       drawRing(ctx, b.x, b.y, b.tier);
       if (b.tutorial) {
-        const pulse = 0.5 + 0.5 * Math.sin(time * 6);
+        const pulse = 0.5 + 0.5 * Math.sin(time * 4.5);
         ctx.globalAlpha = 0.45 + 0.45 * pulse;
         ctx.beginPath();
         ctx.arc(b.x, b.y, b.r * (1.12 + 0.08 * pulse), 0, Math.PI * 2);
@@ -994,36 +1033,64 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
       const h = hops[i] as Fx;
       if (!h.active) continue;
       const t = h.t;
+      const size = creatureSize[h.tier]!;
+      let dev: number;
+      let dy: number;
       let sx: number;
       let sy: number;
-      let dy: number;
-      if (t < 0.1) {
-        const k = t / 0.1;
-        sx = lerp(1, 1.3, k);
-        sy = lerp(1, 0.7, k);
-        dy = 0;
-      } else if (t < 0.22) {
-        const k = (t - 0.1) / 0.12;
-        sx = lerp(1.3, 0.82, k);
-        sy = lerp(0.7, 1.28, k);
-        dy = -34 * u * easeOutCubic(k);
+      if (t < HOP_AIR) {
+        // Launch: stretched tall and thin, easing back to round while it rises and falls.
+        const p = t / HOP_AIR;
+        dy = -46 * u * 4 * p * (1 - p);
+        dev = Math.max(0, HOP_SQUASH - HOP_RECOVER * t);
+        sx = 1 - dev;
+        sy = 1 + dev;
       } else {
-        const k = (t - 0.22) / (HOP_SECONDS - 0.22);
-        const s = 1 - easeInCubic(k);
-        sx = 0.82 * s;
-        sy = 1.28 * s;
-        dy = -34 * u - 46 * u * k;
+        // Landing: squashed wide and flat, recovering at the same rate.
+        dy = 0;
+        dev = Math.max(0, HOP_SQUASH - HOP_RECOVER * (t - HOP_AIR));
+        sx = 1 + dev;
+        sy = 1 - dev;
       }
-      if (sx <= 0.01) continue;
+      // Keep the feet planted while the body squashes and stretches.
+      dy += size * 0.33 * (1 - sy);
+      let alpha = 1;
+      if (t > HOP_EXIT_AT) {
+        // Exit: swims off upward and fades, easing in.
+        const e = easeInCubic((t - HOP_EXIT_AT) / (HOP_SECONDS - HOP_EXIT_AT));
+        alpha = 1 - e;
+        sx *= 1 - 0.25 * e;
+        sy *= 1 - 0.25 * e;
+        dy -= 40 * u * e;
+      }
+      if (alpha <= 0.01) continue;
       const c = h.creature;
-      spriteOr(ctx, creatureNames[c]!, h.x, h.y + dy, creatureSize[h.tier]!, 0, sx, sy, creatureFills[c]!, creatureBlobs[c]!);
+      ctx.globalAlpha = alpha;
+      spriteOr(ctx, creatureNames[c]!, h.x, h.y + dy, size, 0, sx, sy, creatureFills[c]!, creatureBlobs[c]!);
     }
+    ctx.globalAlpha = 1;
     for (let i = 0; i < FX_POOL_SIZE; i++) {
       const bu = bursts[i] as Fx;
       if (!bu.active) continue;
-      const k = bu.t / BURST_SECONDS;
-      const s = (0.45 + 0.75 * easeOutBack(k)) * (bu.big ? 2 : 1);
-      ctx.globalAlpha = clamp01(1 - k);
+      const t = bu.t;
+      const k = t / BURST_SECONDS;
+      const big = bu.big ? BIG_BURST : 1;
+      const r = (ringSize[bu.tier]! / 2) * big;
+      // Ring of the bubble skin: starts thick and thins as it drifts out; it never fades.
+      const lw = r * 0.22 * (1 - k) * (1 - k);
+      if (lw > 0.6) {
+        ctx.beginPath();
+        ctx.arc(bu.x, bu.y, r * (0.95 + 0.45 * easeOutCubic(k)), 0, Math.PI * 2);
+        ctx.lineWidth = lw;
+        ctx.strokeStyle = '#ffffff';
+        ctx.stroke();
+      }
+      // Burst: full size in under three frames, then a slow drift; it goes first.
+      const a = 1 - clamp01((t - BURST_HOLD) / BURST_FADE);
+      if (a <= 0) continue;
+      const grow = t < BURST_GROW ? lerp(0.55, 1, easeOutCubic(t / BURST_GROW)) : 1 + 0.12 * ((t - BURST_GROW) / (BURST_SECONDS - BURST_GROW));
+      const s = grow * big;
+      ctx.globalAlpha = a;
       if (sprites.get(burstName)) {
         drawSprite(ctx, sprites, burstName, bu.x, bu.y, burstSize[bu.tier]!, 0, s, s);
       } else {
@@ -1056,10 +1123,15 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
   }
 
   function renderResult(ctx: CanvasRenderingContext2D): void {
+    const calm = reducedMotion();
+    ctx.globalAlpha = easeOutCubic(clamp01(resultT / 0.3));
     ctx.fillStyle = pal.dim;
     ctx.fillRect(0, 0, W, H);
 
-    const panelPop = easeOutBack(clamp01(resultT / 0.45));
+    // Panel arrives from 0.9 with a small overshoot while it fades in.
+    const panelK = resultT / 0.4;
+    const panelPop = arriveScale(panelK, calm);
+    ctx.globalAlpha = arriveAlpha(panelK);
     ctx.save();
     ctx.translate(panelX + panelW / 2, panelY + panelH / 2);
     ctx.scale(panelPop, panelPop);
@@ -1083,28 +1155,39 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
         ctx.fill();
       }
     }
-    for (let i = 0; i < counted && i < tallyLen; i++) {
+    // Each creature slams into its cell; its tick sounds on touchdown (GRID_HIT).
+    const shown = Math.min(count, tallyLen);
+    const panelAlpha = ctx.globalAlpha;
+    for (let i = 0; i < shown; i++) {
+      const appear = 0.25 + i * countStep;
+      if (resultT < appear) break;
       const row = (i / 10) | 0;
       const col = i - row * 10;
       const cx = ox + col * gridCell + (col >= 5 ? gridCell * 0.6 : 0) + gridCell / 2;
       const cy = oy + row * gridCell + gridCell / 2;
-      const appear = 0.25 + i * countStep;
-      const s = iconScale * easeOutBack(clamp01((resultT - appear) / 0.2));
-      if (s <= 0.01) continue;
+      const local = resultT - appear;
+      const s = iconScale * slamScale(local / GRID_SLAM, 0.4, calm);
       const c = tally[i]!;
+      ctx.globalAlpha = panelAlpha * clamp01(local / GRID_HIT);
       spriteOr(ctx, creatureNames[c]!, cx, cy, creatureSize[resultTier]!, 0, s, s, creatureFills[c]!, creatureBlobs[c]!);
     }
+    ctx.globalAlpha = panelAlpha;
 
-    drawStarRow(ctx, starX, starY, starR, stars, Math.max(0, resultT - starStart));
+    drawStarRow(ctx, starX, starY, starR, stars, Math.max(0, resultT - starStart), time);
     ctx.restore();
+    ctx.globalAlpha = 1;
 
     if (resultT >= stickerAt && stickerName) {
-      const k = clamp01((resultT - stickerAt) / 0.6);
-      const e = easeOutBack(k);
-      const x = lerp(W + stickerSize, stickerX, easeOutCubic(k));
-      const y = lerp(H + stickerSize, stickerY, easeOutCubic(k));
-      const rot = lerp(0.9, -0.08, e);
-      const s = 0.5 + 0.5 * e;
+      // Flies in from the corner, then slams onto the page; sways gently once it has landed.
+      const lt = resultT - stickerAt;
+      const k = clamp01(lt / STICKER_FLY);
+      const e = easeOutCubic(k);
+      const x = lerp(W + stickerSize, stickerX, e);
+      const y = lerp(H + stickerSize, stickerY, e);
+      const landed = lt >= STICKER_FLY;
+      const sway = landed && !calm ? Math.cos(time * 1.1 + 0.7) * 0.05 : 0;
+      const rot = lerp(0.9, -0.08, e) + sway;
+      const s = landed ? slamScale((lt - STICKER_FLY) / STICKER_SLAM, 0.3, calm) : 1.3;
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate(rot);
@@ -1229,6 +1312,9 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
       layout(services.canvas.width, services.canvas.height);
       startMusic(audio, theme.music);
       playSfx(audio, 'whoosh');
+      sceneT = 0;
+      hitstop = 0;
+      keyCooldown = 0;
       startRound();
     },
     exit() {
@@ -1240,11 +1326,20 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
     },
     update(dt) {
       const t0 = performance.now();
-      time += dt;
-      particles.update(dt);
-      updateFx(dt);
+      // Hitstop: scene time stands still for HITSTOP_SECONDS; the burst itself keeps real time.
+      let sdt = dt;
+      if (hitstop > 0) {
+        const frozen = Math.min(hitstop, dt);
+        hitstop -= frozen;
+        sdt = dt - frozen;
+      }
+      sceneT += dt;
+      if (keyCooldown > 0) keyCooldown -= dt;
+      time += sdt;
+      particles.update(sdt);
+      updateFx(dt, sdt);
       if (phase === 'result') updateResult(dt);
-      else updatePlay(dt);
+      else updatePlay(sdt);
       updateMs += performance.now() - t0;
     },
     render(view: SceneContext) {
@@ -1263,6 +1358,7 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
       if (phase === 'result') renderResult(ctx);
       else renderHud(ctx);
       particles.render(ctx);
+      drawEnterFade(ctx, W, H, sceneT);
       work[workHead] = updateMs + performance.now() - t0;
       workHead = (workHead + 1) % WORK_SAMPLES;
       if (workCount < WORK_SAMPLES) workCount++;
@@ -1297,6 +1393,9 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
             if (buttonsShown && (event.info.code === 'Enter' || event.info.code === 'NumpadEnter')) replay();
             return;
           }
+          // One pop per KEY_COOLDOWN however fast keys are mashed; recorded like any other pop.
+          if (keyCooldown > 0) return;
+          keyCooldown = KEY_COOLDOWN;
           keyPop();
           return;
         default:

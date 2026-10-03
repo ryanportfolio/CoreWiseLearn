@@ -2,7 +2,8 @@
 
 import type { ParticleSystem, ParticleSpawn } from '../engine/particles';
 import { chunkyText, OUTLINE } from './draw';
-import { easeOutBack, pulse } from './tween';
+import { reducedMotion } from './motion';
+import { clamp01, pulse, slamScale, SLAM_CONTACT } from './tween';
 
 const CONFETTI_HUES = [0, 35, 55, 130, 200, 280, 320];
 
@@ -59,28 +60,73 @@ export function starPath(ctx: CanvasRenderingContext2D, x: number, y: number, r:
   ctx.closePath();
 }
 
+/** Seconds between one star landing and the next. */
+export const STAR_GAP_SECONDS = 0.45;
+/** Length of one star's slam; it touches down at STAR_HIT_SECONDS, which is when its sound should play. */
+export const STAR_SLAM_SECONDS = 0.4;
+export const STAR_HIT_SECONDS = STAR_SLAM_SECONDS * SLAM_CONTACT;
+
+/** Four-point glint used for the star twinkle. */
+function glintPath(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
+  const w = r * 0.28;
+  ctx.beginPath();
+  ctx.moveTo(x, y - r);
+  ctx.lineTo(x + w, y - w);
+  ctx.lineTo(x + r, y);
+  ctx.lineTo(x + w, y + w);
+  ctx.lineTo(x, y + r);
+  ctx.lineTo(x - w, y + w);
+  ctx.lineTo(x - r, y);
+  ctx.lineTo(x - w, y - w);
+  ctx.closePath();
+}
+
 /**
- * Draw three star slots, `earned` of them gold, revealing one by one.
- * `t` is seconds since the reveal started; each star lands 0.45 s after the previous.
+ * Draw three star slots, `earned` of them gold, landing one by one.
+ * `t` is seconds since the reveal started; star i starts its slam at
+ * i * STAR_GAP_SECONDS and touches down STAR_HIT_SECONDS later. Landed stars
+ * sway and twinkle slowly; pass a running clock as `time` (seconds) for that.
  */
-export function drawStarRow(ctx: CanvasRenderingContext2D, cx: number, cy: number, radius: number, earned: number, t: number): void {
+export function drawStarRow(ctx: CanvasRenderingContext2D, cx: number, cy: number, radius: number, earned: number, t: number, time = 0): void {
   const gap = radius * 2.6;
+  const calm = reducedMotion();
+  ctx.lineJoin = 'round';
   for (let i = 0; i < 3; i++) {
     const x = cx + (i - 1) * gap;
-    const lit = i < earned;
-    const local = t - i * 0.45;
-    const s = lit ? easeOutBack(Math.min(1, Math.max(0, local / 0.5))) : 1;
-    const bump = lit && local > 0 && local < 0.5 ? 1 + 0.25 * pulse(local / 0.5) : 1;
-    ctx.save();
-    ctx.translate(x, cy);
-    ctx.scale(s * bump, s * bump);
-    starPath(ctx, 0, 0, radius);
-    ctx.fillStyle = lit && local > 0 ? '#ffd23f' : '#d9d4e8';
+    // Empty slot, always drawn so a landing star covers it.
+    starPath(ctx, x, cy, radius);
+    ctx.fillStyle = '#d9d4e8';
     ctx.fill();
     ctx.lineWidth = Math.max(4, radius * 0.16);
-    ctx.lineJoin = 'round';
     ctx.strokeStyle = OUTLINE;
     ctx.stroke();
+    const local = t - i * STAR_GAP_SECONDS;
+    if (i >= earned || local <= 0) continue;
+    const k = local / STAR_SLAM_SECONDS;
+    const s = slamScale(k, 0.7, calm);
+    const alpha = clamp01(local / STAR_HIT_SECONDS);
+    const landed = k >= 1;
+    const sway = landed && !calm ? Math.cos(time * 1.1 + i * 1.5) * 0.05 : 0;
+    ctx.save();
+    if (alpha < 1) ctx.globalAlpha *= alpha;
+    ctx.translate(x, cy);
+    if (sway !== 0) ctx.rotate(sway);
+    ctx.scale(s, s);
+    starPath(ctx, 0, 0, radius);
+    ctx.fillStyle = '#ffd23f';
+    ctx.fill();
+    ctx.stroke();
+    if (landed) {
+      // Twinkle: a white glint that swells and fades, under one cycle per second.
+      const tw = 0.5 + 0.5 * Math.cos(time * 2.4 + i * 1.5);
+      const g = tw * tw;
+      if (g > 0.05) {
+        ctx.globalAlpha = g;
+        glintPath(ctx, radius * 0.38, -radius * 0.42, radius * (0.18 + 0.14 * g));
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+      }
+    }
     ctx.restore();
   }
 }

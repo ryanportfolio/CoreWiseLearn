@@ -12,7 +12,8 @@ import { STICKERS, stickerSpriteName, type StickerDef } from '../../app/stickers
 import { createButton, dispatchDown, dispatchUp, MIN_HIT, type Button } from '../../ui/button';
 import { chunkyCircle, OUTLINE, roundedRect } from '../../ui/draw';
 import { confettiBurst } from '../../ui/celebrate';
-import { easeOutBack, pulse } from '../../ui/tween';
+import { arriveAlpha, arriveScale, easeOutBack, pulse } from '../../ui/tween';
+import { drawEnterFade, reducedMotion } from '../../ui/motion';
 import { playSfx } from '../../audio/sfx';
 import { startMusic, stopMusic } from '../../audio/music';
 import {
@@ -50,7 +51,14 @@ const PLACEHOLDER_HUES = ['#ff8a5c', '#5fd36b', '#c084fc', '#ffd23f', '#ff6b6b',
 const DASH: number[] = [14, 11];
 const NO_DASH: number[] = [];
 const DROP_SECONDS = 0.75;
+/** easeOutBack(1.4) first reaches the slot at this fraction of the drop: the touchdown, where the sound and confetti go. */
+const DROP_OVERSHOOT = 1.4;
+const DROP_CONTACT = 1 / (DROP_OVERSHOOT + 1);
 const MIN_SLOT = 140;
+/** Slots pop in one after another on enter, 30 ms apart, each over SLOT_POP seconds. */
+const SLOT_STAGGER = 0.03;
+const SLOT_POP_DELAY = 0.12;
+const SLOT_POP = 0.4;
 
 function stickerArt(services: AppServices): ArtRequest[] {
   return [
@@ -83,6 +91,10 @@ interface Slot {
   /** Drop-in: waiting while dropDelay > 0, falling while drop < 1. -1 when not animating. */
   drop: number;
   dropDelay: number;
+  /** True once a dropping sticker has touched its slot. */
+  landed: boolean;
+  /** Position in the book, for the pop-in stagger and the sway phase. */
+  index: number;
 }
 
 export interface StickerBookLayout {
@@ -203,7 +215,7 @@ export function createStickerBookScene(services: AppServices): Scene {
   const buttons: Button[] = [homeButton, soundButton];
   const hoverPrev: boolean[] = [false, false];
 
-  const slots: Slot[] = STICKERS.map((def) => ({
+  const slots: Slot[] = STICKERS.map((def, index) => ({
     def,
     x: 0,
     y: 0,
@@ -216,7 +228,11 @@ export function createStickerBookScene(services: AppServices): Scene {
     wobble: -1,
     drop: -1,
     dropDelay: 0,
+    landed: false,
+    index,
   }));
+  /** Seconds since enter. */
+  let time = 0;
   let pressedSlot: Slot | null = null;
   const layoutInfo: StickerBookLayout = { targets: [] };
   const imgRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
@@ -354,14 +370,22 @@ export function createStickerBookScene(services: AppServices): Scene {
 
   function renderSlot(ctx: CanvasRenderingContext2D, s: Slot): void {
     const d = s.r * 2;
+    const calm = reducedMotion();
+    // Pop-in on enter: from 0.9 with a small overshoot, fading in.
+    const popK = (time - SLOT_POP_DELAY - s.index * SLOT_STAGGER) / SLOT_POP;
+    if (popK <= 0) return;
+    const pop = arriveScale(popK, calm);
+    const alpha = arriveAlpha(popK);
     const earnedNow = s.count > 0 && (s.drop < 0 || s.dropDelay <= 0);
     // Empty slot outline (also shown under a sticker that has not dropped yet).
     if (!earnedNow || s.drop >= 0) {
       let rot = 0;
-      if (s.wobble >= 0) rot = Math.sin(s.wobble * 18) * 0.12 * (1 - s.wobble / 0.6);
+      if (s.wobble >= 0 && !calm) rot = Math.sin(s.wobble * 18) * 0.12 * (1 - s.wobble / 0.6);
       ctx.save();
+      if (alpha < 1) ctx.globalAlpha = alpha;
       ctx.translate(s.x, s.y);
       if (rot !== 0) ctx.rotate(rot);
+      if (pop !== 1) ctx.scale(pop, pop);
       ctx.beginPath();
       ctx.arc(0, 0, s.r * 0.94, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(150, 140, 190, 0.22)';
@@ -377,15 +401,19 @@ export function createStickerBookScene(services: AppServices): Scene {
     if (!earnedNow) return;
 
     let y = s.y;
-    let scale = 1;
+    let scale = pop;
     if (s.drop >= 0) {
-      const e = easeOutBack(s.drop, 1.4);
+      const e = easeOutBack(s.drop, DROP_OVERSHOOT);
       y = s.y - (s.y + d) * (1 - e);
       scale = 1.15 - 0.15 * Math.min(1, s.drop);
     }
     if (s.bounce >= 0) scale *= 1 + 0.22 * pulse(s.bounce / 0.45);
+    // Earned stickers sway slowly, each on its own phase.
+    const sway = calm || s.drop >= 0 ? 0 : Math.cos(time * 1.0 + s.index * 1.5) * 0.04;
     ctx.save();
+    if (alpha < 1 && s.drop < 0) ctx.globalAlpha = alpha;
     ctx.translate(s.x, y);
+    if (sway !== 0) ctx.rotate(sway);
     if (scale !== 1) ctx.scale(scale, scale);
     if (s.color) ctx.drawImage(s.color, -s.r, -s.r, d, d);
     else chunkyCircle(ctx, 0, 0, s.r * 0.8, '#ffd23f');
@@ -415,11 +443,13 @@ export function createStickerBookScene(services: AppServices): Scene {
       refreshCounts();
       void loadStickerBookAssets(services).then(bindArt);
       pending = unseenStickers(bag);
+      time = 0;
       for (const s of slots) {
         s.bounce = -1;
         s.wobble = -1;
         s.drop = -1;
         s.dropDelay = 0;
+        s.landed = false;
       }
       pending.forEach((id, i) => {
         const s = slots.find((x) => x.def.id === id);
@@ -428,13 +458,14 @@ export function createStickerBookScene(services: AppServices): Scene {
         s.dropDelay = 0.6 + i * 0.4;
       });
       homeButton.popIn(0.1);
-      soundButton.popIn(0.18);
+      soundButton.popIn(0.14);
       startMusic(audio, 'sticker-book');
     },
     exit() {
       stopMusic(audio);
     },
     update(dt) {
+      time += dt;
       const inside = input.pointer.inside;
       const px = inside ? input.pointer.x : -9999;
       const py = inside ? input.pointer.y : -9999;
@@ -461,12 +492,14 @@ export function createStickerBookScene(services: AppServices): Scene {
             continue;
           }
           s.drop += dt / DROP_SECONDS;
-          if (s.drop >= 1) {
-            s.drop = -1;
+          if (!s.landed && s.drop >= DROP_CONTACT) {
+            // Touchdown: the sound, the confetti and the bounce start on the frame it reaches the slot.
+            s.landed = true;
             confettiBurst(particles, s.x, s.y, 60, 380);
             playSfx(audio, 'sticker');
             s.bounce = 0;
           }
+          if (s.drop >= 1) s.drop = -1;
         }
       }
       if (!animating && pending.length > 0) finishSeen();
@@ -487,6 +520,7 @@ export function createStickerBookScene(services: AppServices): Scene {
       for (const s of slots) if (s.drop >= 0) renderSlot(ctx, s);
       for (const b of buttons) b.render(ctx, services.sprites);
       particles.render(ctx);
+      drawEnterFade(ctx, width, height, time);
     },
     handleInput(event: SceneInputEvent) {
       if (event.type === 'pointerdown') {

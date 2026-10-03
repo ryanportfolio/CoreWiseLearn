@@ -357,8 +357,10 @@ export function shaped(p: Patch, base: Tone): Tone {
     attack: finite(base.attack * p.attack, base.attack, 0.001),
     decay: finite(base.decay * p.decay, base.decay, 0.005),
     shape: Math.min(1, Math.max(0, finite(base.shape + p.shape, base.shape))),
-    overtone: finite(base.overtone * p.overtone, base.overtone, 0),
-    noise: finite(base.noise * p.noise, base.noise, 0),
+    // Raising overtone or noise above 1 also adds a little where the design has
+    // none, so the controls do something on every instrument. At 1 nothing changes.
+    overtone: finite(base.overtone * p.overtone + Math.max(0, p.overtone - 1) * 0.1, base.overtone, 0),
+    noise: finite(base.noise * p.noise + Math.max(0, p.noise - 1) * 0.15, base.noise, 0),
   };
 }
 

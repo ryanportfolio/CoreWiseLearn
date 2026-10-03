@@ -5,7 +5,14 @@
 
 import type { SpriteStore } from '../engine/sprites';
 import { chunkyCircle, drawSprite } from './draw';
-import { approach, easeOutBack } from './tween';
+import { reducedMotion } from './motion';
+import { arriveAlpha, arriveScale, springStep } from './tween';
+
+/** Hover, press and release spring: about 100 ms to grow, a small overshoot on release. */
+const SPRING_OMEGA = 38;
+const SPRING_ZETA = 0.55;
+/** Pop-in length in seconds; the spring lands in about 0.25 s and settles by the end. */
+const POP_SECONDS = 0.4;
 
 export const MIN_HIT = 48; // radius in logical px, so 96 px across
 
@@ -45,7 +52,8 @@ export interface Button {
 }
 
 export function createButton(options: ButtonOptions): Button {
-  let scale = 1;
+  /** Spring state: [scale, velocity]. */
+  const spring = new Float32Array([1, 0]);
   let targetScale = 1;
   let pressed = false;
   let popT = 1;
@@ -72,22 +80,24 @@ export function createButton(options: ButtonOptions): Button {
       if (popDelay > 0) {
         popDelay -= dt;
       } else if (popT < 1) {
-        popT = Math.min(1, popT + dt * 2.2);
+        popT = Math.min(1, popT + dt / POP_SECONDS);
       }
       button.hovered = button.enabled && button.visible && button.contains(pointerX, pointerY);
       targetScale = pressed ? 0.9 : button.hovered ? 1.1 : 1;
-      scale = approach(scale, targetScale, 18, dt);
+      springStep(spring, targetScale, SPRING_OMEGA, reducedMotion() ? 1 : SPRING_ZETA, dt);
       if (options.wobble) wobbleT += dt * 2.4;
     },
     render(ctx, sprites) {
-      if (!button.visible) return;
-      const pop = popDelay > 0 ? 0 : easeOutBack(popT);
-      if (pop <= 0) return;
-      const wob = options.wobble ? Math.sin(wobbleT) * 0.04 : 0;
-      const s = scale * pop;
+      if (!button.visible || popDelay > 0) return;
+      const calm = reducedMotion();
+      const wob = options.wobble && !calm ? Math.sin(wobbleT) * 0.04 : 0;
+      const s = (spring[0] ?? 1) * arriveScale(popT, calm);
+      const alpha = arriveAlpha(popT);
+      if (alpha <= 0) return;
       ctx.save();
+      if (alpha < 1) ctx.globalAlpha *= alpha;
       ctx.translate(button.x, button.y);
-      ctx.rotate(wob);
+      if (wob !== 0) ctx.rotate(wob);
       ctx.scale(s, s);
       chunkyCircle(ctx, 0, 0, button.radius, button.fill);
       if (button.icon) drawSprite(ctx, sprites, button.icon, 0, 0, button.radius * 2 * iconScale);
@@ -110,6 +120,8 @@ export function createButton(options: ButtonOptions): Button {
     popIn(delaySeconds = 0) {
       popT = 0;
       popDelay = delaySeconds;
+      spring[0] = 1;
+      spring[1] = 0;
     },
   };
   return button;

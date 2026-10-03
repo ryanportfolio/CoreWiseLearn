@@ -10,7 +10,9 @@ import { accentFor, avatarPath, avatarSpriteName } from '../../app/avatar';
 import { createButton, dispatchDown, dispatchUp, type Button } from '../../ui/button';
 import { chunkyCircle, chunkyPanel, drawSprite, groundShadow, OUTLINE, roundedRect } from '../../ui/draw';
 import { starPath } from '../../ui/celebrate';
-import { approach, easeOutBack } from '../../ui/tween';
+import { approach, arriveAlpha, arriveScale, springStep } from '../../ui/tween';
+import { drawEnterFade, reducedMotion } from '../../ui/motion';
+import { drawMascotAt } from '../../ui/mascot';
 import { playSfx } from '../../audio/sfx';
 import { startMusic, stopMusic } from '../../audio/music';
 import {
@@ -44,6 +46,11 @@ const STICKER_STAR = 'buttons/sticker-star';
 const TILE_COLORS = ['#4fd1f5', '#ffd23f', '#a78bfa', '#f9a8d4', '#86efac', '#fdba74'] as const;
 const MASCOT_BLUE = '#3b9bff';
 const WAVE_SECONDS = 1.5;
+/** Pop-in length for tiles, the badge and the mascot. */
+const POP_SECONDS = 0.4;
+/** Tile hover, press and release spring: a small overshoot on release. */
+const TILE_OMEGA = 34;
+const TILE_ZETA = 0.55;
 
 /** Sprite name for a game's icon. */
 export function gameIconName(id: string): string {
@@ -90,9 +97,10 @@ interface Tile {
   x: number;
   y: number;
   size: number;
-  scale: number;
+  /** Springs: [scale, velocity] and [squash, velocity]. */
+  scale: Float32Array;
+  squash: Float32Array;
   hover: number;
-  squash: number;
   wobble: number;
   hovered: boolean;
   pressed: boolean;
@@ -207,7 +215,22 @@ export function createHubScene(services: AppServices): Scene {
   }
 
   function newTile(id: string | null, iconName: string, color: string): Tile {
-    return { id, iconName, color, x: 0, y: 0, size: 200, scale: 1, hover: 0, squash: 0, wobble: 0, hovered: false, pressed: false, pop: 1, delay: 0 };
+    return {
+      id,
+      iconName,
+      color,
+      x: 0,
+      y: 0,
+      size: 200,
+      scale: new Float32Array([1, 0]),
+      squash: new Float32Array([0, 0]),
+      hover: 0,
+      wobble: 0,
+      hovered: false,
+      pressed: false,
+      pop: 1,
+      delay: 0,
+    };
   }
 
   function layout(): void {
@@ -341,16 +364,23 @@ export function createHubScene(services: AppServices): Scene {
     nav.toGame(t.id);
   }
 
-  function renderTile(ctx: CanvasRenderingContext2D, t: Tile): void {
-    const pop = t.delay > 0 ? 0 : easeOutBack(t.pop);
-    if (pop <= 0) return;
+  function renderTile(ctx: CanvasRenderingContext2D, t: Tile, i: number): void {
+    if (t.delay > 0) return;
+    const calm = reducedMotion();
+    const alpha = arriveAlpha(t.pop);
+    if (alpha <= 0) return;
     const s = t.size;
-    const base = t.scale * pop;
-    const sx = base * (1 + 0.08 * t.squash);
-    const sy = base * (1 - 0.12 * t.squash);
-    const rot = Math.sin(t.wobble * 9) * 0.045 * t.hover;
+    const base = (t.scale[0] ?? 1) * arriveScale(t.pop, calm);
+    const squash = t.squash[0] ?? 0;
+    const sx = base * (1 + 0.08 * squash);
+    const sy = base * (1 - 0.12 * squash);
+    // Idle sway on its own phase, running from the pop-in on; a quicker wobble while hovered.
+    const sway = calm ? 0 : Math.cos(time * 1.1 + i * 1.5);
+    const rot = calm ? 0 : Math.sin(t.wobble * 9) * 0.045 * t.hover + sway * 0.02;
+    const bob = calm ? 0 : Math.cos(time * 1.3 + i * 1.5 + 0.8) * s * 0.012;
     ctx.save();
-    ctx.translate(t.x, t.y);
+    if (alpha < 1) ctx.globalAlpha = alpha;
+    ctx.translate(t.x, t.y + bob);
     if (rot !== 0) ctx.rotate(rot);
     ctx.scale(sx, sy);
     const half = s / 2;
@@ -399,16 +429,18 @@ export function createHubScene(services: AppServices): Scene {
       cooldown = 0;
       pressedTile = null;
       avatarButton.popIn(0);
-      stickerButton.popIn(0.08);
-      soundButton.popIn(0.16);
+      stickerButton.popIn(0.04);
+      soundButton.popIn(0.08);
       badgePop = 0;
       badgeDelay = 0.45;
       tiles.forEach((t, i) => {
         t.pop = 0;
-        t.delay = 0.22 + i * 0.1;
-        t.scale = 1;
+        t.delay = 0.22 + i * 0.04;
+        t.scale[0] = 1;
+        t.scale[1] = 0;
+        t.squash[0] = 0;
+        t.squash[1] = 0;
         t.hover = 0;
-        t.squash = 0;
         t.pressed = false;
       });
       playSfx(audio, 'whoosh');
@@ -428,21 +460,22 @@ export function createHubScene(services: AppServices): Scene {
       hoverSounds(services, buttons, hoverPrev);
       syncSoundIcon(soundButton, services);
       if (badgeDelay > 0) badgeDelay -= dt;
-      else if (badgePop < 1) badgePop = Math.min(1, badgePop + dt * 2.5);
+      else if (badgePop < 1) badgePop = Math.min(1, badgePop + dt / POP_SECONDS);
 
       for (const t of tiles) {
         if (t.delay > 0) {
           t.delay -= dt;
           continue;
         }
-        if (t.pop < 1) t.pop = Math.min(1, t.pop + dt * 2.2);
+        if (t.pop < 1) t.pop = Math.min(1, t.pop + dt / POP_SECONDS);
         const half = t.size / 2;
         const over = inside && px >= t.x - half && px <= t.x + half && py >= t.y - half && py <= t.y + half;
         if (over && !t.hovered) playSfx(audio, 'hover');
         t.hovered = over;
         t.hover = approach(t.hover, over ? 1 : 0, 10, dt);
-        t.scale = approach(t.scale, over && !t.pressed ? 1.08 : 1, 14, dt);
-        t.squash = approach(t.squash, t.pressed ? 1 : 0, 22, dt);
+        const zeta = reducedMotion() ? 1 : TILE_ZETA;
+        springStep(t.scale, over && !t.pressed ? 1.08 : 1, TILE_OMEGA, zeta, dt);
+        springStep(t.squash, t.pressed ? 1 : 0, TILE_OMEGA * 1.4, zeta, dt);
         t.wobble += dt;
       }
     },
@@ -454,21 +487,30 @@ export function createHubScene(services: AppServices): Scene {
       }
       ctx.drawImage(bg, 0, 0, width, height);
 
-      // Mascot behind the tiles: wave first, then idle (or point at a lone game).
+      // Mascot behind the tiles: pops in waving, then idle (or point at a lone game). The bob runs
+      // from enter so the pose swap does not jump, and every pose is drawn from its feet.
+      const calm = reducedMotion();
       const pose = mascotT < WAVE_SECONDS ? WAVE : singleGame ? POINT : IDLE;
-      const bob = Math.sin(time * 2.2);
-      const lift = mascotT < WAVE_SECONDS ? 0 : (bob + 1) * mascotSize * 0.025;
-      groundShadow(ctx, mascotX, mascotGround, mascotSize * 0.3 - lift * 0.6, mascotSize * 0.055, 0.2);
-      drawSprite(ctx, services.sprites, artName(pose), mascotX, mascotGround - mascotSize * 0.33 - lift, mascotSize);
+      const lift = calm ? 0 : (Math.sin(time * 2.2) + 1) * mascotSize * 0.025;
+      const rot = mascotT < WAVE_SECONDS && !calm ? Math.sin(mascotT * 6) * 0.06 * (1 - mascotT / WAVE_SECONDS) : 0;
+      const pop = mascotT / POP_SECONDS;
+      const ms = arriveScale(pop, calm);
+      const malpha = arriveAlpha(pop);
+      ctx.globalAlpha = malpha;
+      groundShadow(ctx, mascotX, mascotGround, (mascotSize * 0.3 - lift * 0.6) * ms, mascotSize * 0.055 * ms, 0.2 * malpha);
+      drawMascotAt(ctx, services.sprites, artName(pose), pose, mascotX, mascotGround, mascotSize, lift, rot, ms, ms);
+      ctx.globalAlpha = 1;
 
-      for (const t of tiles) renderTile(ctx, t);
+      for (let i = 0; i < tiles.length; i++) renderTile(ctx, tiles[i] as Tile, i);
 
       for (const b of buttons) b.render(ctx, services.sprites);
       if (nameSprite) drawTextSprite(ctx, nameSprite, nameX, nameY, 'left');
       if (badgeSprite && badgeCount > 0 && badgeDelay <= 0) {
-        const s = easeOutBack(badgePop);
-        if (s > 0) {
+        const s = arriveScale(badgePop, reducedMotion());
+        const a = arriveAlpha(badgePop);
+        if (a > 0) {
           ctx.save();
+          if (a < 1) ctx.globalAlpha = a;
           ctx.translate(badgeX, badgeY);
           ctx.scale(s, s);
           chunkyCircle(ctx, 0, 0, badgeR, '#ef4444', OUTLINE, 5);
@@ -477,6 +519,7 @@ export function createHubScene(services: AppServices): Scene {
           ctx.restore();
         }
       }
+      drawEnterFade(ctx, width, height, time);
     },
     handleInput(event: SceneInputEvent) {
       if (event.type === 'pointerdown') {

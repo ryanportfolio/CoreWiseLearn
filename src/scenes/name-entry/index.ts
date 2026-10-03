@@ -10,9 +10,11 @@ import type { Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
 import type { Profile } from '../../engine/save';
 import { createParticleSystem, type ParticleSpawn } from '../../engine/particles';
 import { accentFor, avatarPath, avatarSpriteName } from '../../app/avatar';
-import { chunkyCircle, chunkyPanel, chunkyText, drawCover, drawSprite, groundShadow, OUTLINE, DISPLAY_FONT } from '../../ui/draw';
+import { chunkyCircle, chunkyPanel, chunkyText, drawCover, groundShadow, OUTLINE, DISPLAY_FONT } from '../../ui/draw';
 import { createButton, dispatchDown, dispatchUp, type Button } from '../../ui/button';
-import { clamp01, easeInCubic, easeOutBack, pulse } from '../../ui/tween';
+import { clamp01, easeInCubic, easeOutBack, easeOutCubic, pulse, slamScale } from '../../ui/tween';
+import { drawEnterFade, reducedMotion } from '../../ui/motion';
+import { drawMascotAt } from '../../ui/mascot';
 import { confettiBurst } from '../../ui/celebrate';
 import { playSfx, type SfxName, type SfxOptions } from '../../audio/sfx';
 import { startMusic, stopMusic } from '../../audio/music';
@@ -31,10 +33,15 @@ const ICON_BACK = 'buttons/backspace';
 const ICON_GO = 'buttons/play-arrow';
 /** Stand-in face for a profile bubble whose animal art has not loaded. */
 const SILHOUETTE = 'buttons/avatar-silhouette';
-/** Feet sit this far below the sprite centre, as a fraction of its size (mascot art is 512 px with feet at y 413). */
-const MASCOT_FEET = 0.3;
 /** The point pose art points right; the keyboard is to the mascot's left. */
 const POINT_FLIP = -1;
+/** Mascot reaction to a letter: pose swap plus a squash, then a stretched bounce. */
+const CHEER_SECONDS = 0.35;
+/** Key squash on a letter: snaps down, then springs back with a small overshoot. */
+const KEY_FLASH_SECONDS = 0.22;
+/** A typed letter slams in for LETTER_SLAM; a removed one drops away in 75 percent of that. */
+const LETTER_SLAM = 0.32;
+const GHOST_SECONDS = 0.24;
 
 /** Bright fills that cycle across keys and letter panels, with matching sparkle hues. */
 const PALETTE = ['#ff5a5f', '#ffb627', '#9b5de5', '#2ec27e', '#2f9bff', '#ff7f3f', '#f25cae', '#1fc8db'] as const;
@@ -176,6 +183,8 @@ export function createNameEntryScene(services: AppServices): Scene {
   let leaving = false;
   let leaveT = -1;
   let goT = -1;
+  /** Seconds since the GO (or profile) hop started; -1 when not hopping. */
+  let hopT = -1;
   let cheerT = 0;
   let missT = 0;
   let waveT = 0;
@@ -263,7 +272,7 @@ export function createNameEntryScene(services: AppServices): Scene {
   function typeLetter(letter: number): void {
     if (leaving) return;
     markActive();
-    keyFlash[letter] = 0.16;
+    keyFlash[letter] = KEY_FLASH_SECONDS;
     if (count >= MAX_LETTERS) {
       wobbleTray();
       return;
@@ -293,7 +302,7 @@ export function createNameEntryScene(services: AppServices): Scene {
       p.saturation = 95;
       p.lightness = k % 3 === 0 ? 70 : 62;
     });
-    cheerT = 0.35;
+    cheerT = CHEER_SECONDS;
     sfx('key', { index: letter });
   }
 
@@ -335,6 +344,7 @@ export function createNameEntryScene(services: AppServices): Scene {
     leaving = true;
     leaveT = 1.2;
     goT = 0;
+    hopT = 0;
     sfx('go');
     confettiBurst(particles, (slotX(0) + slotX(count - 1)) / 2, L.rowY, 90, 460);
     services.save.selectProfile(name);
@@ -349,6 +359,7 @@ export function createNameEntryScene(services: AppServices): Scene {
     if (!p || !b) return;
     leaving = true;
     leaveT = 0.8;
+    hopT = 0;
     bubbleBounce[i] = 0.55;
     sfx('button');
     confettiBurst(particles, b.x, b.y, 60, 380);
@@ -480,13 +491,13 @@ export function createNameEntryScene(services: AppServices): Scene {
   }
 
   // ---- Drawing helpers -----------------------------------------------------
-  function drawWithTransform(ctx: CanvasRenderingContext2D, b: Button, rot: number, scale: number, dx: number): void {
-    if (rot === 0 && scale === 1 && dx === 0) {
+  function drawWithTransform(ctx: CanvasRenderingContext2D, b: Button, rot: number, scale: number, dx: number, dy = 0): void {
+    if (rot === 0 && scale === 1 && dx === 0 && dy === 0) {
       b.render(ctx, sprites);
       return;
     }
     ctx.save();
-    ctx.translate(b.x + dx, b.y);
+    ctx.translate(b.x + dx, b.y + dy);
     if (rot !== 0) ctx.rotate(rot);
     if (scale !== 1) ctx.scale(scale, scale);
     ctx.translate(-b.x, -b.y);
@@ -536,26 +547,61 @@ export function createNameEntryScene(services: AppServices): Scene {
     return MASCOT_IDLE;
   }
 
+  /**
+   * The mascot stands in the corner and reacts so a child sees it from the
+   * corner of the eye: a squash then a stretched bounce on every letter, a big
+   * cheering hop on GO, a wave on enter. Every pose is drawn from its feet.
+   */
   function drawMascot(ctx: CanvasRenderingContext2D): void {
     const s = L.mascotSize;
-    let lift = Math.sin(t * 2.2) * s * 0.015 + s * 0.015;
-    let sy = 1 + Math.sin(t * 2.2 + 1.2) * 0.015;
+    const calm = reducedMotion();
+    // Idle: a slow float and breath, under half a cycle per second.
+    const breath = calm ? 0 : Math.sin(t * 2.2 + 1.2) * 0.015;
+    let lift = calm ? 0 : Math.sin(t * 2.2) * s * 0.012 + s * 0.012;
+    let sx = 1 - breath * 0.5;
+    let sy = 1 + breath;
     let rot = 0;
-    if (cheerT > 0) {
-      const p = 1 - cheerT / 0.35;
-      lift += pulse(p) * s * 0.07;
-      sy *= 1 + pulse(p) * 0.04;
+    if (hopT >= 0) {
+      // GO: crouch, a big stretched hop with arms up, a squashed landing, then a small second hop.
+      const h = hopT;
+      let dev = 0;
+      if (h < 0.1) {
+        dev = -0.2 * easeOutCubic(h / 0.1);
+      } else if (h < 0.55) {
+        const p = (h - 0.1) / 0.45;
+        lift += s * 0.2 * 4 * p * (1 - p);
+        dev = Math.max(0, 0.35 - 1.75 * (h - 0.1));
+      } else if (h < 0.8) {
+        dev = -Math.max(0, 0.3 - 1.75 * (h - 0.55));
+      } else if (h < 1.15) {
+        const p = (h - 0.8) / 0.35;
+        lift += s * 0.08 * 4 * p * (1 - p);
+      }
+      sx *= 1 - dev;
+      sy *= 1 + dev;
+    } else if (cheerT > 0) {
+      // Letter: squash on the key press frame, then a stretched bounce that settles.
+      const p = 1 - cheerT / CHEER_SECONDS;
+      if (p < 0.15) {
+        sx *= 1.16;
+        sy *= 0.84;
+      } else {
+        const q = (p - 0.15) / 0.85;
+        const dev = 0.14 * (1 - q) * (1 - q);
+        sx *= 1 - dev;
+        sy *= 1 + dev;
+        lift += pulse(q) * s * 0.08;
+      }
     }
-    if (leaving) lift += Math.abs(Math.sin(t * 9)) * s * 0.06;
-    if (missT > 0) rot = Math.sin((0.7 - missT) * 9) * 0.16 * (missT / 0.7);
+    if (missT > 0 && !calm) rot = Math.sin((0.7 - missT) * 9) * 0.16 * (missT / 0.7);
+    else if (waveT > 0 && !leaving && !calm) rot = Math.sin((1.6 - waveT) * 6) * 0.06 * (waveT / 1.6);
     const shadowScale = 1 - Math.min(0.4, lift / (s * 0.25));
-    groundShadow(ctx, L.mascotX, L.mascotGroundY, s * 0.3 * shadowScale, s * 0.055 * shadowScale);
+    groundShadow(ctx, L.mascotX, L.mascotGroundY, s * 0.3 * shadowScale * sx, s * 0.055 * shadowScale, 0.18);
     let pose = currentPose();
     if (!sprites.get(pose)) pose = MASCOT_IDLE;
-    const cy = L.mascotGroundY - s * MASCOT_FEET - lift;
     if (sprites.get(pose)) {
-      const sx = pose === MASCOT_POINT ? POINT_FLIP : 1;
-      drawSprite(ctx, sprites, pose, L.mascotX, cy, s, rot, sx, sy);
+      const flip = pose === MASCOT_POINT ? POINT_FLIP : 1;
+      drawMascotAt(ctx, sprites, pose, pose, L.mascotX, L.mascotGroundY, s, lift, rot, sx * flip, sy);
     } else {
       // Placeholder mascot: a blue blob with eyes.
       const r = s * 0.36;
@@ -578,6 +624,7 @@ export function createNameEntryScene(services: AppServices): Scene {
       leaving = false;
       leaveT = -1;
       goT = -1;
+      hopT = -1;
       cheerT = 0;
       missT = 0;
       waveT = 1.6;
@@ -597,7 +644,7 @@ export function createNameEntryScene(services: AppServices): Scene {
       for (let i = 0; i < keys.length; i++) (keys[i] as Button).popIn(0.15 + i * 0.03);
       backBtn.popIn(0.1);
       goBtn.popIn(0.2);
-      for (let i = 0; i < bubbles.length; i++) (bubbles[i] as Button).popIn(0.05 + i * 0.06);
+      for (let i = 0; i < bubbles.length; i++) (bubbles[i] as Button).popIn(0.05 + i * 0.04);
       startMusic(audio, 'name-entry');
       sfx('whoosh');
     },
@@ -631,7 +678,7 @@ export function createNameEntryScene(services: AppServices): Scene {
       for (const g of ghosts) {
         if (!g.active) continue;
         g.t += dt;
-        if (g.t >= 0.5) g.active = false;
+        if (g.t >= GHOST_SECONDS) g.active = false;
       }
       for (let i = 0; i < ALPHABET.length; i++) {
         if (keyWiggle[i]! > 0) keyWiggle[i] = Math.max(0, keyWiggle[i]! - dt);
@@ -648,6 +695,7 @@ export function createNameEntryScene(services: AppServices): Scene {
       if (trayShakeT > 0) trayShakeT = Math.max(0, trayShakeT - dt);
       if (goShakeT > 0) goShakeT = Math.max(0, goShakeT - dt);
       if (goT >= 0) goT += dt;
+      if (hopT >= 0) hopT += dt;
 
       // Attract: nothing typed and no input for 5 s.
       if (!leaving && count === 0) {
@@ -683,18 +731,20 @@ export function createNameEntryScene(services: AppServices): Scene {
       const ctx = view.ctx;
       ctx.drawImage(bg.canvas, 0, 0, bg.w, bg.h);
 
-      // Profile bubbles and their names.
+      const calm = reducedMotion();
+      // Profile bubbles and their names, each bobbing slowly on its own phase.
       for (let i = 0; i < bubbles.length; i++) {
         const b = bubbles[i] as Button;
         const bt = bubbleBounce[i] as number;
         const scale = bt > 0 ? 1 + 0.28 * pulse(1 - bt / 0.55) : 1;
-        drawWithTransform(ctx, b, 0, scale, 0);
+        const bob = calm ? 0 : Math.cos(t * 1.2 + (i + 7) * 1.5) * 3;
+        drawWithTransform(ctx, b, 0, scale, 0, bob);
         const o = labels[i] as Offscreen;
-        ctx.drawImage(o.canvas, b.x - o.w / 2, b.y + b.radius * scale - o.h * 0.25, o.w, o.h);
+        ctx.drawImage(o.canvas, b.x - o.w / 2, b.y + bob + b.radius * scale - o.h * 0.25, o.w, o.h);
       }
 
       // Tray and letters.
-      const shake = trayShakeT > 0 ? Math.sin(trayShakeT * 48) * 10 * (trayShakeT / 0.45) : 0;
+      const shake = trayShakeT > 0 && !calm ? Math.sin(trayShakeT * 48) * 10 * (trayShakeT / 0.45) : 0;
       ctx.drawImage(tray.canvas, L.trayX - 4 + shake, L.trayY - 4, tray.w, tray.h);
       const pw = L.panelW;
       const ph = L.panelH;
@@ -702,7 +752,8 @@ export function createNameEntryScene(services: AppServices): Scene {
         const s = slots[i] as Slot;
         const x = slotX(i) + shake;
         let y = L.rowY;
-        const sc = easeOutBack(clamp01(s.age / 0.32), 2.4);
+        // Slams in at full opacity on the key-press frame, dips on contact and settles.
+        const sc = slamScale(s.age / LETTER_SLAM, 0.3, calm);
         if (goT >= 0) y -= pulse(clamp01((goT - i * 0.07) / 0.32)) * ph * 0.45;
         const w = pw * sc;
         const h = ph * sc;
@@ -710,7 +761,7 @@ export function createNameEntryScene(services: AppServices): Scene {
       }
       for (const g of ghosts) {
         if (!g.active) continue;
-        const k = g.t / 0.5;
+        const k = g.t / GHOST_SECONDS;
         const sc = 1 - easeInCubic(k);
         if (sc <= 0.01) continue;
         ctx.save();
@@ -724,23 +775,32 @@ export function createNameEntryScene(services: AppServices): Scene {
       // Backspace and GO.
       backBtn.render(ctx, sprites);
       if (!sprites.get(ICON_BACK) && backBtn.visible) drawBackFallback(ctx, backBtn.x, backBtn.y, backBtn.radius);
-      const goRot = count > 0 && !leaving ? Math.sin(t * 3) * 0.07 : 0;
-      const goScale = count > 0 && !leaving ? 1 + Math.sin(t * 6) * 0.025 : leaving ? 1.08 : 1;
-      const goDx = goShakeT > 0 ? Math.sin(goShakeT * 46) * 12 * (goShakeT / 0.5) : 0;
+      const goIdle = count > 0 && !leaving && !calm;
+      const goRot = goIdle ? Math.sin(t * 2.4) * 0.06 : 0;
+      const goScale = goIdle ? 1 + Math.sin(t * 4.8) * 0.025 : leaving ? 1.08 : 1;
+      const goDx = goShakeT > 0 && !calm ? Math.sin(goShakeT * 46) * 12 * (goShakeT / 0.5) : 0;
       drawWithTransform(ctx, goBtn, goRot, goScale, goDx);
       if (!sprites.get(ICON_GO)) drawPlayFallback(ctx, goBtn.x + goDx, goBtn.y, goBtn.radius);
 
-      // Keyboard.
+      // Keyboard: each key bobs a little on its own phase from the moment it pops in.
       for (let i = 0; i < keys.length; i++) {
         const w = keyWiggle[i] as number;
         const f = keyFlash[i] as number;
-        const rot = w > 0 ? Math.sin(w * 22) * 0.22 * (w / 0.8) : 0;
-        const scale = (w > 0 ? 1 + 0.12 * pulse(1 - w / 0.8) : 1) * (f > 0 ? 0.9 : 1);
-        drawWithTransform(ctx, keys[i] as Button, rot, scale, 0);
+        const rot = w > 0 && !calm ? Math.sin(w * 22) * 0.22 * (w / 0.8) : 0;
+        let press = 1;
+        if (f > 0) {
+          // Snap down on the press frame, then spring back past 1 and settle.
+          const k = 1 - f / KEY_FLASH_SECONDS;
+          press = k < 0.15 ? 0.86 : 0.86 + 0.14 * (calm ? easeOutCubic((k - 0.15) / 0.85) : easeOutBack((k - 0.15) / 0.85, 3));
+        }
+        const scale = (w > 0 ? 1 + 0.12 * pulse(1 - w / 0.8) : 1) * press;
+        const bob = calm ? 0 : Math.cos(t * 1.3 + i * 1.5) * 2.2;
+        drawWithTransform(ctx, keys[i] as Button, rot, scale, 0, bob);
       }
 
       drawMascot(ctx);
       particles.render(ctx);
+      drawEnterFade(ctx, L.width, L.height, t);
     },
 
     handleInput(e: SceneInputEvent) {
