@@ -1,18 +1,29 @@
 /**
- * Slots for short spoken shape names. A clip plays only when its name is
- * listed in VOICE_CLIPS and the file loads from public/voice/shape-workshop/;
- * anything else is silently skipped, so an empty list makes no requests and
- * no console errors. See public/voice/shape-workshop/README.md.
+ * Slots for short spoken shape names. The clip list is the hand-edited file
+ * public/voice/shape-workshop/clips.json (a JSON array of clip names, file
+ * names without .mp3). A clip plays only when its name is in that list and
+ * the file loads; anything else is silently skipped, so an empty list makes no
+ * clip requests and no console errors. See public/voice/shape-workshop/README.md.
  */
 
 import type { AppServices } from '../../app/services';
 import type { Shape } from './paper';
 
-/** Clip names (file name without .mp3) that exist in public/voice/shape-workshop/. None ship yet. */
-export const VOICE_CLIPS: readonly string[] = [];
-
+/** Clip names from clips.json; empty until it loads, or if it is missing or malformed. */
+let clips: readonly string[] = [];
+let listRequested = false;
 const buffers = new Map<string, Promise<AudioBuffer | undefined>>();
 let lastAt = 0;
+
+/** Read the clip list once per page. Safe to call on every scene entry. */
+export function loadVoiceList(services: AppServices): void {
+  if (listRequested) return;
+  listRequested = true;
+  void fetch(`${services.base}voice/shape-workshop/clips.json`)
+    .then(res => res.ok ? res.json() as Promise<unknown> : [])
+    .then(list => { if (Array.isArray(list)) clips = list.filter((n): n is string => typeof n === 'string' && /^[a-z0-9-]+$/.test(n)); })
+    .catch(() => undefined);
+}
 
 function load(services: AppServices, name: string): Promise<AudioBuffer | undefined> {
   let p = buffers.get(name);
@@ -26,9 +37,9 @@ function load(services: AppServices, name: string): Promise<AudioBuffer | undefi
   return p;
 }
 
-/** Say a shape's name if its clip exists. At most one clip every 0.6 s. */
+/** Say a shape's name if its clip is listed. At most one clip every 0.6 s. */
 export function sayShape(services: AppServices, shape: Shape): void {
-  if (!VOICE_CLIPS.includes(shape) || services.audio.muted || !services.audio.ready) return;
+  if (!clips.includes(shape) || services.audio.muted || !services.audio.ready) return;
   const now = performance.now();
   if (now - lastAt < 600) return;
   lastAt = now;

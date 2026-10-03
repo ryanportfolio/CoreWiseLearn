@@ -26,6 +26,7 @@ At most one clip plays every 0.6 seconds, at 90 percent volume on the sound-effe
 ## Adding a clip
 
 1. Put the file here, for example `public/voice/shape-workshop/star.mp3`. Keep it under a second, mono, with no silence before the word.
-2. Add its name without `.mp3` to `VOICE_CLIPS` in `src/games/shape-workshop/voice.ts`, for example `['star']`.
+2. Add its name without `.mp3` to the list in `clips.json` in this folder. The list is plain JSON: `[]` with no clips, `["star"]` with one, `["star", "circle"]` with two. Names use lowercase letters, digits and dashes only.
+3. Run `npm run build` so the new file and list are precached for offline play.
 
-The game only asks for clips listed there, so a missing file never causes a request or a console error. Every file in `public/` is precached for offline play by the next build.
+No code changes are needed. The game reads `clips.json` once when it opens and only asks for clips listed there, so a shape without a listed clip never causes a request or a console error. A name listed without its file makes one failed request the first time that shape is said; the game stays silent and carries on.

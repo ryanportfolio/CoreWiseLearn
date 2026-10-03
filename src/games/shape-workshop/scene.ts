@@ -17,7 +17,7 @@ import { PAPER, SHAPES, SWATCHES, TRAY_ASPECT, bakeShape, drawBaked, paintShape,
 import { ALIVE_SECONDS, PICTURES, PICTURE_IDS, partPose, picturePose, pictureById, resetPose, shelfPose, type Face, type Part, type Picture, type PictureId, type Pose } from './pictures';
 import { FX_BUBBLE, FX_PUFF, createFx } from './fx';
 import { MAX_STAMPS, SHEET_COUNT, STAMP_STRIDE, defaults, sanitize, type Wip, type WorkshopData } from './save';
-import { sayShape } from './voice';
+import { loadVoiceList, sayShape } from './voice';
 
 export const GAME_ID = 'shape-workshop';
 const ART = {
@@ -35,7 +35,13 @@ export const TIERS = [
 ] as const;
 const GUARD_MS = 320, HINT_IDLE = 9, HINT_REPEAT = 12, ASSIST_SECONDS = 8, LAND_SECONDS = 0.45, FLY_SECONDS = 0.3;
 const DONE_SECONDS = 1.1, SEND_SECONDS = 0.85, DEAL_SECONDS = 0.55;
+/** Drop tolerance: half the 96 px minimum target around an outline's centre, and a rim around the drawn outline. */
+const MIN_HIT = 48, DROP_PAD = 12;
+/** Milliseconds per frame spent baking a new picture's paper parts. */
+const ART_BUDGET_MS = 3;
 const SHEET_ASPECT = 4 / 3, STAMP_REF = 150, LIVE_STAMPS = 10;
+/** Key-mashing walk: step per key press in sheet heights, random turn range and pull toward empty paper, in radians and as a share of the turn needed. */
+const WALK_STEP = 0.15, WALK_TURN = 1.0, WALK_PULL = 0.35;
 const FRAME_COLORS = [1, 6, 4, 3, 5, 0];
 
 type Mode = 'build' | 'free' | 'gallery';
@@ -65,7 +71,7 @@ export interface WorkshopStats {
   readonly handActive: boolean; readonly stamps: number; readonly sheet: number; readonly fx: number;
   readonly workMean: number; readonly workMax: number;
   readonly learnHits: number; readonly learnMisses: number; readonly motorHits: number; readonly motorMisses: number;
-  spots(): { x: number; y: number; shape: string; open: boolean; placed: boolean; hit: number; reach: number }[];
+  spots(): { x: number; y: number; w: number; h: number; rot: number; shape: string; open: boolean; placed: boolean; hit: number; reach: number }[];
   pieces(): { x: number; y: number; shape: string; state: string; extra: boolean; cell: number }[];
   buttons(): { id: string; x: number; y: number; r: number; visible: boolean }[];
   frames(): { id: string; x: number; y: number; size: number; made: boolean }[];
@@ -101,7 +107,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   let data: WorkshopData = defaults();
   let mode: Mode = 'build', phase: Phase = 'deal';
   let W = 1366, H = 768, u = 1, margin = 16, btnR = 52, dpr = 1, portrait = false;
-  let areaTop = 0, toolTop = 0, areaBottom = 0, areaLeft = 0, areaRight = 0, swatchCycle = false;
+  let areaTop = 0, toolTop = 0, freeTop = 0, areaBottom = 0, areaLeft = 0, areaRight = 0, swatchCycle = false, narrowBuild = false, narrowFree = false;
   let time = 0, sceneT = 0, phaseT = 0, inputAfter = 0, lastPlace = 0, lastHint = -99, hintShape = '', hintAt = -99;
   let bg: HTMLCanvasElement | undefined;
   let bgDirty = true;
@@ -132,8 +138,10 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   let spots: Spot[] = [];
   let pieces: Piece[] = [];
   let sheet: Baked | undefined, tray: Baked | undefined;
+  /** Size each of those was baked at; cleared by layout() so a resize or the paper grain arriving rebakes them. */
+  let sheetKey = '', trayKey = '';
   let board: HTMLCanvasElement | undefined;
-  let boardDirty = true, boardSlide = 1;
+  let boardDirty = true, boardSlide = 1, artPending = false;
   let sheetX = 0, sheetY = 0, sheetW = 0, sheetH = 0, boxX = 0, boxY = 0, P = 600;
   let trayX = 0, trayY = 0, trayCols = 2, cell = 120;
   let held: Piece | undefined;
@@ -146,7 +154,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   const noDash: number[] = [];
 
   // ---------------------------------------------------------------- free state
-  let sheetIndex = 0, selShape = 0, selColor = 0, cursorX = 0.5, cursorY = 0.5, lastStampX = -1e9, lastStampY = -1e9;
+  let sheetIndex = 0, selShape = 0, selColor = 0, cursorX = 0.5, cursorY = 0.5, lastStampX = -1e9, lastStampY = -1e9, walkA = 0.7;
   let freeX = 0, freeY = 0, freeW = 0, freeH = 0, freeCell = 110, swatchR = 52;
   let freeSheet: Baked | undefined, layer: HTMLCanvasElement | undefined;
   let layerDirty = true;
@@ -154,6 +162,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   const trayArt: (Baked | undefined)[] = new Array<Baked | undefined>(SHAPES.length * SWATCHES).fill(undefined);
   const shapeCellX = new Float32Array(SHAPES.length), shapeCellY = new Float32Array(SHAPES.length);
   const swatchX = new Float32Array(SWATCHES), swatchY = new Float32Array(SWATCHES);
+  const walkCounts = new Uint16Array(12);
   const live: Stamp[] = Array.from({ length: LIVE_STAMPS }, () => ({ active: false, shape: 0, color: 0, x: 0, y: 0, size: 0, rot: 0, t: 0 }));
 
   // ---------------------------------------------------------------- gallery state
@@ -187,22 +196,31 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     const top = margin + btnR;
     home.x = margin + btnR; home.y = top; home.radius = btnR;
     sound.x = W - margin - btnR; sound.y = top; sound.radius = btnR;
-    galleryBtn.x = sound.x - btnR * 2 - margin; galleryBtn.y = top; galleryBtn.radius = btnR;
-    brushBtn.x = galleryBtn.x - btnR * 2 - margin; brushBtn.y = top; brushBtn.radius = btnR;
+    galleryBtn.radius = btnR; brushBtn.radius = btnR;
     areaTop = top + btnR + margin * 0.6; areaBottom = H - margin; areaLeft = margin; areaRight = W - margin;
-    toolTop = areaTop;
-    if (W < btnR * 8 + margin * 5) {
-      // Too narrow for four buttons in a row: the two mode buttons drop to a second row.
-      galleryBtn.x = sound.x; brushBtn.x = sound.x - btnR * 2 - margin;
-      galleryBtn.y = brushBtn.y = top + btnR * 2 + margin;
-      toolTop = galleryBtn.y + btnR + margin * 0.6;
-    }
-    bgDirty = true;
+    // Build shows four buttons, free build three (no brush). A row too narrow for them drops the mode buttons to a second row.
+    narrowBuild = W < btnR * 8 + margin * 5; narrowFree = W < btnR * 6 + margin * 4;
+    const secondRow = top + btnR * 2 + margin + btnR + margin * 0.6;
+    toolTop = narrowBuild ? secondRow : areaTop;
+    freeTop = narrowFree ? secondRow : areaTop;
+    placeButtons();
+    bgDirty = true; sheetKey = trayKey = '';
     fx.bake(dpr);
     layoutBuild(); layoutFree(); layoutGallery();
   }
 
-  function layoutBuild(): void {
+  /** Mode buttons in the top row, or in a second row when this mode's buttons do not fit in one. */
+  function placeButtons(): void {
+    const top = margin + btnR;
+    galleryBtn.x = sound.x - btnR * 2 - margin; galleryBtn.y = top;
+    brushBtn.x = galleryBtn.x - btnR * 2 - margin; brushBtn.y = top;
+    if (mode === 'build' ? narrowBuild : mode === 'free' && narrowFree) {
+      galleryBtn.x = sound.x; brushBtn.x = sound.x - btnR * 2 - margin;
+      galleryBtn.y = brushBtn.y = top + btnR * 2 + margin;
+    }
+  }
+
+  function layoutBuild(bakeNow = true): void {
     const n = Math.max(3, pieces.length), availW = areaRight - areaLeft, availH = areaBottom - toolTop;
     let rows = 1;
     if (!portrait) {
@@ -221,26 +239,62 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     }
     P = sheetW * 0.86 * TIERS[tierNow()].scale;
     boxX = sheetX + (sheetW - P) / 2; boxY = sheetY + (sheetH - P) / 2;
-    sheet = bakeShape('square', PAPER[7], sheetW, sheetH, dpr, { shadow: 9 * u, rim: 4, seed: 11, layer: '#fff8ea' });
-    tray = bakeShape('rectangle', '#e6c08f', trayCols * cell + 16 * u, rows * cell + 16 * u, dpr, { shadow: 7 * u, rim: 3, seed: 5 });
+    // The sheet and tray are big bakes: redo them only when their size changes, not on every picture.
+    const sk = `${sheetW}|${dpr}|${u}`, tk = `${trayCols * cell}|${rows * cell}|${dpr}|${u}`;
+    if (!sheet || sk !== sheetKey) { sheet = bakeShape('square', PAPER[7], sheetW, sheetH, dpr, { shadow: 9 * u, rim: 4, seed: 11, layer: '#fff8ea' }); sheetKey = sk; }
+    if (!tray || tk !== trayKey) { tray = bakeShape('rectangle', '#e6c08f', trayCols * cell + 16 * u, rows * cell + 16 * u, dpr, { shadow: 7 * u, rim: 3, seed: 5 }); trayKey = tk; }
     const tier = TIERS[tierNow()];
     for (const s of spots) {
       s.x = boxX + s.part.x / 100 * P; s.y = boxY + s.part.y / 100 * P; s.w = s.part.w / 100 * P; s.h = s.part.h / 100 * P;
       s.rot = s.part.rot * Math.PI / 180;
       const r = Math.max(s.w, s.h) / 2;
-      s.hit = Math.max(48, r); s.reach = Math.max(48, tier.snapMin * u, tier.snap * r);
-      s.baked = bakeShape(s.part.shape, PAPER[s.part.color]!, s.w, s.h, dpr, { rotation: s.rot, seed: s.part.x * 3 + s.part.y });
+      s.hit = Math.max(MIN_HIT, r); s.reach = Math.max(MIN_HIT, tier.snapMin * u, tier.snap * r);
+      s.baked = bakeNow ? bakeSpot(s) : undefined;
     }
-    for (const p of pieces) placeInTray(p);
+    for (const p of pieces) placeInTray(p, bakeNow);
+    artPending = !bakeNow;
     boardDirty = true;
   }
 
-  function placeInTray(p: Piece): void {
+  const bakeSpot = (s: Spot): Baked => bakeShape(s.part.shape, PAPER[s.part.color]!, s.w, s.h, dpr, { rotation: s.rot, seed: s.part.x * 3 + s.part.y });
+
+  /**
+   * After a picture change, bake its parts and pieces a few per frame within a
+   * small time budget, so dealing a new picture never stalls a frame. True when done.
+   */
+  function bakeSomeArt(): boolean {
+    const t0 = performance.now();
+    for (const s of spots) if (!s.baked) { s.baked = bakeSpot(s); if (performance.now() - t0 > ART_BUDGET_MS) return false; }
+    for (const p of pieces) if (!p.baked) { bakePiece(p); if (performance.now() - t0 > ART_BUDGET_MS) return false; }
+    return true;
+  }
+
+  function trayHome(p: Piece): void {
     p.hx = trayX + (p.cell % trayCols + 0.5) * cell; p.hy = trayY + (Math.floor(p.cell / trayCols) + 0.5) * cell;
+  }
+
+  /** Pieces still in the tray move up into the cells left empty; each slides to its new home. */
+  function closeTrayGaps(): void {
+    let next = 0;
+    for (let c = 0; c < pieces.length; c++) {
+      for (const p of pieces) {
+        if (p.cell !== c || p.state === 'gone' || p.state === 'fly') continue;
+        if (p.cell !== next) { p.cell = next; trayHome(p); }
+        next++;
+      }
+    }
+  }
+
+  function placeInTray(p: Piece, bakeNow: boolean): void {
+    trayHome(p);
     const aspect = TRAY_ASPECT[p.shape], s = cell * 0.74;
     p.w = s; p.h = s / aspect;
-    p.baked = bakeShape(p.shape, PAPER[p.color]!, p.w, p.h, dpr, { seed: p.cell * 17 + 3 });
+    if (bakeNow) bakePiece(p); else p.baked = undefined;
     if (p.state === 'tray' || (p.state === 'held' && p.selected)) { p.x = p.hx; p.y = p.hy; }
+  }
+
+  function bakePiece(p: Piece): void {
+    p.baked = bakeShape(p.shape, PAPER[p.color]!, p.w, p.h, dpr, { seed: p.cell * 17 + 3 });
   }
 
   function layoutFree(): void {
@@ -249,19 +303,21 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     if (!portrait) {
       const rowTop = areaBottom - swatchR * 2;
       for (let i = 0; i < SWATCHES; i++) { swatchX[i] = W / 2 + (i - 3) * (swatchR * 2 + 14 * u); swatchY[i] = rowTop + swatchR; }
-      const gridH = rowTop - margin - toolTop;
+      const gridH = rowTop - margin - freeTop;
       let cols = 2, rows = 4;
       for (; cols <= 4; cols++) { rows = Math.ceil(SHAPES.length / cols); freeCell = Math.min(Math.max(110, 124 * u), gridH / rows); if (freeCell >= 100) break; }
       cols = Math.min(cols, 4); rows = Math.ceil(SHAPES.length / cols); freeCell = Math.max(100, Math.min(Math.max(110, 124 * u), gridH / rows));
-      const gx = areaRight - cols * freeCell, gy = toolTop + (gridH - rows * freeCell) / 2;
+      const gx = areaRight - cols * freeCell, gy = freeTop + (gridH - rows * freeCell) / 2;
       for (let i = 0; i < SHAPES.length; i++) { shapeCellX[i] = gx + (i % cols + 0.5) * freeCell; shapeCellY[i] = gy + (Math.floor(i / cols) + 0.5) * freeCell; }
       const aw = gx - margin - areaLeft, ah = gridH;
       freeH = Math.min(ah, aw / SHEET_ASPECT); freeW = freeH * SHEET_ASPECT;
-      freeX = areaLeft + (aw - freeW) / 2; freeY = toolTop + (ah - freeH) / 2;
+      freeX = areaLeft + (aw - freeW) / 2; freeY = freeTop + (ah - freeH) / 2;
     } else {
-      // Portrait: no room for seven swatches, so one swatch cell steps through the colours.
-      const cols = Math.max(1, Math.floor(availW / 104)), cells = SHAPES.length + 1, rows = Math.ceil(cells / cols);
-      freeCell = Math.max(100, Math.min(120 * u, availW / cols));
+      // Portrait: no room for seven swatches, so one swatch cell steps through the colours. The grid
+      // may use the side margins so more 96 px cells fit in a row and leave more height for the sheet.
+      const gridW = W - 6, cells = SHAPES.length + 1;
+      const cols = Math.max(1, Math.min(cells, Math.floor(gridW / 96))), rows = Math.ceil(cells / cols);
+      freeCell = Math.max(96, Math.min(120 * u, gridW / cols));
       const gy = areaBottom - rows * freeCell;
       for (let i = 0; i < cells; i++) {
         const row = Math.floor(i / cols), inRow = row < rows - 1 ? cols : cells - cols * (rows - 1);
@@ -269,9 +325,9 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
         if (i < SHAPES.length) { shapeCellX[i] = x; shapeCellY[i] = y; } else for (let k = 0; k < SWATCHES; k++) { swatchX[k] = x; swatchY[k] = y; }
       }
       swatchR = 48;
-      const ah = Math.max(90, gy - margin - toolTop);
+      const ah = Math.max(90, gy - margin - freeTop);
       freeW = Math.min(availW, ah * SHEET_ASPECT); freeH = freeW / SHEET_ASPECT;
-      freeX = areaLeft + (availW - freeW) / 2; freeY = toolTop + (ah - freeH) / 2;
+      freeX = areaLeft + (availW - freeW) / 2; freeY = freeTop + (ah - freeH) / 2;
     }
     swatchCycle = portrait;
     freeSheet = bakeShape('rectangle', PAPER[10], freeW, freeH, dpr, { shadow: 9 * u, rim: 4, seed: 23, layer: '#fffdf6' });
@@ -340,7 +396,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     held = undefined; hintAt = -99; lastHint = time; lastPlace = time;
     phase = 'deal'; phaseT = 0; boardSlide = 0; cue = 0;
     sfx('whoosh', 'D', 0, 0.6);
-    layoutBuild();
+    layoutBuild(false);
     for (const p of pieces) { p.x = p.hx + W * 0.4; p.y = p.hy; }
     save();
   }
@@ -385,15 +441,54 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
 
   function assisted(p: Piece): boolean { return hintShape === p.shape && time - hintAt < ASSIST_SECONDS; }
 
-  /** A pointer let go of (or clicked with) a piece at x, y. */
+  /** Scratch context for outline hit tests; used on a drop only, never per frame. */
+  let probe: CanvasRenderingContext2D | null | undefined;
+  /** Whether (x, y) lies inside a spot's drawn outline grown by `pad` px. */
+  function insideOutline(s: Spot, x: number, y: number, pad: number): boolean {
+    if (probe === undefined) probe = document.createElement('canvas').getContext('2d');
+    if (!probe) return Math.hypot(x - s.x, y - s.y) <= Math.min(s.w, s.h) / 2 + pad;
+    probe.setTransform(1, 0, 0, 1, s.x, s.y); probe.rotate(s.rot);
+    tracePath(probe, s.part.shape, 0, 0, s.w, s.h);
+    if (probe.isPointInPath(x, y)) return true;
+    if (pad <= 0) return false;
+    probe.lineWidth = pad * 2; probe.lineJoin = 'round';
+    return probe.isPointInStroke(x, y);
+  }
+
+  /** Empty open outline of this shape that holds (x, y), allowing the drop tolerance; the innermost wins. -1 if none. */
+  function matchUnder(shape: Shape, x: number, y: number): number {
+    let best = -1, bestArea = Infinity;
+    for (let i = 0; i < spots.length; i++) {
+      const s = spots[i]!;
+      if (!s.open || s.placed || s.reserved || s.part.shape !== shape) continue;
+      // Tolerance: a rim around the drawn outline, and never less than the 96 px target around its centre.
+      if (Math.hypot(x - s.x, y - s.y) > MIN_HIT && !insideOutline(s, x, y, DROP_PAD * u)) continue;
+      const area = s.w * s.h;
+      if (area < bestArea) { bestArea = area; best = i; }
+    }
+    return best;
+  }
+
+  /** Whether (x, y) is inside an empty open outline of a different shape. */
+  function overOtherOutline(shape: Shape, x: number, y: number): boolean {
+    for (const s of spots) if (s.open && !s.placed && !s.reserved && s.part.shape !== shape && insideOutline(s, x, y, 0)) return true;
+    return false;
+  }
+
+  /**
+   * A pointer let go of (or clicked with) a piece at x, y. Inside a matching
+   * outline always places, even where outlines nest or overlap; inside only
+   * another shape's outline is the gentle miss; on bare paper near a matching
+   * outline it still snaps in.
+   */
   function tryPlace(p: Piece, x: number, y: number, drag: boolean): void {
-    const m = nearestSpot(p.shape, x, y, true);
-    const o = nearestSpot(p.shape, x, y, false);
-    const dm = m >= 0 ? Math.hypot(x - spots[m]!.x, y - spots[m]!.y) : Infinity;
-    const doo = o >= 0 ? Math.hypot(x - spots[o]!.x, y - spots[o]!.y) : Infinity;
-    const overOther = o >= 0 && doo <= spots[o]!.hit && doo < dm * 0.85;
+    let m = matchUnder(p.shape, x, y);
+    const overOther = m < 0 && overOtherOutline(p.shape, x, y);
+    const near = nearestSpot(p.shape, x, y, true);
+    const dm = near >= 0 ? Math.hypot(x - spots[near]!.x, y - spots[near]!.y) : Infinity;
+    if (m < 0 && !overOther && near >= 0 && dm <= spots[near]!.reach) m = near;
     lastHint = time;
-    if (m >= 0 && dm <= spots[m]!.reach && !overOther) {
+    if (m >= 0) {
       motorHits++;
       if (!assisted(p)) { if (!p.tried) { learnHits++; evidence(p.shape, 0); } }
       pointerPlacements++;
@@ -408,7 +503,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
       sfx('miss', 'D', 0, 0.8);
       return;
     }
-    if (m >= 0 && dm <= spots[m]!.reach * 2.5) motorMisses++;
+    if (near >= 0 && dm <= spots[near]!.reach * 2.5) motorMisses++;
     if (drag) returnPiece(p);
   }
 
@@ -422,6 +517,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     s.reserved = true;
     p.state = 'fly'; p.t = 0; p.fromX = p.x; p.fromY = p.y; p.target = spotIndex; p.drag = false; p.selected = false;
     if (held === p) held = undefined;
+    closeTrayGaps();
     if (how === HOW_KEY) keyPlacements++;
     sfx('whoosh', 'C', 0, 0.35);
   }
@@ -454,6 +550,8 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     // The finished picture is written once, before anything celebrates it.
     data.made[pic.id] = (data.made[pic.id] ?? 0) + 1;
     delete data.wip[pic.id];
+    // The next picture is current from now on, so leaving during the celebration comes back to it.
+    data.currentId = nextPictureId(pic.id);
     adjustDifficulty();
     services.save.flush();
     thumbDirty[PICTURE_IDS.indexOf(pic.id)] = 1;
@@ -480,6 +578,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   function setMode(next: Mode): void {
     if (mode === 'free') { flushLive(); thumbDirty[6 + sheetIndex] = 1; }
     mode = next; focus = -1; guard(); handStop(); held = undefined; pointerDown = false;
+    placeButtons();
     for (const p of pieces) if (p.state === 'held') returnPiece(p);
     fx.clear();
   }
@@ -492,7 +591,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   function openFree(index: number): void {
     setMode('free');
     sheetIndex = Math.max(0, Math.min(SHEET_COUNT - 1, index)); data.lastSheet = sheetIndex;
-    cursorX = 0.5; cursorY = 0.5; layerDirty = true; save();
+    cursorX = 0.5; cursorY = 0.5; walkA = random() * Math.PI * 2; layerDirty = true; save();
     if (!data.freeDemo) handStart(KIND_FREE);
   }
 
@@ -580,6 +679,8 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
 
   // ---------------------------------------------------------------- update
   function updateBuild(dt: number): void {
+    // A new picture waits, sheet down and pieces off to the side, until its paper is baked.
+    if (artPending) { if (!bakeSomeArt()) return; artPending = false; boardDirty = true; }
     phaseT += dt;
     boardSlide = Math.min(1, boardSlide + dt / 0.4);
     for (const s of spots) if (s.land >= 0) { s.land += dt; if (s.land >= LAND_SECONDS) { s.land = -1; boardDirty = true; } }
@@ -618,7 +719,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     } else if (phase === 'send' && phaseT >= SEND_SECONDS) {
       galleryBtn.popIn(); fx.sparkleRing(galleryBtn.x, galleryBtn.y, btnR, 10, random); sfx('sticker');
       services.roundBoundary();
-      startPicture(nextPictureId(pic.id));
+      startPicture(data.currentId);
     }
   }
 
@@ -892,6 +993,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   function renderBuild(ctx: CanvasRenderingContext2D): void {
     const livePicture = phase === 'done' || phase === 'alive' || phase === 'send';
     if (tray) drawBaked(ctx, tray, trayX + trayCols * cell / 2, trayY + Math.ceil(Math.max(3, pieces.length) / trayCols) * cell / 2);
+    if (artPending) return;
     drawBoard(ctx, !livePicture);
     if (livePicture) { renderLivePicture(ctx); return; }
     // Landing pieces: a slam that dips once, drawn live until the board takes them in.
@@ -982,7 +1084,8 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     }
     for (let i = 0; i < SWATCHES; i++) {
       if (swatchCycle && i !== selColor) continue;
-      const x = swatchX[i]!, y = swatchY[i]!, r = swatchR * (i === selColor ? 0.92 : 0.8);
+      // The single stepping swatch on a portrait screen stays smaller so its ring fits inside the screen edge.
+      const x = swatchX[i]!, y = swatchY[i]!, r = swatchR * (i === selColor && !swatchCycle ? 0.92 : 0.8);
       ctx.beginPath(); ctx.arc(x + 3, y + 4, r, 0, Math.PI * 2); ctx.fillStyle = 'rgba(74, 46, 28, 0.26)'; ctx.fill();
       ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = '#fffaf0'; ctx.fill();
       ctx.beginPath(); ctx.arc(x, y, r - 4, 0, Math.PI * 2); ctx.fillStyle = PAPER[i]!; ctx.fill();
@@ -1082,7 +1185,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
 
   function buildDown(x: number, y: number): void {
     if (phase === 'alive' && phaseT > 1.2) { phase = 'send'; phaseT = 0; return; }
-    if (phase !== 'play' && phase !== 'deal') return;
+    if ((phase !== 'play' && phase !== 'deal') || artPending) return;
     if (hand.kind === KIND_DEMO) return;
     if (hand.kind === KIND_HINT) handStop();
     lastHint = time;
@@ -1163,13 +1266,33 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     if (hand.kind === KIND_FREE) return;
     if (code.startsWith('Arrow')) return;
     stamp(freeX + cursorX * freeW, freeY + cursorY * freeH);
-    // Each key press drifts the stamp spot a step along a turning path, so mashing keys spreads a collage.
-    const a = stamps().length / STAMP_STRIDE * 2.39996;
-    cursorX += Math.cos(a) * 0.1; cursorY += Math.sin(a) * 0.13;
-    if (cursorX < 0.06 || cursorX > 0.94) cursorX = 0.5 + (0.5 - cursorX) * 0.6;
-    if (cursorY < 0.08 || cursorY > 0.92) cursorY = 0.5 + (0.5 - cursorY) * 0.6;
+    walkCursor();
     selShape = (selShape + 1) % SHAPES.length;
     if (selShape === 0 || stamps().length % (STAMP_STRIDE * 3) === 0) selColor = (selColor + 1) % SWATCHES;
+  }
+
+  /**
+   * Each key press walks the stamp spot one step: a wandering heading, pulled gently toward the
+   * emptiest part of a 4 x 3 grid over the sheet and bouncing off its edges, so mashing keys
+   * spreads a collage across the whole sheet.
+   */
+  function walkCursor(): void {
+    walkCounts.fill(0);
+    const list = stamps();
+    for (let i = 0; i < list.length; i += STAMP_STRIDE) {
+      const k = Math.min(3, Math.floor(list[i + 2]! / 250)) + 4 * Math.min(2, Math.floor(list[i + 3]! / 334));
+      walkCounts[k] = walkCounts[k]! + 1;
+    }
+    let best = 0, bestD = Infinity;
+    for (let k = 0; k < 12; k++) {
+      const d = walkCounts[k]! * 10 + Math.hypot(((k % 4 + 0.5) / 4 - cursorX) * SHEET_ASPECT, (Math.floor(k / 4) + 0.5) / 3 - cursorY);
+      if (d < bestD) { bestD = d; best = k; }
+    }
+    const want = Math.atan2((Math.floor(best / 4) + 0.5) / 3 - cursorY, ((best % 4 + 0.5) / 4 - cursorX) * SHEET_ASPECT);
+    walkA += Math.atan2(Math.sin(want - walkA), Math.cos(want - walkA)) * WALK_PULL + (random() - 0.5) * WALK_TURN;
+    cursorX += Math.cos(walkA) * WALK_STEP / SHEET_ASPECT; cursorY += Math.sin(walkA) * WALK_STEP;
+    if (cursorX < 0.06) { cursorX = 0.12 - cursorX; walkA = Math.PI - walkA; } else if (cursorX > 0.94) { cursorX = 1.88 - cursorX; walkA = Math.PI - walkA; }
+    if (cursorY < 0.08) { cursorY = 0.16 - cursorY; walkA = -walkA; } else if (cursorY > 0.92) { cursorY = 1.84 - cursorY; walkA = -walkA; }
   }
 
   function frameAt(x: number, y: number): number {
@@ -1200,7 +1323,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     get learnHits() { return learnHits; }, get learnMisses() { return learnMisses; }, get motorHits() { return motorHits; }, get motorMisses() { return motorMisses; },
     get workMean() { let sum = 0; for (let i = 0; i < workCount; i++) sum += work[i]!; return workCount ? sum / workCount : 0; },
     get workMax() { let max = 0; for (let i = 0; i < workCount; i++) max = Math.max(max, work[i]!); return max; },
-    spots() { return spots.map(s => ({ x: s.x, y: s.y, shape: s.part.shape, open: s.open, placed: s.placed, hit: s.hit, reach: s.reach })); },
+    spots() { return spots.map(s => ({ x: s.x, y: s.y, w: s.w, h: s.h, rot: s.rot, shape: s.part.shape, open: s.open, placed: s.placed, hit: s.hit, reach: s.reach })); },
     pieces() { return pieces.map(p => ({ x: p.hx, y: p.hy, shape: p.shape, state: p.state, extra: p.extra, cell: p.cell })); },
     buttons() { return allButtons.map((b, i) => ({ id: ['home', 'brush', 'gallery', 'sound'][i]!, x: b.x, y: b.y, r: Math.max(48, b.radius), visible: b.visible })); },
     frames() { return Array.from({ length: 12 }, (_, i) => ({ id: i < 6 ? PICTURES[i]!.id : `sheet-${i - 6}`, x: frameX[i]!, y: frameY[i]!, size: frameSize, made: i < 6 ? (data.made[PICTURES[i]!.id] ?? 0) > 0 : (data.sheets[i - 6]?.length ?? 0) > 0 })); },
@@ -1219,6 +1342,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
       data = services.save.gameData<WorkshopData>(GAME_ID, defaults());
       sanitize(data, () => services.save.protect());
       sceneT = 0; guard();
+      loadVoiceList(services);
       void loadShapeWorkshopArt(services).then(() => {
         setGrain(sprites.get(sprite(ART.grain)));
         home.icon = artName(sprite(ART.home)); brushBtn.icon = artName(sprite(ART.brush)); galleryBtn.icon = artName(sprite(ART.gallery));
