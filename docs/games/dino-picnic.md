@@ -5,9 +5,10 @@ A round game in the Dinosaur Playground world. Baby clay dinosaurs sit at a picn
 ## The action and its response
 
 - **Feed a dino.** Press anywhere on a dino, its card or its plate: one fruit hops from the basket onto that plate. Pressing the basket picks up a fruit; drag it to a plate and let go, or click the basket and then click a plate (the fruit follows the pointer between the two clicks).
-- **Each fruit lands** with a squash, a small crumb burst and a pop whose pitch rises with the count on that plate. One hollow dot on the card fills with a picture of that fruit, and the dino opens its mouth in a happy "aaah" and wiggles.
+- **Each press fills a dot at once:** one hollow dot on the card fills with a picture of the fruit and pulses while the fruit is still in the air, so the card shows full as soon as enough fruit is on its way. Presses while the last fruit is still flying send nothing more (the dino only wiggles; a carried fruit floats back to the basket), and the highlight moves to a dino that still wants fruit.
+- **Each fruit lands** with a squash, a small crumb burst and a pop whose pitch rises with the count on that plate, and the dino opens its mouth in a happy "aaah" and wiggles. Up to three fruits sit in a row at full size (31 percent of the plate width); rows of four and five use smaller fruit so the whole row stays on the leaf.
 - **When the plate matches the card,** the dino bobs for 0.8 s. If nothing more arrives, it eats the fruits one by one (each chomp is a rising note and a counted dot), then dances with confetti. The card shrinks away and a new wish appears after a short pause.
-- **Too many:** a spare fruit touches the full plate and bounces back to the basket while the dino giggles (three soft quick notes) in its delighted pose. Nothing is scolded and nothing is taken away.
+- **Too many:** a press after the plate is already full sends a spare fruit; it touches the full plate and bounces back to the basket while the dino giggles (three soft quick notes) in its delighted pose. Nothing is scolded and nothing is taken away.
 - **Which dino has more?** From counting stage 2, each round ends with two comparisons. Fruit drops onto two plates in loose heaps (each layer one fruit narrower and nestled between the fruits below, jittered and tilted, with every fruit visible) and a clay party hat floats between the dinos. The child presses the dino with more. The hat lands on the chosen dino; the piles then slide into rows of five, and the extra fruits on the bigger plate glow and bounce. If the child picked the smaller pile, that dino giggles with the hat for a moment, then the hat hops over to the bigger pile. Both dinos eat and dance either way.
 
 The dinos are content, curious or delighted. They are never shown hungry, sad or waiting impatiently.
@@ -25,12 +26,14 @@ In every later comparison, after six quiet seconds the hand rises again and poin
 1. Orders: 4 plates at tier 0, 6 plates at tiers 1 and 2. Round progress shows as a row of small leaf plates along the bottom edge, filling as plates are eaten.
 2. Comparisons (stage 2 only): 2 per round, after the plates.
 3. Celebration: three dinos dance, confetti, stars land one by one. Input is ignored for the first 1.5 s and until the last star lands; it ends by itself at 4.6 s.
-4. Sticker choice, while this game's six stickers are not all owned and `rewardsEnabled` is true: two stickers on leaf plates. Input is ignored for 1.2 s, nothing is focused, and the first key only shows focus.
-5. Still rest: the chosen sticker on a leaf plate (or the three dinos when there is no gift), the stars, and Again and Home of equal size and colour. No focus until a key or the pointer shows it. `services.roundBoundary()` runs when rest is reached.
+4. Sticker choice, while this game's six stickers are not all owned and `rewardsEnabled` is true: two stickers on leaf plates. Input is ignored for 1.2 s, nothing is focused, and the first key only shows focus; a later key acts once focus has shown for 0.25 s.
+5. Still rest: the chosen sticker on a leaf plate (or the three dinos when there is no gift), the stars, and Again and Home of equal size and colour. The same guard as the choice: input ignored for 1.2 s, no focus until a key or the pointer shows it. `services.roundBoundary()` runs when rest is reached. When the break nudge covered the choice or rest and is dismissed, the guard starts over as on first appearance.
+
+The round-end fanfare is rendered ahead once per session with `prepareSfxStep`, as in Bubble Bay: the long first step when a round starts (under the enter fade, or on the still rest after Again), the short note steps in idle periods during play.
 
 Stars: 3 in the introduction. Otherwise 1 for finishing, a second when at least half the plates were filled without a spare fruit, a third when every plate was. Comparisons do not affect stars.
 
-Awards persist once: the round count, stars and the offered pair are written to the game bag's `pending` field with `save.flush()` before the celebration shows. Choosing a sticker writes the sticker and `pending.chosen` together. Leaving or reloading during the celebration or the choice returns to the choice; after rest it returns to rest; Again or Home clears `pending`.
+Awards persist once: the round count, stars and the offered pair are written to the game bag's `pending` field with `save.flush()` before the celebration shows. Choosing a sticker writes the sticker and `pending.chosen` together. Leaving or reloading during the celebration or the choice returns to the choice; after rest it returns to rest; Leaving rest by any route (Again, Home, the corner Home, Escape, the break nudge's Home) clears `pending`, so the next entry starts a new round; a gift not yet chosen when leaving during the celebration or the choice comes back exactly once.
 
 ## Motor tiers (hidden, between rounds)
 
@@ -40,7 +43,7 @@ Awards persist once: the round count, stars and the offered pair are written to 
 | 1 | 2 | 1.0 | bottom centre, between plates |
 | 2 | 3 | 0.9 | bottom-left corner, farthest |
 
-Every dino target (card, body and plate) is at least 96 CSS px in both directions, as is the basket (radius at least 48 px). Attempts: a pointer press on a dino, the basket or empty play space, and a drag released over a plate or over nothing. In a comparison only a press that chooses a dino counts; other presses there only make the dinos hop. Key presses, demonstrations and the introduction never count. At the end of a round: 8 or more attempts with under 70 percent on target moves down a tier; 12 or more at 90 percent or better counts as a qualifying round, and two in a row move up a tier.
+Every dino target (card, body and plate) is at least 96 CSS px in both directions, as is the basket (radius at least 48 px). Neighbouring press zones never overlap: where the tier's places leave too little room for the widest wish card (narrow screens such as 390x600 with three dinos), the dinos spread evenly across the width and the cards shrink to fit between them. Attempts: one deliberate placement counts once, whatever the input style. A press on a dino sends a fruit and counts one hit; picking a fruit up from the basket counts nothing, and putting it down counts one hit on a dino or one miss elsewhere (a drag and a click-then-click count the same). Letting go over the basket after a long press drops the fruit back in and counts nothing. A press on empty play space counts one miss. In a comparison only a press that chooses a dino counts; other presses there only make the dinos hop. Key presses, demonstrations and the introduction never count. At the end of a round: 8 or more attempts with under 70 percent on target moves down a tier; 12 or more at 90 percent or better counts as a qualifying round, and two in a row move up a tier.
 
 ## Counting progression (separate from motor)
 
@@ -56,7 +59,7 @@ Comparisons record whether the child chose the plate with more, only for deliber
 
 ## Keyboard-only play
 
-A bobbing arrow above the card and a ring around the plate mark the highlighted dino; it starts on the first dino that is still filling. Arrow keys move between dinos. Any other key sends one fruit to the highlighted dino (at most one every 120 ms). In comparisons the first key shows the highlight, arrows switch, and the next key chooses. Escape goes home; Tab cycles focus to the Home and sound corners, where Enter activates them. Choice and rest use the shared rule: first key shows focus, arrows move, the next key chooses.
+A bobbing arrow above the card and a ring around the plate mark the highlighted dino; it starts on the first dino that is still filling. Arrow keys move between dinos. Any other key sends one fruit to the highlighted dino (at most one every 120 ms). In comparisons the first key shows the highlight, arrows switch, and the next key chooses. During play every key plays, Escape, Tab and Enter included, so key mashing never leaves the round. After the round (celebration once it can be skipped, choice and rest once their guard has passed) Escape goes home and Tab cycles focus to the Home and sound corners, where Enter activates them. Choice and rest use the shared rule: first key shows focus, arrows move, the next key chooses.
 
 ## Art
 
@@ -105,7 +108,7 @@ Optional clips live in `public/voice/dino-picnic/` (see the README there): `numb
 
 ## Performance
 
-No allocation in update or render: dinos, flights (32) and particles (220) are pooled; fruit positions are computed into one shared point; sprite and voice clip names are built once into lookup tables at load. Plate fruit is 31 percent of the plate width (73 px at 1366x768 with two dinos, 84 px with one, 66 px with three), and rows of five close up only where neighbouring dinos would touch. Every sprite is drawn at a fixed size per layout and animated with transforms, so the scaled-sprite cache does not grow. Card numerals come from cached glyph canvases; the hat and the hint fruit's halo are baked once per layout. No gradients, `shadowBlur` or `fillText` per frame.
+No allocation in update or render: dinos, flights (32) and particles (220) are pooled; fruit positions are computed into one shared point; sprite and voice clip names are built once into lookup tables at load. Plate fruit is 31 percent of the plate width (73 px at 1366x768 with two dinos, 84 px with one, 66 px with three); rows of four and five draw the same cached fruit at a smaller transform scale, so a row spans at most 86 percent of the plate. Every sprite is drawn at a fixed size per layout and animated with transforms, so the scaled-sprite cache does not grow. Card numerals come from cached glyph canvases; the hat and the hint fruit's halo are baked only when their size changes, and the backdrop is rescaled only when the canvas size changes, so a round's end or a comparison's start does no baking. No gradients, `shadowBlur` or `fillText` per frame.
 
 ## Files
 
