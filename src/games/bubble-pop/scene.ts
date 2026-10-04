@@ -9,7 +9,7 @@ import { startMusic, stopMusic } from '../../audio/music';
 import { chunkyCircle, chunkyPanel, drawSprite, OUTLINE } from '../../ui/draw';
 import { drawCounter, starPath } from '../../ui/celebrate';
 import { drawEnterFade } from '../../ui/motion';
-import { BOOK_GLIDE, BOOK_ICON_PATH, createStickerOffers, leaveAlpha, leaveDrop, PICK_FLY, PICK_LIFT, PICK_SECONDS, placeBook } from '../../ui/sticker-offer';
+import { BOOK_GLIDE, BOOK_ICON_PATH, createStickerOffers, leaveAlpha, leaveDrop, onBook, PICK_FLY, PICK_LIFT, PICK_SECONDS, placeBook } from '../../ui/sticker-offer';
 import { clamp01, easeOutCubic, lerp } from '../../ui/tween';
 import { createSoundButton, soundArt, syncSoundIcon } from '../../scenes/hub/shared';
 import { OCEAN_THEME, spriteName, type BubbleTheme } from './theme';
@@ -782,6 +782,8 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
   }
   function hoverMenu(x: number, y: number): number {
     const choice = phase === 'choice', n = choice ? pending?.choices.length ?? 0 : 2;
+    // The book only decorates: a press on it picks nothing, even where it reaches into an offer's tap area.
+    if (choice) { placeChoiceBook(); if (onBook(bookAt, bookH, x, y)) return -1; }
     for (let i = 0; i < n; i++) if (Math.hypot(x - controlX(i, choice), y - (choice ? choiceY() : controlsY)) <= (choice ? choiceRadius : controlsRadius)) return i;
     return -1;
   }
@@ -849,7 +851,7 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
       startMusic(audio, theme.music);
     },
     // Any route away from rest (corner Home, the break nudge's Home) closes the finished round.
-    exit() { stopMusic(audio); stopWarm(); closeFinishedRound(); services.save.flush(); },
+    exit() { stopMusic(audio); stopWarm(); offers.cancel(); closeFinishedRound(); services.save.flush(); },
     resize: layout,
     update(dt) {
       const started = performance.now(); time += dt; sceneT += dt;

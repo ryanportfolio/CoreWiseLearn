@@ -13,7 +13,7 @@ import { startMusic, stopMusic } from '../../audio/music';
 import { chunkyCircle, chunkyPanel, drawSprite, OUTLINE } from '../../ui/draw';
 import { confettiBurst, drawCounter, drawStarRow, STAR_GAP_SECONDS, STAR_HIT_SECONDS } from '../../ui/celebrate';
 import { drawEnterFade } from '../../ui/motion';
-import { BOOK_GLIDE, BOOK_ICON_PATH, createStickerOffers, leaveAlpha, leaveDrop, PICK_FLY, PICK_LIFT, PICK_SECONDS, placeBook } from '../../ui/sticker-offer';
+import { BOOK_GLIDE, BOOK_ICON_PATH, createStickerOffers, leaveAlpha, leaveDrop, onBook, PICK_FLY, PICK_LIFT, PICK_SECONDS, placeBook } from '../../ui/sticker-offer';
 import { arriveScale, clamp01, easeInOutSine, easeOutCubic, lerp } from '../../ui/tween';
 import { createSoundButton, soundArt, syncSoundIcon } from '../../scenes/hub/shared';
 import { defaultData, GAME_ID, sanitizePicnicData, type PendingRound, type PicnicData } from './data';
@@ -1232,6 +1232,8 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
   }
   function hoverMenu(x: number, y: number): number {
     const choice = phase === 'choice', n = choice ? pending?.choices.length ?? 0 : 2;
+    // The book only decorates: a press on it picks nothing, even where it reaches into an offer's tap area.
+    if (choice) { placeChoiceBook(); if (onBook(bookAt, bookH, x, y)) return -1; }
     for (let i = 0; i < n; i++) {
       const dx = x - controlX(i, choice), dy = y - (choice ? choiceY : controlsY);
       if (choice ? Math.abs(dx) <= choiceSize / 2 && Math.abs(dy) <= choiceSize * 0.5 : Math.hypot(dx, dy) <= controlsRadius) return i;
@@ -1393,7 +1395,7 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     },
     // Any route away from rest (corner Home, the break nudge's Home) closes the finished round.
     exit() {
-      stopMusic(audio); stopIdle(); closeFinishedRound(); services.save.flush();
+      stopMusic(audio); stopIdle(); offers.cancel(); closeFinishedRound(); services.save.flush();
       // Leaving releases every canvas scaled for this game; the next entry scales what it draws again.
       releaseArt(); sprites.clearScaled(BG); bgCanvas = undefined; sizeKey = ''; madeName = '';
     },

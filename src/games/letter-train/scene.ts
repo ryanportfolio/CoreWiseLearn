@@ -7,7 +7,7 @@ import type { Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
 import { playSfx, prepareSfxStep, type SfxOptions } from '../../audio/sfx';
 import { startMusic, stopMusic } from '../../audio/music';
 import { chunkyCircle, chunkyPanel, drawSprite, DISPLAY_FONT, OUTLINE, roundedRect } from '../../ui/draw';
-import { BOOK_GLIDE, BOOK_ICON, BOOK_ICON_PATH, createStickerOffers, leaveAlpha, leaveDrop, PICK_FLY, PICK_LIFT, PICK_SECONDS, placeBook } from '../../ui/sticker-offer';
+import { BOOK_GLIDE, BOOK_ICON, BOOK_ICON_PATH, createStickerOffers, leaveAlpha, leaveDrop, onBook, PICK_FLY, PICK_LIFT, PICK_SECONDS, placeBook } from '../../ui/sticker-offer';
 import { confettiRain } from '../../ui/celebrate';
 import { drawEnterFade } from '../../ui/motion';
 import { clamp01, easeInCubic, easeInOutSine, easeOutBack, easeOutCubic, lerp, slamScale } from '../../ui/tween';
@@ -1216,6 +1216,8 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
   function hoverMenu(x: number, y: number): number {
     if (phase === 'choice') {
       const wh = choiceW * 211 / 480;
+      // The book only decorates: a press on it picks nothing, even where it reaches into an offer's tap area.
+      placeChoiceBook(); if (onBook(bookAt, bookH, x, y)) return -1;
       for (let i = 0; i < (pending?.choices.length ?? 0); i++) {
         if (Math.abs(x - choiceX(i)) <= choiceW / 2 + 12 && y >= choiceY - choiceW * 0.64 && y <= choiceY + wh / 2 + 16) return i;
       }
@@ -1280,7 +1282,7 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
       startMusic(audio, 'letter-train');
     },
     // Any route away from rest (corner Home, Escape, the break nudge's Home) closes the finished round.
-    exit() { stopMusic(audio); stopIdle(); closeFinishedRound(); services.save.flush(); },
+    exit() { stopMusic(audio); stopIdle(); offers.cancel(); closeFinishedRound(); services.save.flush(); },
     resize: layout,
     update(dt) {
       const started = performance.now(); time += dt; sceneT += dt;

@@ -69,3 +69,7 @@ The sticker offers' bakes (`src/ui/sticker-offer.ts`) ran in idle callbacks and 
 A CPU canvas has its own trap: it records draw calls and draws them only when its pixels are next used (as a `drawImage` source, `getImageData`, or the first frame that shows it). Splitting a bake into steps across idle callbacks did nothing until each step ended with `ctx.getImageData(0, 0, 1, 1)`; before that, 60 recorded copies all drew inside one 10 to 12 ms step. Cost: one measurement round.
 
 Measuring Bubble Bay's round end with no input during a `?debug&round=` round puts a 20 to 60 ms gap on the pick: the pick is then the page's first gesture, and the first gesture builds the audio graph (`src/engine/audio.ts`). Press a key during play so the measurement shows what a child who played sees.
+
+## 2026-10-04: test harness traps when overriding config or leaving a dev page's scene
+
+`src/app/config.ts` fetches `config.json?fresh=<time>`, so a Playwright route on `**/config.json` never matches and the page quietly keeps the repo's `uiScale`; route `**/config.json*` and read `window.__corewise.config` to confirm. A dev page holds one scene, and `scenes.pop()` does nothing when no scene is below, so the scene's `exit()` never runs; to test leaving, call `scenes.setTransition(undefined)` and then `scenes.replace(<empty scene>)`, which runs `exit()` at once. Cost: two reruns of a check that had passed on the wrong layout or without leaving.

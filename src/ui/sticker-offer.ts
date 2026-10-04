@@ -35,7 +35,9 @@ const BOOK_FILL = '#8b5cf6', BOOK_SPINE = '#6d3fd6', BOOK_PAGES = '#fff8e8', BOO
 const RIM = '#b4a8c8', BACK = '#efe9f7';
 const BOOK_DASH = [0, 0];
 const NO_DASH: number[] = [];
-const IDLE_OPTIONS: IdleRequestOptions = { timeout: 400 };
+/** Longest a queued bake step waits for an idle period, counted from when the wait began, across callbacks. */
+const IDLE_TIMEOUT = 400;
+const IDLE_OPTIONS: IdleRequestOptions = { timeout: IDLE_TIMEOUT };
 /** Where requestIdleCallback is missing, queued bakes run from a timer, one per call. */
 const TIMED_OUT: IdleDeadline = { didTimeout: true, timeRemaining: () => 0 };
 /**
@@ -237,6 +239,8 @@ export interface StickerOffers {
    * bounces the book.
    */
   drawBook(ctx: CanvasRenderingContext2D, x: number, y: number, h: number, stuck: string, landed: number, bakeH?: number): void;
+  /** Stops baking: cancels the waiting idle callback and drops the queue and the bake in progress. Finished bakes stay. Scenes call it on exit. */
+  cancel(): void;
 }
 
 /** One per scene. All state is preallocated; drawing allocates nothing. */
@@ -245,7 +249,8 @@ export function createStickerOffers(sprites: SpriteStore): StickerOffers {
   const books: (BookArt | undefined)[] = [undefined, undefined];
   const lift = new Float32Array(2), pickTilt = new Float32Array(1);
   const queueNames: string[] = [], queueSizes: number[] = [];
-  let time = 0, idle = 0, bookUsed = 0;
+  /** waitFrom: when the wait for the next bake step began (performance.now), -1 when nothing waits. */
+  let time = 0, idle = 0, bookUsed = 0, waitFrom = -1;
 
   const tilt = (i: number): number => (i % 2 ? 0.06 : -0.07);
   const bob = (i: number): number => Math.sin(time * 2.1 + i * 1.9);
@@ -306,18 +311,29 @@ export function createStickerOffers(sprites: SpriteStore): StickerOffers {
     for (let i = 0; i < 2; i++) { const b = books[i]; if (b && b.star === star) return b; }
     return undefined;
   }
-  /** Runs bake steps while the idle period has 4 ms left; one step when it timed out. Never runs inside a frame. */
+  /**
+   * Runs bake steps while the idle period has 4 ms left. Once the wait for a step has lasted IDLE_TIMEOUT (however many
+   * short idle periods it took), one step runs regardless, so a busy machine still finishes the bake. Never runs inside a frame.
+   */
   function onIdle(deadline: IdleDeadline): void {
     idle = 0;
-    while ((job || nextJob()) && (deadline.didTimeout || deadline.timeRemaining() >= 4)) {
+    const overdue = deadline.didTimeout || performance.now() - waitFrom >= IDLE_TIMEOUT;
+    while ((job || nextJob()) && (overdue || deadline.timeRemaining() >= 4)) {
       if (job!.next().done) job = undefined;
-      if (deadline.didTimeout) break;
+      waitFrom = -1;
+      if (overdue) break;
     }
-    if (job || queueNames.length) request();
+    if (job || queueNames.length) request(); else waitFrom = -1;
   }
   function request(): void {
     if (idle) return;
-    idle = typeof requestIdleCallback === 'function' ? requestIdleCallback(onIdle, IDLE_OPTIONS) : window.setTimeout(onIdle, 0, TIMED_OUT);
+    const now = performance.now();
+    if (waitFrom < 0) waitFrom = now;
+    if (typeof requestIdleCallback === 'function') {
+      // The callback's own timeout is what is left of the wait, so it fires by IDLE_TIMEOUT after the wait began.
+      IDLE_OPTIONS.timeout = Math.max(1, IDLE_TIMEOUT - (now - waitFrom));
+      idle = requestIdleCallback(onIdle, IDLE_OPTIONS);
+    } else idle = window.setTimeout(onIdle, 0, TIMED_OUT);
   }
   function queue(name: string, size: number): void {
     if (job && jobName === name && jobSize === size) return;
@@ -405,7 +421,18 @@ export function createStickerOffers(sprites: SpriteStore): StickerOffers {
       }
       ctx.restore();
     },
+    cancel() {
+      if (idle) { if (typeof cancelIdleCallback === 'function') cancelIdleCallback(idle); else window.clearTimeout(idle); }
+      idle = 0; waitFrom = -1; job = undefined; jobName = ''; jobSize = 0;
+      queueNames.length = 0; queueSizes.length = 0;
+    },
   };
+}
+
+/** True when x, y is on the book standing at at[0], at[1], `h` tall (its outline included). A press there picks nothing. */
+export function onBook(at: Float32Array, h: number, x: number, y: number): boolean {
+  const pad = Math.max(3, h * 0.035) + 2;
+  return Math.abs(x - at[0]!) <= h * BOOK_ASPECT / 2 + pad && Math.abs(y - at[1]!) <= h / 2 + pad;
 }
 
 /** How far the offers' bases and the offer not chosen have dropped (as a share of their size) and faded, t seconds after a pick. */

@@ -10,7 +10,7 @@ import { startMusic, stopMusic } from '../../audio/music';
 import { chunkyCircle, drawSprite, OUTLINE } from '../../ui/draw';
 import { drawCounter, drawStarRow, starPath, STAR_GAP_SECONDS, STAR_HIT_SECONDS } from '../../ui/celebrate';
 import { drawEnterFade } from '../../ui/motion';
-import { BOOK_GLIDE, BOOK_ICON, BOOK_ICON_PATH, createStickerOffers, leaveAlpha, leaveDrop, PICK_FLY, PICK_LIFT, PICK_SECONDS, placeBook } from '../../ui/sticker-offer';
+import { BOOK_GLIDE, BOOK_ICON, BOOK_ICON_PATH, createStickerOffers, leaveAlpha, leaveDrop, onBook, PICK_FLY, PICK_LIFT, PICK_SECONDS, placeBook } from '../../ui/sticker-offer';
 import { clamp01, easeInCubic, easeInOutSine, easeOutBack, easeOutCubic, lerp } from '../../ui/tween';
 import { bakeBackground, coverRect, createSoundButton, soundArt, syncSoundIcon, type Rect } from '../../scenes/hub/shared';
 import { bakeBall, bakePoint, bakeSign, PAD, RIMS } from './bake';
@@ -1038,6 +1038,8 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
   }
   function hoverMenu(x: number, y: number): number {
     const choice = phase === 'choice', n = choice ? pending?.choices.length ?? 0 : 2;
+    // The book only decorates: a press on it picks nothing, even where it reaches into an offer's tap area.
+    if (choice) { placeChoiceBook(); if (onBook(bookAt, bookH, x, y)) return -1; }
     for (let i = 0; i < n; i++) if (Math.hypot(x - controlX(i, choice), y - (choice ? badgeY : controlsY)) <= (choice ? badgeSize / 2 : controlsRadius)) return i;
     return -1;
   }
@@ -1220,7 +1222,7 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
       if (phase === 'choice' || phase === 'rest') armMenu(); else guard();
       startMusic(audio, 'web-playground');
     },
-    exit() { stopMusic(audio); stopIdle(); cancelClips(); services.save.flush(); setSfxVariants({ pop: 'A', whoosh: 'A' }); },
+    exit() { stopMusic(audio); stopIdle(); offers.cancel(); cancelClips(); services.save.flush(); setSfxVariants({ pop: 'A', whoosh: 'A' }); },
     resize: layout,
     update(dt) {
       const started = performance.now();
