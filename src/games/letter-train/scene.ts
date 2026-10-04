@@ -55,6 +55,8 @@ const BLOCK_SPRITES: readonly string[] = BLOCKS.map(b => sprite(b));
 const WORD_SPRITES: Readonly<Record<string, string>> = Object.fromEntries(WORDS.map(w => [w, sprite(`words/${w}`)]));
 const SPR_TOWN = sprite('town'), SPR_ENGINE = sprite('engine'), SPR_STAR = sprite('star'), SPR_HAND = sprite('hand');
 const SPR_PLAY = sprite('play'), SPR_HOME = sprite('home');
+/** Size of town.webp: wide enough that a 1920 px wide view never enlarges it. */
+const TOWN_W = 1920, TOWN_H = 1280;
 const CHIP_HUES = [8, 45, 120, 210] as const;
 const passengerOf = (id: string) => Math.max(0, PASSENGER_IDS.indexOf(id));
 const passengerSprite = (i: number) => PASSENGER_SPRITES[i] ?? PASSENGER_SPRITES[0]!;
@@ -208,12 +210,12 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     const resized = width !== W || height !== H, reratio = sprites.pixelRatio !== artRatio;
     W = width; H = height; glyphDpr = services.canvas.dpr; artRatio = sprites.pixelRatio;
     u = Math.min(1.4, Math.max(0.4, Math.min(W / 1366, H / 768))) * services.config.uiScale;
-    bgS = Math.max(W / 1536, H / 1024); bgX = (W - 1536 * bgS) / 2; bgY = (H - 1024 * bgS) / 2;
+    bgS = Math.max(W / TOWN_W, H / TOWN_H); bgX = (W - TOWN_W * bgS) / 2; bgY = (H - TOWN_H * bgS) / 2;
     // The backdrop is scaled for both the view size and the pixel ratio; a new ratio alone (same CSS size) rebuilds it too.
     if (resized || reratio || !bgCanvas) { sprites.clearScaled(SPR_TOWN); bgCanvas = undefined; }
     // A new ratio empties the sprite cache, so the queued round-end art is scaled again, one image per update.
     if (reratio) prepHead = 0;
-    trackY = bgY + 0.548 * 1024 * bgS; platformTop = bgY + 0.585 * 1024 * bgS;
+    trackY = bgY + 0.548 * TOWN_H * bgS; platformTop = bgY + 0.585 * TOWN_H * bgS;
     // Corner buttons take Bubble Bay's place and size at every view size, so the break nudge's sound button covers ours.
     const cu = Math.min(1.5, Math.max(0.4, Math.min(W / 1366, H / 768))) * services.config.uiScale;
     cornerRadius = Math.max(48, Math.min(60 * cu, W / 8, H / 6));
