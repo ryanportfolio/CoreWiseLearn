@@ -73,3 +73,7 @@ Measuring Bubble Bay's round end with no input during a `?debug&round=` round pu
 ## 2026-10-04: test harness traps when overriding config or leaving a dev page's scene
 
 `src/app/config.ts` fetches `config.json?fresh=<time>`, so a Playwright route on `**/config.json` never matches and the page quietly keeps the repo's `uiScale`; route `**/config.json*` and read `window.__corewise.config` to confirm. A dev page holds one scene, and `scenes.pop()` does nothing when no scene is below, so the scene's `exit()` never runs; to test leaving, call `scenes.setTransition(undefined)` and then `scenes.replace(<empty scene>)`, which runs `exit()` at once. Cost: two reruns of a check that had passed on the wrong layout or without leaving.
+
+## 2026-10-03: a preview or dev page keeps showing the old build after a merge
+
+The app registers its service worker with `registerType: 'prompt'` and applies a waiting update only when the child reaches the hub (`src/main.ts`). A page opened on name entry after a rebuild keeps running the precached old build, so a fixed screen still looks unfixed. The owner saw the old name-entry keys after #10 merged and needed Ctrl+Shift+R (a hard reload bypasses the service worker); reaching the hub once also installs the new build. Before calling a change missing on a preview, hard-reload or check in a fresh browser profile.

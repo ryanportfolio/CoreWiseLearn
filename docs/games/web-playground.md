@@ -108,8 +108,8 @@ Medium: kid comic book. Bold even black ink lines, flat saturated colours, light
 | `hero-shoot.webp` | web shot pose | 459x464 |
 | `hero-swing.webp` | swings, celebration jump | 319x509 |
 | `hero-cheer.webp` | picture finished, celebration | 406x495 |
-| `city-day.webp` | catch background | 1366x911 |
-| `city-dusk.webp` | connect and reward background | 1366x911 |
+| `city-day.webp` | catch background | 1920x1280 |
+| `city-dusk.webp` | connect and reward background | 1920x1280 |
 | `kitten.webp` | rooftop friend; sticker | 445x512 |
 | `pigeon.webp` | rooftop friend in the day city; sticker | 512x496 |
 | `girl.webp` | friend with a red balloon in the dusk city; sticker | 435x512 |
@@ -156,7 +156,7 @@ No clips ship. `public/voice/web-playground/clips.json` lists the clip files tha
 
 All art was generated on 2026-10-03 with the `codex-image-gen` skill: Codex CLI 0.159.0 (`codex exec -m gpt-6-astra -c model_reasoning_effort=medium -c model_provider=openai -s workspace-write`) calling its built-in `image_gen` tool. The tool did not report the image model's identifier. No prompt mentioned any existing character; prompts asked for an original hero with an uncovered face and excluded masks, spiders, web patterns, logos and text. Each result was reviewed by eye at full size and on light and dark backgrounds before use. The raw PNGs are kept outside the checkout in `D:/CoreWise/_artifacts/CoreWiseLearn/web-playground/`.
 
-Processing: a scratch Node script with sharp split each transparent sheet into its parts by connected alpha regions (small separate pieces such as burst lines join their nearest part), trimmed the empty margin, scaled the longest side to 512 px with Lanczos resampling and wrote WebP at quality 92 with alpha quality 100. Backgrounds were cover-resized to 1366x911 and written as WebP quality 86 without alpha. No palette reduction.
+Processing: a scratch Node script with sharp split each transparent sheet into its parts by connected alpha regions (small separate pieces such as burst lines join their nearest part), trimmed the empty margin, scaled the longest side to 512 px with Lanczos resampling and wrote WebP at quality 92 with alpha quality 100. The first backgrounds were cover-resized to 1366x911 and written as WebP quality 86 without alpha (replaced, see below). No palette reduction.
 
 | Source | Prompt summary | Produced |
 |---|---|---|
@@ -165,6 +165,8 @@ Processing: a scratch Node script with sharp split each transparent sheet into i
 | `bg-dusk-raw.png` (1536x1024, opaque) | The same scene at a warm dusk: sky from peach and pink to calm violet-blue with a few early stars, many cosy lit yellow windows. | `city-dusk` |
 | `friends-sheet-raw.png` (1024x1024, transparent, hero sheet attached as style reference) | A 2 by 2 sheet in the hero's style: a smiling orange tabby kitten sitting; a cheerful girl about four with curly black hair in two puffs, a yellow raincoat and blue boots, waving and holding a red balloon; a plump friendly grey-lavender pigeon waving one wing; a round badge, yellow disc with a red rim, a white star and short blue comic burst lines. No text, spiders, webs, masks, sad faces or scenery. | `kitten`, `girl`, `pigeon`, `emblem` |
 | `hero-swing-raw.png` (1024x1024, transparent, processed `hero-swing.webp` attached as character reference) | The same hero mid-swing, flying left to right, one arm up holding a thick white rope that leaves the top right edge, legs kicked back, laughing, a few blue curved motion lines. No text, spiders, web patterns, masks or background. | `tile` |
+
+Both city backgrounds were redrawn at 1920x1280 on 2026-10-03, so a 1920x1080 window at pixel ratio 1 never draws them larger than their own pixels (they were drawn at 1.41 times before). The image tool returns at most 1536x1024 for a 3:2 picture, so each 1536x1024 raw was cut into three overlapping 683x1024 portrait strips, each enlarged to 1024x1536 and attached to its own request (same tool chain) asking for a sharper, faithful redraw of exactly that strip. A scratch script then placed each returned strip where it best matched the raw enlarged 1.5 times, replaced each strip's broad colour (Gaussian blur, sigma 32 px) with the raw's so colours and shapes stay the original's, joined neighbouring strips along the vertical path where they differ least (6 px feather) and resized the 2304x1536 result to 1920x1280 with Lanczos 3; WebP quality 80, opaque (day 234 KB, dusk 187 KB). Both cities keep their own layout and the parapet height the scene uses (`BG_W` and `BG_H` in `scene.ts` now hold 1920x1280, the files' size). Strips, prompts, Codex logs, the stitched PNGs and the scripts are in `D:/CoreWise/_artifacts/CoreWiseLearn/hd-game-backgrounds/`.
 
 ## Verification notes (2026-10-03)
 

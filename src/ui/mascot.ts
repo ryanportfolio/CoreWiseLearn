@@ -1,5 +1,5 @@
 /**
- * Mascot drawing anchored at the feet. The five pose images are 512 px squares
+ * Mascot drawing anchored at the feet. The five pose images are 768 px squares
  * whose feet sit at slightly different heights, so drawing each pose from its
  * own feet keeps a pose swap from jumping, and squash, stretch and tilt pivot
  * on the ground instead of the middle of the body.
@@ -11,7 +11,9 @@ import { drawSprite } from './draw';
 /**
  * Feet position per pose, measured from the art: the lowest opaque row below
  * the sprite centre, and the feet's horizontal offset from the centre, both as
- * fractions of the sprite size.
+ * fractions of the sprite size. Measured in 512 px units on the earlier
+ * drawings; on the 768 px redraws the feet are within 1 of those units
+ * vertically and 2 horizontally.
  */
 const FEET: Record<string, readonly [number, number]> = {
   'mascot/idle': [(424 - 256) / 512, 0],

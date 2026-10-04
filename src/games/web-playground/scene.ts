@@ -34,7 +34,7 @@ const CITY_DAY = spriteName('city-day'), CITY_DUSK = spriteName('city-dusk');
 const SHOOT_HAND = [0.87, 0.42] as const, SWING_HAND = [0.125, 0.07] as const;
 const ART = ['hero-wave', 'hero-shoot', 'hero-swing', 'hero-cheer', 'city-day', 'city-dusk', 'kitten', 'girl', 'pigeon', 'emblem'];
 const BUTTON_PLAY = 'buttons/play-arrow', BUTTON_HOME = 'buttons/home';
-const BG_W = 1366, BG_H = 911;
+const BG_W = 1920, BG_H = 1280;
 const GUARD_MS = 350;
 // Choice and rest ignore input this long, so steady pressing from the round cannot choose for the child; after the
 // first key shows focus, a later key acts only once focus has shown FOCUS_HOLD_MS (as in Bubble Bay).
