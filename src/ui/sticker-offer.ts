@@ -261,8 +261,7 @@ export function createStickerOffers(sprites: SpriteStore): StickerOffers {
   }
   /**
    * The sticker baked at `size` for drawing. When it is not baked at that size and pixel ratio, the bake is queued for
-   * an idle period and, until it is done, a bake at another size or ratio is drawn scaled, or nothing (a restored
-   * choice opens under the scene's enter fade, so the offers appear within it).
+   * an idle period and, until it is done, a bake at another size or ratio is drawn scaled, or the plain art.
    */
   function ensure(name: string, size: number): Baked | undefined {
     const s = Math.round(size), b = baked.get(name), img = sprites.get(name);
@@ -354,6 +353,23 @@ export function createStickerOffers(sprites: SpriteStore): StickerOffers {
     ctx.drawImage(b.sticker, left, top, w, h);
     ctx.restore();
   }
+  /**
+   * The plain art, longest side `size * scale`, for a sticker whose bake is not done yet. On a busy machine a bake can
+   * take seconds, and the offers can be picked once their input guard ends, so they must never be invisible.
+   */
+  function drawPlain(ctx: CanvasRenderingContext2D, name: string, x: number, y: number, size: number, rot: number, scale: number, alpha: number): boolean {
+    const img = sprites.get(name);
+    if (!img) return false;
+    const long = Math.max(img.naturalWidth, img.naturalHeight) || 1, k = size * scale / long;
+    const w = img.naturalWidth * k, h = img.naturalHeight * k;
+    ctx.save();
+    ctx.translate(x, y);
+    if (rot !== 0) ctx.rotate(rot);
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(img, -w / 2, -h / 2, w, h);
+    ctx.restore();
+    return true;
+  }
 
   return {
     update(dt, focused) {
@@ -369,10 +385,10 @@ export function createStickerOffers(sprites: SpriteStore): StickerOffers {
       if (!bookFresh(books[0], s) && !bookFresh(books[1], s)) queue('', s);
     },
     drawOffer(ctx, index, name, x, y, size, scale = 1, alpha = 1) {
-      const b = ensure(name, size);
-      if (!b) return;
-      const up = lift[index & 1]!, vis = b.visible * size;
+      const b = ensure(name, size), up = lift[index & 1]!;
       const rot = (tilt(index) + wiggle(index)) * (1 - 0.7 * up);
+      if (!b) { drawPlain(ctx, name, x, y + bob(index) * size * 0.015 - size * 0.05 * up, size, rot, scale * (1 + 0.08 * up), alpha); return; }
+      const vis = b.visible * size;
       drawBaked(ctx, b, x, y + bob(index) * vis * 0.015 - vis * 0.05 * up, size, rot, scale * (1 + 0.08 * up), up, alpha);
     },
     pick(index) {
@@ -381,7 +397,12 @@ export function createStickerOffers(sprites: SpriteStore): StickerOffers {
     drawFlight(ctx, t, name, x, y, size, bookX, bookY, bookH) {
       if (t >= PICK_LIFT + PICK_FLY) return;
       const b = any(name, size);
-      if (!b) return;
+      if (!b) {
+        // Picked before its bake finished: the plain art goes into the book along the same arc, without the lift.
+        const k = easeInOutSine(clamp01((t - PICK_LIFT) / PICK_FLY)), x1 = bookX + PLACE_X * bookH, y1 = bookY + PLACE_Y * bookH;
+        drawPlain(ctx, name, lerp(x, x1, k), lerp(y, y1, k) - Math.sin(k * Math.PI) * Math.max(50, Math.hypot(x1 - x, y1 - y) * 0.22), size, pickTilt[0]! * (1 - k), lerp(1, STUCK * bookH / size, k), 1);
+        return;
+      }
       const vis = b.visible * size, startY = y - vis * 0.05;
       if (t < PICK_LIFT) {
         // Peeled off the sheet: up a little, straightening, its shadow dropping away.
