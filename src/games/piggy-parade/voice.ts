@@ -1,0 +1,42 @@
+/**
+ * Optional spoken clips for Piggy Parade. A clip plays only when its file is in
+ * public/voice/piggy-parade/ at build time; a missing clip is skipped silently
+ * and causes no request. No clips ship yet (see that folder's README).
+ */
+import type { Audio } from '../../engine/audio';
+
+/** Coin names, and number-1/5/10/25 for the value steps that come later. */
+export type VoiceClip = 'penny' | 'nickel' | 'dime' | 'quarter' | `number-${number}`;
+
+// Build-time list of the files that exist. The keys are enough: nothing is imported at runtime.
+const FILES = Object.keys(import.meta.glob('/public/voice/piggy-parade/*.{mp3,ogg}', { query: '?url', import: 'default' }));
+const AVAILABLE = new Map<string, string>();
+for (const path of FILES) {
+  const file = path.slice(path.lastIndexOf('/') + 1), name = file.replace(/\.(mp3|ogg)$/, '');
+  if (!AVAILABLE.has(name) || file.endsWith('.mp3')) AVAILABLE.set(name, file);
+}
+
+const buffers = new Map<string, AudioBuffer | null>();
+const loading = new Set<string>();
+
+function load(audio: Audio, base: string, name: string): void {
+  const file = AVAILABLE.get(name);
+  if (!file || loading.has(name) || !audio.context) return;
+  loading.add(name);
+  void fetch(`${base}voice/piggy-parade/${file}`)
+    .then(r => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(String(r.status)))))
+    .then(bytes => audio.decode(bytes))
+    .then(buffer => { buffers.set(name, buffer); }, () => { buffers.set(name, null); });
+}
+
+/** Decode every available clip once audio is unlocked. Safe to call repeatedly. */
+export function preloadVoice(audio: Audio, base: string): void {
+  if (!AVAILABLE.size) return;
+  audio.onUnlock(() => { for (const name of AVAILABLE.keys()) load(audio, base, name); });
+}
+
+/** Play a clip if its file exists and has decoded; otherwise do nothing. */
+export function playVoice(audio: Audio, name: VoiceClip): void {
+  const buffer = buffers.get(name);
+  if (buffer && !audio.muted) audio.playBuffer(buffer, 1);
+}

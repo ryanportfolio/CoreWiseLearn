@@ -54,6 +54,12 @@ export const STICKERS: readonly StickerDef[] = [
   { id: 'web-playground-balloon', path: 'web-playground/girl.webp', game: 'web-playground' },
   { id: 'web-playground-pigeon', path: 'web-playground/pigeon.webp', game: 'web-playground' },
   { id: 'web-playground-badge', path: 'web-playground/emblem.webp', game: 'web-playground' },
+  { id: 'piggy-parade-sunflower-piggy', path: 'piggy-parade/sticker-sunflower-piggy.webp', game: 'piggy-parade' },
+  { id: 'piggy-parade-hen-nest', path: 'piggy-parade/sticker-hen-nest.webp', game: 'piggy-parade' },
+  { id: 'piggy-parade-chick-hat', path: 'piggy-parade/sticker-chick-hat.webp', game: 'piggy-parade' },
+  { id: 'piggy-parade-tractor', path: 'piggy-parade/sticker-tractor.webp', game: 'piggy-parade' },
+  { id: 'piggy-parade-mud-piglet', path: 'piggy-parade/sticker-mud-piglet.webp', game: 'piggy-parade' },
+  { id: 'piggy-parade-calf', path: 'piggy-parade/sticker-calf.webp', game: 'piggy-parade' },
 ];
 
 export function stickerById(id: string): StickerDef | undefined {
