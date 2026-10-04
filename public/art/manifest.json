@@ -2,57 +2,57 @@
   "style": "Flat chunky vector, thick dark outlines, flat saturated fills, single soft highlight, no text. Sprites are 512x512 RGBA with the subject centred and fitted to 80 percent of the canvas; backgrounds are 1920x1080 opaque WebP.",
   "generatedWith": "OpenAI image_gen through Codex CLI (gpt-6-astra agent), downscaled with the project scratch script .tmp/art/png.mjs",
   "count": 59,
-  "totalBytes": 3479600,
+  "totalBytes": 3731712,
   "files": [
     {
       "file": "art/mascot/cheer.png",
       "group": "mascot",
       "name": "cheer",
       "use": "Mascot celebrating a win or a completed round (confetti drawn in code)",
-      "width": 512,
-      "height": 512,
+      "width": 768,
+      "height": 768,
       "transparent": true,
-      "bytes": 62663
+      "bytes": 135487
     },
     {
       "file": "art/mascot/idle.png",
       "group": "mascot",
       "name": "idle",
       "use": "Mascot resting pose for the hub and idle moments",
-      "width": 512,
-      "height": 512,
+      "width": 768,
+      "height": 768,
       "transparent": true,
-      "bytes": 61330
+      "bytes": 128982
     },
     {
       "file": "art/mascot/point.png",
       "group": "mascot",
       "name": "point",
       "use": "Mascot pointing right to direct attention at a tile or button",
-      "width": 512,
-      "height": 512,
+      "width": 768,
+      "height": 768,
       "transparent": true,
-      "bytes": 53070
+      "bytes": 114191
     },
     {
       "file": "art/mascot/wave.png",
       "group": "mascot",
       "name": "wave",
       "use": "Mascot waving hello on the name-entry and welcome screens",
-      "width": 512,
-      "height": 512,
+      "width": 768,
+      "height": 768,
       "transparent": true,
-      "bytes": 56605
+      "bytes": 120108
     },
     {
       "file": "art/mascot/yawn.png",
       "group": "mascot",
       "name": "yawn",
       "use": "Mascot yawning for the bedtime or inactivity prompt",
-      "width": 512,
-      "height": 512,
+      "width": 768,
+      "height": 768,
       "transparent": true,
-      "bytes": 72372
+      "bytes": 159600
     },
     {
       "file": "art/tiles/candy-rainbow.png",
@@ -479,30 +479,30 @@
       "group": "rewards",
       "name": "shell-coral",
       "use": "Tidepool reward presentation",
-      "width": 480,
-      "height": 494,
+      "width": 514,
+      "height": 529,
       "transparent": true,
-      "bytes": 69320
+      "bytes": 41608
     },
     {
       "file": "art/rewards/shell-mint.webp",
       "group": "rewards",
       "name": "shell-mint",
       "use": "Tidepool reward presentation",
-      "width": 480,
-      "height": 498,
+      "width": 507,
+      "height": 526,
       "transparent": true,
-      "bytes": 69820
+      "bytes": 40352
     },
     {
       "file": "art/rewards/counting-tray.webp",
       "group": "rewards",
       "name": "counting-tray",
       "use": "Tidepool reward presentation",
-      "width": 640,
-      "height": 247,
+      "width": 767,
+      "height": 296,
       "transparent": true,
-      "bytes": 45340
+      "bytes": 29686
     },
     {
       "file": "art/rewards/gold-star.webp",
@@ -579,20 +579,20 @@
       "group": "rewards",
       "name": "shell-closed-mint",
       "use": "Tidepool reward: closed mint shell shown during the celebration, opens into the mint offer",
-      "width": 480,
-      "height": 498,
+      "width": 507,
+      "height": 526,
       "transparent": true,
-      "bytes": 40838
+      "bytes": 26934
     },
     {
       "file": "art/rewards/shell-closed-coral.webp",
       "group": "rewards",
       "name": "shell-closed-coral",
       "use": "Tidepool reward: closed coral shell shown during the celebration, opens into the coral offer",
-      "width": 480,
-      "height": 494,
+      "width": 514,
+      "height": 529,
       "transparent": true,
-      "bytes": 41462
+      "bytes": 27984
     }
   ],
   "prepared": {
@@ -636,5 +636,26 @@
     "prompt": "Make a faithful higher-resolution version of exactly the attached picture: same composition, position, size and shape of every element, same objects and counts (listed per file), same colours, same flat chunky vector style with thick dark navy outlines; improve only crisp outlines and smooth flat fills; no added, removed, moved or restyled objects, no text, letters, numbers, logos, borders or watermarks, no characters, no change of crop, horizon or colours. hub-meadow-beach took a second attempt that named the sky gradient (deeper blue at the top fading lighter toward the horizon), because the first drew one flat sky colour.",
     "source": "Raw 1672x941 PNGs (the largest size the tool returned), prompts, Codex logs and the processing scripts retained outside public in D:/CoreWise/_artifacts/CoreWiseLearn/hd-backgrounds (raw/<name>-<attempt>.png; the shipped files use meadow-sky, ocean-floor and sticker-album attempt 1 and hub-meadow-beach attempt 2)",
     "preparation": "Cover-fit to 1920x1080 with Lanczos 3 (1.148x, 0.6 px cropped vertically); hub-meadow-beach sky pixels shifted row by row to the original's sky colour at that height, weighted by closeness to the row's sky colour, since the generator drew the gradient steeper than the original; WebP quality 95, opaque."
+  },
+  "hdArt": {
+    "generatedWith": "Codex CLI 0.159.0 (codex exec -m gpt-6-astra, reasoning effort medium) using its built-in image_gen tool, editing the attached original; the backend picks the image model and the log does not name it",
+    "date": "2026-10-03",
+    "files": [
+      "art/mascot/cheer.png",
+      "art/mascot/idle.png",
+      "art/mascot/point.png",
+      "art/mascot/wave.png",
+      "art/mascot/yawn.png",
+      "art/rewards/shell-coral.webp",
+      "art/rewards/shell-mint.webp",
+      "art/rewards/counting-tray.webp",
+      "art/rewards/shell-closed-mint.webp",
+      "art/rewards/shell-closed-coral.webp"
+    ],
+    "reason": "In a 1920x1080 window at pixel ratio 1 these were drawn larger than their own pixels (yawn 1.43 times on the break nudge, tray 1.17, closed shells up to 1.04, open shells up to 1.02); each is now drawn at 0.98 or less there.",
+    "reference": "Each request attached one image: the current file enlarged with Lanczos 3 and centred on a 1024x1024 transparent canvas (1536x1024 for the tray).",
+    "prompt": "Make a faithful higher-resolution version of exactly the attached sprite on a transparent background: same framing and share of the canvas, silhouette, pose, expression, every part and its count, outline weight, colours and lighting; improve only crisp edges and fine surface detail; no added, removed, moved or restyled parts, no text, background, ground, shadow, glow or frame. Each file named its subject and the style of its set (flat chunky vector mascot with an even dark navy outline; glossy iridescent scallop shells; a scalloped shell dish with a gold rim and a pearly bowl).",
+    "source": "Raw PNGs (1254x1254, 1024x1024 for yawn, 1536x1024 for the tray), prompts, Codex logs and the processing scripts retained outside public in D:/CoreWise/_artifacts/CoreWiseLearn/hd-everything-r2 (raw/<name>-1.png; one attempt each was kept)",
+    "preparation": "Alpha under 12 and specks removed; each result laid over its original by the scale and offset that match it most closely, then scaled per axis so its outline meets the original edges exactly (the mascot keeps its feet where FEET in src/ui/mascot.ts expects them, within 1 of 512 units vertically); resized there with Lanczos 3; each colour channel matched to the original mean and spread. Mascot 768x768 PNG, 256-colour palette, dither 0.5; shells (coral 514x529, mint 507x526) and tray (767x296) WebP quality 80 with alpha quality 50."
   }
 }
