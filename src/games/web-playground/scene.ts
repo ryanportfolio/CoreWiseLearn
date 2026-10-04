@@ -10,6 +10,7 @@ import { startMusic, stopMusic } from '../../audio/music';
 import { chunkyCircle, drawSprite, OUTLINE } from '../../ui/draw';
 import { drawCounter, drawStarRow, starPath, STAR_GAP_SECONDS, STAR_HIT_SECONDS } from '../../ui/celebrate';
 import { drawEnterFade } from '../../ui/motion';
+import { BOOK_GLIDE, BOOK_ICON, BOOK_ICON_PATH, createStickerOffers, leaveAlpha, leaveDrop, onBook, PICK_FLY, PICK_LIFT, PICK_SECONDS, placeBook } from '../../ui/sticker-offer';
 import { clamp01, easeInCubic, easeInOutSine, easeOutBack, easeOutCubic, lerp } from '../../ui/tween';
 import { bakeBackground, coverRect, createSoundButton, soundArt, syncSoundIcon, type Rect } from '../../scenes/hub/shared';
 import { bakeBall, bakePoint, bakeSign, PAD, RIMS } from './bake';
@@ -101,7 +102,7 @@ interface Ball {
 function artList(): { name: string; path: string }[] {
   return [
     ...ART.map(name => ({ name: spriteName(name), path: `${ART_DIR}${name}.webp` })),
-    { name: BUTTON_PLAY, path: `${BUTTON_PLAY}.png` }, { name: BUTTON_HOME, path: `${BUTTON_HOME}.png` },
+    { name: BUTTON_PLAY, path: `${BUTTON_PLAY}.png` }, { name: BUTTON_HOME, path: `${BUTTON_HOME}.png` }, { name: BOOK_ICON, path: BOOK_ICON_PATH },
     ...STICKERS.filter(s => s.game === GAME_ID).map(s => ({ name: stickerSpriteName(s.id), path: s.path })),
   ];
 }
@@ -121,6 +122,10 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
   const ballCache = new Map<string, HTMLCanvasElement>();
   // Sticker sprite names built once, so the choice, sticker and rest screens build no strings per frame.
   const stickerNames = new Map(STICKERS.map(s => [s.id, stickerSpriteName(s.id)]));
+  // The offers drawn as stickers, and the small sticker book they go into (its centre during the choice in bookAt).
+  // bookGlide: the rest screen came from a pick, so the book moves from beside the offers to the middle.
+  const offers = createStickerOffers(sprites), bookAt = new Float32Array(2);
+  let bookGlide = false;
   const caught = new Int8Array(CATCHES_PER_ROUND), caughtCanvas: (HTMLCanvasElement | undefined)[] = [];
   const unit = new Float32Array(MAX_POINTS * 2), pts = new Float32Array(MAX_POINTS * 2), outline = new Float32Array(96 * 2);
   const curveT = new Float32Array(MAX_POINTS);
@@ -161,7 +166,8 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
   // The picture maps unit point (x, y) to (picX + x * picSX, picY + y * picSY).
   let ax0 = 0, ay0 = 0, ax1 = 0, ay1 = 0, ballD = 150, pointD = 124, picX = 0, picY = 0, picSX = 200, picSY = 200;
   let stringX0 = 0, stringX1 = 0, stringY = 0, miniD = 56, starY = 0, starR = 30;
-  let badgeSize = 300, badgeY = 0, restSize = 260, restY = 0, controlsY = 0, controlsRadius = 60;
+  // badgeSize: an offer's tap circle across; stickerSize: its art (longest side); bookH: the book beside the offers.
+  let badgeSize = 300, badgeY = 0, stickerSize = 250, bookH = 120, restSize = 260, restY = 0, controlsY = 0, controlsRadius = 60;
   let cornerRadius = 48, cornerY = 60, homeX = 60, soundX = 1306;
 
   const guard = (ms = GUARD_MS): void => { inputAfter = performance.now() + ms; };
@@ -209,6 +215,7 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     badgeY = Math.min(H * 0.56, controlsY - controlsRadius - badgeSize / 2 - 10);
     restSize = Math.max(120, Math.min(280 * Math.min(1.25, H / 768), controlsY - controlsRadius - (starY + starR) - 40));
     restY = (starY + starR + controlsY - controlsRadius) / 2;
+    stickerSize = Math.round(badgeSize * 0.84); bookH = Math.round(Math.max(72, Math.min(200, badgeSize * 0.5)));
     ballCache.clear(); for (const b of balls) b.canvas = undefined;
     for (let i = 0; i < MAX_POINTS; i++) pointCanvas[i] = undefined;
     caughtCanvas.length = 0; signCanvas = undefined;
@@ -429,7 +436,7 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
 
   // ---- round flow ----
   function startRound(): void {
-    pending = null; data.pending = null;
+    pending = null; data.pending = null; bookGlide = false;
     tier = services.debug.tier ?? toTier(data.tier); tierP = TIERS[tier];
     mode = options.mode ?? (data.rounds % 2 === 0 ? 'numbers' : 'letters');
     level = options.level ?? toLevel(mode === 'numbers' ? data.numberLevel : data.letterLevel);
@@ -678,6 +685,7 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     pending.chosen = id;
     // The chosen id and the owned sticker save together, so repeats and reloads are idempotent.
     services.save.flush(); setPhase('sticker'); guard(); playSfx(audio, 'sticker');
+    offers.pick(index); bookGlide = true;
   }
   function leave(replay: boolean): void {
     if (phase !== 'rest') return;
@@ -1013,12 +1021,16 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     soundButton.render(ctx, sprites);
     if (cornerFocus >= 0) focusRing(ctx, cornerFocus === 0 ? homeX : soundX, cornerY, cornerRadius);
   }
-  function badge(ctx: CanvasRenderingContext2D, id: string, x: number, y: number, size: number, blue: boolean, focused: boolean, scale = 1): void {
-    const r = size / 2 * scale;
-    if (focused) focusRing(ctx, x, y, r + 4);
-    chunkyCircle(ctx, x, y, r, blue ? '#2f6fe4' : '#e8413b', OUTLINE, 6);
-    chunkyCircle(ctx, x, y, r * 0.8, '#fffaf0', OUTLINE, 4);
-    drawSprite(ctx, sprites, stickerNames.get(id) ?? '', x, y, Math.round(size * 0.74), 0, scale, scale);
+  /** The book beside the offers, in bookAt: right of them, else under them, clear of the corner buttons. */
+  function placeChoiceBook(): void {
+    const n = pending?.choices.length ?? 1;
+    placeBook(bookAt, W, H, controlX(n - 1, true) + badgeSize / 2, badgeY, badgeY + badgeSize / 2, bookH, cornerY + cornerRadius + 10);
+  }
+  /** Bakes the offers' sticker look and both book sizes in idle periods before they first show. */
+  function warmOffers(): void {
+    if (!pending?.choices.length || !pending.rewardEnabled) return;
+    for (const id of pending.choices) offers.warm(stickerNames.get(id) ?? '', stickerSize);
+    offers.warmBook(bookH); offers.warmBook(restSize);
   }
   function controlX(i: number, choice: boolean): number {
     const n = choice ? pending?.choices.length ?? 0 : 2;
@@ -1026,6 +1038,8 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
   }
   function hoverMenu(x: number, y: number): number {
     const choice = phase === 'choice', n = choice ? pending?.choices.length ?? 0 : 2;
+    // The book only decorates: a press on it picks nothing, even where it reaches into an offer's tap area.
+    if (choice) { placeChoiceBook(); if (onBook(bookAt, bookH, x, y)) return -1; }
     for (let i = 0; i < n; i++) if (Math.hypot(x - controlX(i, choice), y - (choice ? badgeY : controlsY)) <= (choice ? badgeSize / 2 : controlsRadius)) return i;
     return -1;
   }
@@ -1043,12 +1057,30 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
       return;
     }
     if (phase === 'choice' && pending) {
-      for (let i = 0; i < pending.choices.length; i++) badge(ctx, pending.choices[i]!, controlX(i, true), badgeY, badgeSize, i === 1, menuSelected === i);
+      // The offers are stickers with the book they go into beside them; the focused one lifts and shows the focus ring.
+      placeChoiceBook();
+      offers.drawBook(ctx, bookAt[0]!, bookAt[1]!, bookH, '', -1);
+      for (let i = 0; i < pending.choices.length; i++) {
+        const x = controlX(i, true);
+        if (menuSelected === i) focusRing(ctx, x, badgeY, badgeSize / 2 + 4);
+        offers.drawOffer(ctx, i, stickerNames.get(pending.choices[i]!) ?? '', x, badgeY, stickerSize);
+      }
       return;
     }
     if (pending?.chosen) {
-      const e = phase === 'sticker' ? easeOutCubic(clamp01(phaseT / 0.65)) : 1, index = Math.max(0, pending.choices.indexOf(pending.chosen));
-      badge(ctx, pending.chosen, lerp(controlX(index, true), W / 2, e), lerp(badgeY, restY, e), restSize, index === 1, false, lerp(badgeSize / restSize, 1, e));
+      const index = Math.max(0, pending.choices.indexOf(pending.chosen)), name = stickerNames.get(pending.chosen) ?? '';
+      placeChoiceBook();
+      if (phase === 'sticker') {
+        // The chosen sticker flies into the book, which bounces as it lands; the other offer drops away.
+        offers.drawBook(ctx, bookAt[0]!, bookAt[1]!, bookH, name, phaseT - PICK_LIFT - PICK_FLY);
+        const a = leaveAlpha(phaseT);
+        if (a > 0) for (let i = 0; i < pending.choices.length; i++) if (i !== index) offers.drawOffer(ctx, i, stickerNames.get(pending.choices[i]!) ?? '', controlX(i, true), badgeY + leaveDrop(phaseT) * badgeSize, stickerSize, 1, a);
+        offers.drawFlight(ctx, phaseT, name, controlX(index, true), badgeY, stickerSize, bookAt[0]!, bookAt[1]!, bookH);
+      } else {
+        // The rest screen shows the book with the new sticker on its cover, in the middle.
+        const k = bookGlide ? easeOutCubic(clamp01(phaseT / BOOK_GLIDE)) : 1;
+        offers.drawBook(ctx, lerp(bookAt[0]!, W / 2, k), lerp(bookAt[1]!, restY, k), lerp(bookH, restSize, k), name, 9, restSize);
+      }
     } else drawSprite(ctx, sprites, EMBLEM, W / 2, restY, Math.round(restSize));
     if (phase !== 'rest') return;
     for (let i = 0; i < 2; i++) {
@@ -1174,6 +1206,7 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
       data.rounds = Math.max(data.rounds, rewards(services).rounds[GAME_ID] ?? 0);
       sceneT = 0; startMusic(audio, 'web-playground');
       layout(services.canvas.width, services.canvas.height);
+      bookGlide = false;
       if (data.pending) {
         pending = data.pending; mode = pending.mode; picture = pending.picture; stars = pending.stars; caughtCount = pending.caught;
         tier = toTier(data.tier); tierP = TIERS[tier];
@@ -1189,7 +1222,7 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
       if (phase === 'choice' || phase === 'rest') armMenu(); else guard();
       startMusic(audio, 'web-playground');
     },
-    exit() { stopMusic(audio); stopIdle(); cancelClips(); services.save.flush(); setSfxVariants({ pop: 'A', whoosh: 'A' }); },
+    exit() { stopMusic(audio); stopIdle(); offers.cancel(); cancelClips(); services.save.flush(); setSfxVariants({ pop: 'A', whoosh: 'A' }); },
     resize: layout,
     update(dt) {
       const started = performance.now();
@@ -1211,7 +1244,9 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
         const next = Math.min(caughtCount, Math.floor(phaseT / 1.6 * caughtCount));
         if (next > ticks) { ticks = next; playSfx(audio, 'tick', { volume: 0.45 }); }
         if (phaseT >= CELEBRATION_SECONDS) finishCelebration();
-      } else if (phase === 'sticker' && phaseT >= 0.7) enterRest();
+      } else if (phase === 'sticker' && phaseT >= PICK_SECONDS) enterRest();
+      if (phase === 'celebration' || phase === 'choice' || phase === 'sticker') warmOffers();
+      offers.update(dt, phase === 'choice' ? menuSelected : -1);
       if (pose === 'shoot' && poseT > 0.9 && phase === 'catch' && step === 'ask') pose = 'wave';
       ensureBakes();
       if ((fanfareDue() || counterDue()) && !idleHandle) idleHandle = requestIdleCallback(prepareIdle, IDLE_OPTIONS);

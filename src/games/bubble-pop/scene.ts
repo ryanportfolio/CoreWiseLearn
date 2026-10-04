@@ -9,6 +9,7 @@ import { startMusic, stopMusic } from '../../audio/music';
 import { chunkyCircle, chunkyPanel, drawSprite, OUTLINE } from '../../ui/draw';
 import { drawCounter, starPath } from '../../ui/celebrate';
 import { drawEnterFade } from '../../ui/motion';
+import { BOOK_GLIDE, BOOK_ICON_PATH, createStickerOffers, leaveAlpha, leaveDrop, onBook, PICK_FLY, PICK_LIFT, PICK_SECONDS, placeBook } from '../../ui/sticker-offer';
 import { clamp01, easeOutCubic, lerp } from '../../ui/tween';
 import { createSoundButton, soundArt, syncSoundIcon } from '../../scenes/hub/shared';
 import { OCEAN_THEME, spriteName, type BubbleTheme } from './theme';
@@ -38,7 +39,7 @@ const REST_MIN = 72;
 const TRAY_ASPECT = 0.386, TRAY_CELL = 0.103, SLOT_RADIUS = 0.47, SLOT_ANIMAL = 1.15;
 // The closed shell squashes for the first OPEN_SWAP of the opening, then pops into the open shell behind a gold ring
 // (the sticker rises in front of it), a burst of outlined gold and coral stars and a low pop.
-const OPEN_SECONDS = 0.3, OPEN_SWAP = 0.4, FLASH_SECONDS = 0.3, SPARKLES = 12, REVEAL_SECONDS = 0.65, BUMP_SECONDS = 0.3, LEAVE_SECONDS = 0.25, GROUP_MAX = 5;
+const OPEN_SECONDS = 0.3, OPEN_SWAP = 0.4, FLASH_SECONDS = 0.3, SPARKLES = 12, GROUP_MAX = 5;
 const SPARKLE_COLORS = ['#ffcf3a', '#ff7f5c'] as const;
 // Art that has not loaded is looked for again after 0.5, 1, 2 and 4 s, then only when the end-of-round sizes are next planned.
 const WARM_RETRIES = 4;
@@ -56,7 +57,10 @@ export interface BubblePopStats {
   readonly assisted: number; readonly excluded: number; readonly qualifyingRounds: number;
   readonly nextTier: Tier; readonly wave: Wave; readonly introductory: boolean; readonly celebration: number;
   readonly choiceIds: readonly string[]; readonly selected: number; readonly roundSeconds: number;
-  /** Shell drawn last frame for the offered (choice) or chosen (sticker, rest) gift: centre and size in CSS px; size 0 when none. */
+  /**
+   * Shell drawn last frame for the focused offer (choice), or the sticker book the chosen sticker went into (sticker,
+   * rest): centre and size (the book's height) in CSS px, and the offer's index; size 0 when none.
+   */
   readonly shell: { readonly x: number; readonly y: number; readonly size: number; readonly index: number };
   /** End-of-round sprite sizes not yet prepared; 0 once everything the celebration, choice and rest draw is cached. */
   readonly warmPending: number;
@@ -87,7 +91,7 @@ interface GameData extends Record<string, unknown> {
 }
 const toTier = (n: unknown): Tier => n === 1 ? 1 : n === 2 ? 2 : 0;
 function artList(theme: BubbleTheme): { name: string; path: string }[] {
-  const paths = [theme.background, theme.bubble, ...theme.creatures.map(c => c.path), ...REWARD_ART, BUTTON_PLAY_PATH, BUTTON_HOME_PATH];
+  const paths = [theme.background, theme.bubble, ...theme.creatures.map(c => c.path), ...REWARD_ART, BUTTON_PLAY_PATH, BUTTON_HOME_PATH, BOOK_ICON_PATH];
   return [...paths.map(path => ({ name: spriteName(path), path })), ...STICKERS.filter(s => s.game === GAME_ID).map(s => ({ name: stickerSpriteName(s.id), path: s.path }))];
 }
 export async function loadBubblePopArt(services: AppServices, theme: BubbleTheme = OCEAN_THEME): Promise<string[]> {
@@ -158,6 +162,10 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
   let prepIndex = 0, madeIndex = -1, warmRetry = -1, warmRetries = 0, idleHandle = 0, fanfareStarted = false, fanfareAsked = false;
   let scratch: CanvasRenderingContext2D | null | undefined;
   let shellX = 0, shellDrawY = 0, shellDrawn = 0, shellIndex = -1;
+  // The offers drawn as stickers and the small sticker book they go into: its height beside the offers, its centre there
+  // (bookAt), and bookGlide when the rest screen came from a pick, so the book moves from there to the middle.
+  const offers = createStickerOffers(sprites), bookAt = new Float32Array(2);
+  let bookH = 160, bookGlide = false;
   // The round's own popped creatures, distinct and in pop order, for scenes without a gift.
   const group = new Uint8Array(GROUP_MAX);
   let groupCount = 0;
@@ -231,6 +239,7 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
     restSize = Math.max(REST_MIN, Math.min(restSize, controlsY - controlsRadius - trayBottom - 26));
     if (!flank) shellSize = Math.min(shellSize, restSize);
     choiceRadius = Math.max(48, shellSize * 0.51);
+    bookH = Math.round(Math.max(72, Math.min(200, shellSize * 0.45)));
     // The offers stay whole on screen, over the tray when the screen is that short.
     shellY = Math.min(Math.max(trayBottom + 22 + shellSize / 2, H * 0.64), H - Math.max(choiceRadius, shellSize / 2) - 8);
     if (flank) { restY = shellY; restSize = shellSize; controlsY = Math.min(controlsY, shellY + shellSize / 2 - controlsRadius); }
@@ -252,9 +261,7 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
     if (gift) {
       add('rewards/shell-closed-coral', shellSize); add('rewards/shell-closed-mint', shellSize);
       add('rewards/shell-coral', shellSize); add('rewards/shell-mint', shellSize);
-      // Offers are known once the round ends; the celebration has time to prepare them before the choice.
-      if (pending) for (const id of pending.choices) { const name = rewardNames.get(id); if (name) { add(name, shellSize * 0.95); add(name, restSize * 0.95); } }
-      add('rewards/shell-coral', restSize); add('rewards/shell-mint', restSize);
+      // The offers' sticker look and the book are baked by warmOffers once the round has ended.
     } else for (const name of names) add(name, groupD * 0.73);
     add(playName, controlsRadius * 1.3); add(homeName, controlsRadius * 1.3);
   }
@@ -340,7 +347,7 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
     return true;
   }
   function startRound(): void {
-    pending = null; data.pending = null; tier = services.debug.tier ?? toTier(data.tier);
+    pending = null; data.pending = null; bookGlide = false; tier = services.debug.tier ?? toTier(data.tier);
     intro = data.rounds === 0 && !(services.debug.enabled && options.roundSeconds);
     duration = options.roundSeconds ?? TIERS[tier].roundSeconds;
     phase = intro ? 'intro' : 'play'; wave = 'warmup';
@@ -423,6 +430,7 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
     pending.chosen = id;
     // The chosen ID and owned sticker save together, so repeated input and reload are idempotent.
     services.save.flush(); phase = 'sticker'; phaseT = 0; menuSelected = index; playSfx(audio, 'sticker');
+    offers.pick(index); bookGlide = true;
   }
   /** A finished round is done once its rest screen is left by any route. */
   function closeFinishedRound(): void {
@@ -532,7 +540,9 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
       const shownStars = Math.min(stars, Math.max(0, Math.floor((phaseT - 2.1) / 0.4) + 1));
       if (shownStars > starsPlayed) { playSfx(audio, 'star', { index: starsPlayed }); starsPlayed = shownStars; }
       if (phaseT >= CELEBRATION_SECONDS) finishCelebration();
-    } else if (phase === 'sticker' && phaseT >= 0.7) enterRest();
+    } else if (phase === 'sticker' && phaseT >= PICK_SECONDS) enterRest();
+    if (phase === 'celebration' || phase === 'choice' || phase === 'sticker') warmOffers();
+    offers.update(dt, phase === 'choice' ? menuSelected : -1);
   }
   function drawJar(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, total: number): void {
     chunkyPanel(ctx, x - width / 2, y - height / 2, width, height, '#fff6dc', OUTLINE, 18 * u, 4 * u);
@@ -617,7 +627,7 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
    * the shell and the sticker) and a burst of stars (see sparkleShells), and the sticker grows up out of the bowl. The two shells are never drawn together, so nothing shows through
    * a closed shell. An empty id draws the closed shell alone.
    */
-  function treasure(ctx: CanvasRenderingContext2D, id: string, x: number, y: number, size: number, mint: boolean, focused = false, scale = 1, open = 1, alpha = 1, flash = false): void {
+  function treasure(ctx: CanvasRenderingContext2D, id: string, x: number, y: number, size: number, mint: boolean, focused = false, scale = 1, open = 1, alpha = 1, flash = false, sticker = true): void {
     if (focused) {
       // A complete light/dark contour is still a choice cue in grayscale.
       ctx.beginPath(); ctx.ellipse(x, y, size * 0.51 + 8, size * 0.52 + 8, 0, 0, Math.PI * 2);
@@ -635,8 +645,9 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
       const sx = scale * (1 - 0.07 * spring), sy = scale * (1 + 0.12 * spring);
       drawSprite(ctx, sprites, mint ? 'rewards/shell-mint' : 'rewards/shell-coral', x, y + size * (scale - sy) * 0.48, side, 0, sx, sy);
       if (flash) renderFlash(ctx, x, y);
+      // The offer rises out of the bowl as a sticker.
       const rise = easeOutCubic(p), s = scale * lerp(0.35, 1, rise);
-      drawSprite(ctx, sprites, rewardNames.get(id)!, x, y + size * (0.07 + 0.17 * (1 - rise)) * scale, Math.round(size * 0.95), 0, s, s);
+      if (sticker) offers.drawOffer(ctx, mint ? 1 : 0, rewardNames.get(id)!, x, y + size * (0.07 + 0.17 * (1 - rise)) * scale, Math.round(size * 0.95), s, alpha);
     }
     ctx.globalAlpha = 1;
   }
@@ -726,28 +737,30 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
     }
     if (phase === 'choice' && pending) {
       const open = clamp01(phaseT / OPEN_SECONDS);
+      placeChoiceBook(); offers.drawBook(ctx, bookAt[0]!, bookAt[1]!, bookH, '', -1);
       for (let i = 0; i < pending.choices.length; i++) treasure(ctx, pending.choices[i]!, controlX(i, true), shellY, shellSize, i === 1, open >= 1 && menuSelected === i, 1, open, 1, true);
       if (phaseT >= OPEN_SWAP * OPEN_SECONDS) renderSparkles(ctx);
       shellIndex = Math.max(0, menuSelected); shellX = controlX(shellIndex, true); shellDrawY = shellY; shellDrawn = shellSize;
       return;
     }
     if (pending?.chosen) {
-      const index = Math.max(0, pending.choices.indexOf(pending.chosen)), reveal = phase === 'sticker';
-      if (reveal) {
-        // The shell not chosen sinks and fades instead of vanishing.
-        const leaving = clamp01(phaseT / LEAVE_SECONDS);
-        if (leaving < 1) for (let i = 0; i < pending.choices.length; i++) if (i !== index) {
-          treasure(ctx, pending.choices[i]!, controlX(i, true), shellY + easeOutCubic(leaving) * shellSize * 0.18, shellSize, i === 1, false, 1, 1, 1 - leaving);
-        }
+      const index = Math.max(0, pending.choices.indexOf(pending.chosen)), name = rewardNames.get(pending.chosen)!, restBook = Math.round(restSize * 0.92);
+      placeChoiceBook();
+      if (phase === 'sticker') {
+        // The chosen sticker flies from its shell into the book, which bounces as it lands; both shells and the
+        // other offer sink and fade.
+        const a = leaveAlpha(phaseT), drop = leaveDrop(phaseT) * shellSize;
+        if (a > 0) for (let i = 0; i < pending.choices.length; i++) treasure(ctx, pending.choices[i]!, controlX(i, true), shellY + drop, shellSize, i === 1, false, 1, 1, a, false, i !== index);
+        offers.drawBook(ctx, bookAt[0]!, bookAt[1]!, bookH, name, phaseT - PICK_LIFT - PICK_FLY);
+        offers.drawFlight(ctx, phaseT, name, controlX(index, true), shellY + shellSize * 0.07, Math.round(shellSize * 0.95), bookAt[0]!, bookAt[1]!, bookH);
+        shellX = bookAt[0]!; shellDrawY = bookAt[1]!; shellDrawn = bookH;
+      } else {
+        // The rest screen shows the book with the new sticker on its cover, in the middle.
+        const k = bookGlide ? easeOutCubic(clamp01(phaseT / BOOK_GLIDE)) : 1;
+        shellX = lerp(bookAt[0]!, W / 2, k); shellDrawY = lerp(bookAt[1]!, restY, k); shellDrawn = lerp(bookH, restBook, k);
+        offers.drawBook(ctx, shellX, shellDrawY, shellDrawn, name, 9, restBook);
       }
-      const e = reveal ? easeOutCubic(clamp01(phaseT / REVEAL_SECONDS)) : 1;
-      // A brief lift on selection, then it settles; the chosen shell never gets smaller than its offer.
-      const bump = reveal ? 1 + 0.08 * Math.sin(Math.PI * clamp01(phaseT / BUMP_SECONDS)) : 1;
-      const x = lerp(controlX(index, true), W / 2, e), y = lerp(shellY, restY, e);
-      // Keep one cached art size through the reveal; transforms do not grow the sprite cache.
-      const scale = lerp(shellSize / restSize, 1, e) * bump;
-      treasure(ctx, pending.chosen, x, y, restSize, index === 1, false, scale);
-      shellIndex = index; shellX = x; shellDrawY = y; shellDrawn = restSize * scale;
+      shellIndex = index;
     } else renderGroup(ctx, W / 2, flank ? restY : lerp(shellY, restY, easeOutCubic(clamp01(phaseT / 0.4))), false);
     if (phase !== 'rest') return;
     for (let i = 0; i < 2; i++) {
@@ -756,8 +769,21 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
       if (menuSelected === i) focusRing(ctx, x, controlsY, controlsRadius);
     }
   }
+  /** The book beside the offers, in bookAt: right of them, else under them, clear of the corner buttons. */
+  function placeChoiceBook(): void {
+    const n = pending?.choices.length ?? 1;
+    placeBook(bookAt, W, H, controlX(n - 1, true) + shellSize / 2, shellY, shellY + shellSize / 2, bookH, cornerY + cornerRadius + 10);
+  }
+  /** Bakes the offers' sticker look and both book sizes in idle periods before they first show. */
+  function warmOffers(): void {
+    if (!pending?.choices.length || !pending.rewardEnabled) return;
+    for (const id of pending.choices) offers.warm(rewardNames.get(id) ?? '', Math.round(shellSize * 0.95));
+    offers.warmBook(bookH); offers.warmBook(Math.round(restSize * 0.92));
+  }
   function hoverMenu(x: number, y: number): number {
     const choice = phase === 'choice', n = choice ? pending?.choices.length ?? 0 : 2;
+    // The book only decorates: a press on it picks nothing, even where it reaches into an offer's tap area.
+    if (choice) { placeChoiceBook(); if (onBook(bookAt, bookH, x, y)) return -1; }
     for (let i = 0; i < n; i++) if (Math.hypot(x - controlX(i, choice), y - (choice ? choiceY() : controlsY)) <= (choice ? choiceRadius : controlsRadius)) return i;
     return -1;
   }
@@ -808,7 +834,7 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
       sanitizeBubbleData(data, () => services.save.protect(), names.length);
       // Legacy finished rounds already owned stars/stickers. They should not repeat the introduction.
       data.rounds = Math.max(data.rounds, rewards(services).rounds[GAME_ID] ?? 0);
-      sceneT = 0; startMusic(audio, theme.music);
+      sceneT = 0; bookGlide = false; startMusic(audio, theme.music);
       if (data.pending) {
         pending = data.pending; count = pending.count; stars = pending.stars; tier = pending.tier; variant = pending.variant;
         tally.set(pending.tally.slice(0, tally.length)); collectGroup(); layout(services.canvas.width, services.canvas.height);
@@ -825,7 +851,7 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
       startMusic(audio, theme.music);
     },
     // Any route away from rest (corner Home, the break nudge's Home) closes the finished round.
-    exit() { stopMusic(audio); stopWarm(); closeFinishedRound(); services.save.flush(); },
+    exit() { stopMusic(audio); stopWarm(); offers.cancel(); closeFinishedRound(); services.save.flush(); },
     resize: layout,
     update(dt) {
       const started = performance.now(); time += dt; sceneT += dt;

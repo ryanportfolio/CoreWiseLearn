@@ -13,7 +13,8 @@ import { startMusic, stopMusic } from '../../audio/music';
 import { chunkyCircle, chunkyPanel, drawSprite, OUTLINE } from '../../ui/draw';
 import { confettiBurst, drawCounter, drawStarRow, STAR_GAP_SECONDS, STAR_HIT_SECONDS } from '../../ui/celebrate';
 import { drawEnterFade } from '../../ui/motion';
-import { arriveScale, clamp01, easeInOutSine, easeOutBack, easeOutCubic, lerp } from '../../ui/tween';
+import { BOOK_GLIDE, BOOK_ICON_PATH, createStickerOffers, leaveAlpha, leaveDrop, onBook, PICK_FLY, PICK_LIFT, PICK_SECONDS, placeBook } from '../../ui/sticker-offer';
+import { arriveScale, clamp01, easeInOutSine, easeOutCubic, lerp } from '../../ui/tween';
 import { createSoundButton, soundArt, syncSoundIcon } from '../../scenes/hub/shared';
 import { defaultData, GAME_ID, sanitizePicnicData, type PendingRound, type PicnicData } from './data';
 import {
@@ -123,7 +124,7 @@ const dinoName = (kind: number, pose: number): string => DINO_NAMES[kind % 3]![p
 const fruitName = (kind: number): string => FRUIT_NAMES[kind % FRUITS.length]!;
 
 function artList(): { name: string; path: string }[] {
-  const paths = [`${BG}.webp`, `${PLATE}.webp`, `${BASKET}.webp`, `${HAND}.webp`, `${BUTTON_PLAY}.png`, `${BUTTON_HOME}.png`];
+  const paths = [`${BG}.webp`, `${PLATE}.webp`, `${BASKET}.webp`, `${HAND}.webp`, `${BUTTON_PLAY}.png`, `${BUTTON_HOME}.png`, BOOK_ICON_PATH];
   for (let k = 0; k < 3; k++) for (let p = 0; p < 3; p++) paths.push(`${dinoName(k, p)}.webp`);
   for (let f = 0; f < FRUITS.length; f++) paths.push(`${fruitName(f)}.webp`);
   return [...paths.map(path => ({ name: spriteName(path), path })), ...STICKERS.filter(s => s.game === GAME_ID).map(s => ({ name: stickerSpriteName(s.id), path: s.path }))];
@@ -227,6 +228,12 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
   let starY = 0, starR = 0, pipY = 0, pipSize = 0;
   let cornerRadius = 48, cornerY = 60, homeX = 60, soundX = 1306, cornerFocus = -1;
   let choiceSize = 0, choiceY = 0, restSize = 0, restY = 0, controlsY = 0, controlsRadius = 60;
+  // The offers drawn as stickers and the small sticker book they go into: its height beside the offers, its centre there
+  // (bookAt), and bookGlide when the rest screen came from a pick, so the book moves from there to the middle.
+  const offers = createStickerOffers(sprites), bookAt = new Float32Array(2);
+  let bookH = 150, bookGlide = false;
+  // Sticker sprite names built once, so the choice, flight and rest build no strings per frame.
+  const stickerNames = new Map(STICKERS.map(s => [s.id, stickerSpriteName(s.id)]));
 
   const play = (name: SfxName, variant: SfxVariant, index = 0, volume = 1): void => {
     sfx.index = index; sfx.volume = volume; sfx.variant = variant; playSfx(audio, name, sfx);
@@ -410,6 +417,7 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     controlsY = H - controlsRadius - 22;
     restSize = Math.round(Math.max(110, Math.min(300 * Math.min(1.25, H / 768), controlsY - controlsRadius - starY - starR - 40)));
     restY = (starY + starR + controlsY - controlsRadius) / 2;
+    bookH = Math.round(Math.max(72, Math.min(200, choiceSize * 0.45)));
     planWarm();
     // Every sprite size follows the canvas size, pixel ratio, tier and the fitted scales. When any of them changes,
     // the canvases scaled for the old sizes are released (and the round's end is warmed again at the new ones), so
@@ -553,7 +561,7 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
   function startEating(sl: Slot): void { sl.state = 'eating'; sl.t = 0; sl.eaten = 0; sl.swallowed = 0; }
 
   function startRound(): void {
-    pending = null; data.pending = null;
+    pending = null; data.pending = null; bookGlide = false;
     tier = services.debug.tier ?? toTier(data.tier);
     intro = data.rounds === 0;
     dinoOffset = data.rounds % 3;
@@ -585,12 +593,8 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     // The celebration (and a rest without a gift) shows all three dinos at the round's own size.
     const celebH = 250 * playS;
     for (let k = 0; k < 3; k++) { add(dinoName(k, 2), celebH); add(dinoName(k, 0), celebH); }
-    add(PLATE, choiceSize); add(PLATE, restSize);
-    // Offers are drawn only when the round ends; any sticker not yet owned can be one.
-    if (services.config.rewardsEnabled && services.profile()) {
-      const owned = rewards(services).stickers;
-      for (const st of STICKERS) if (st.game === GAME_ID && !owned.includes(st.id)) { add(stickerSpriteName(st.id), choiceSize * 0.78); add(stickerSpriteName(st.id), restSize * 0.78); }
-    }
+    // The plate under each offer; the offers' sticker look and the book are baked by warmOffers once the round has ended.
+    add(PLATE, choiceSize);
     add(BUTTON_PLAY, controlsRadius * 1.3); add(BUTTON_HOME, controlsRadius * 1.3);
     // Comparisons draw the dinos, plates and fruit at their own size instead of the tier's size.
     if (!intro && comparisonsPerRound(data) > 0) {
@@ -725,6 +729,7 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     pending.chosen = id; menuSelected = index;
     // The chosen id and the owned sticker save together, so repeated input and reload are idempotent.
     services.save.flush(); phase = 'sticker'; phaseT = 0; guard(PLAY_GUARD_MS); play('sticker', 'C');
+    offers.pick(index); bookGlide = true;
   }
   /** A finished round is done once its rest screen is left by any route (Again, Home, the corner, the break nudge). */
   function closeFinishedRound(): void {
@@ -972,7 +977,9 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
       const shown = Math.min(stars, Math.max(0, Math.floor((phaseT - STAR_START - STAR_HIT_SECONDS) / STAR_GAP_SECONDS) + 1));
       if (shown > starsPlayed) { play('star', 'B', starsPlayed); starsPlayed = shown; }
       if (phaseT >= CELEBRATION_SECONDS) finishCelebration();
-    } else if (phase === 'sticker' && phaseT >= 0.7) enterRest();
+    } else if (phase === 'sticker' && phaseT >= PICK_SECONDS) enterRest();
+    if (phase === 'celebration' || phase === 'choice' || phase === 'sticker') warmOffers();
+    offers.update(dt, phase === 'choice' ? menuSelected : -1);
   }
 
   // ---------------------------------------------------------------- render
@@ -1151,13 +1158,27 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     const n = choice ? pending?.choices.length ?? 0 : 2;
     return W / 2 + (i - (n - 1) / 2) * (choice ? choiceSize + Math.max(24, choiceSize * 0.18) : controlsRadius * 3.2);
   };
-  function gift(ctx: CanvasRenderingContext2D, id: string, x: number, y: number, size: number, focused: boolean, scale = 1): void {
+  /** Offer `index` as a sticker on its leaf plate; `sticker` false leaves the plate empty, `alpha` fades both. */
+  function gift(ctx: CanvasRenderingContext2D, index: number, id: string, x: number, y: number, size: number, focused: boolean, alpha = 1, sticker = true): void {
     if (focused) {
       ctx.beginPath(); ctx.ellipse(x, y, size * 0.55 + 8, size * 0.47 + 8, 0, 0, Math.PI * 2);
       ctx.strokeStyle = OUTLINE; ctx.lineWidth = 10; ctx.stroke(); ctx.strokeStyle = '#fff8da'; ctx.lineWidth = 5; ctx.stroke();
     }
-    drawSprite(ctx, sprites, PLATE, x, y + size * 0.08, size, 0, scale, scale);
-    drawSprite(ctx, sprites, stickerSpriteName(id), x, y - size * 0.04, Math.round(size * 0.78), 0, scale, scale);
+    if (alpha < 1) ctx.globalAlpha = alpha;
+    drawSprite(ctx, sprites, PLATE, x, y + size * 0.08, size);
+    ctx.globalAlpha = 1;
+    if (sticker) offers.drawOffer(ctx, index, stickerNames.get(id) ?? '', x, y - size * 0.04, Math.round(size * 0.78), 1, alpha);
+  }
+  /** The book beside the offers, in bookAt: right of them, else under them, clear of the corner buttons. */
+  function placeChoiceBook(): void {
+    const n = pending?.choices.length ?? 1;
+    placeBook(bookAt, W, H, controlX(n - 1, true) + choiceSize / 2, choiceY, choiceY + choiceSize / 2, bookH, cornerY + cornerRadius + 10);
+  }
+  /** Bakes the offers' sticker look and both book sizes in idle periods before they first show. */
+  function warmOffers(): void {
+    if (!pending?.choices.length || !pending.rewardEnabled) return;
+    for (const id of pending.choices) offers.warm(stickerNames.get(id) ?? '', Math.round(choiceSize * 0.78));
+    offers.warmBook(bookH); offers.warmBook(restSize);
   }
   function renderResult(ctx: CanvasRenderingContext2D): void {
     const starT = phase === 'celebration' ? phaseT - STAR_START : 99;
@@ -1171,12 +1192,25 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
       return;
     }
     if (phase === 'choice' && pending) {
-      for (let i = 0; i < pending.choices.length; i++) gift(ctx, pending.choices[i]!, controlX(i, true), choiceY, choiceSize, menuSelected === i);
+      placeChoiceBook(); offers.drawBook(ctx, bookAt[0]!, bookAt[1]!, bookH, '', -1);
+      for (let i = 0; i < pending.choices.length; i++) gift(ctx, i, pending.choices[i]!, controlX(i, true), choiceY, choiceSize, menuSelected === i);
       return;
     }
     if (pending?.chosen) {
-      const e = phase === 'sticker' ? easeOutBack(clamp01(phaseT / 0.65)) : 1, index = Math.max(0, pending.choices.indexOf(pending.chosen));
-      gift(ctx, pending.chosen, lerp(controlX(index, true), W / 2, e), lerp(choiceY, restY, e), restSize, false, lerp(choiceSize / restSize, 1, Math.min(1, e)));
+      const index = Math.max(0, pending.choices.indexOf(pending.chosen)), name = stickerNames.get(pending.chosen) ?? '';
+      placeChoiceBook();
+      if (phase === 'sticker') {
+        // The chosen sticker flies from its plate into the book, which bounces as it lands; both plates and the other
+        // offer drop and fade.
+        const a = leaveAlpha(phaseT), drop = leaveDrop(phaseT) * choiceSize;
+        if (a > 0) for (let i = 0; i < pending.choices.length; i++) gift(ctx, i, pending.choices[i]!, controlX(i, true), choiceY + drop, choiceSize, false, a, i !== index);
+        offers.drawBook(ctx, bookAt[0]!, bookAt[1]!, bookH, name, phaseT - PICK_LIFT - PICK_FLY);
+        offers.drawFlight(ctx, phaseT, name, controlX(index, true), choiceY - choiceSize * 0.04, Math.round(choiceSize * 0.78), bookAt[0]!, bookAt[1]!, bookH);
+      } else {
+        // The rest screen shows the book with the new sticker on its cover, in the middle.
+        const k = bookGlide ? easeOutCubic(clamp01(phaseT / BOOK_GLIDE)) : 1;
+        offers.drawBook(ctx, lerp(bookAt[0]!, W / 2, k), lerp(bookAt[1]!, restY, k), lerp(bookH, restSize, k), name, 9, restSize);
+      }
     } else {
       // Rewards off or the set complete: the three picnic friends, never a fabricated collectible.
       const saved = feetY; feetY = restY + restSize * 0.4;
@@ -1198,6 +1232,8 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
   }
   function hoverMenu(x: number, y: number): number {
     const choice = phase === 'choice', n = choice ? pending?.choices.length ?? 0 : 2;
+    // The book only decorates: a press on it picks nothing, even where it reaches into an offer's tap area.
+    if (choice) { placeChoiceBook(); if (onBook(bookAt, bookH, x, y)) return -1; }
     for (let i = 0; i < n; i++) {
       const dx = x - controlX(i, choice), dy = y - (choice ? choiceY : controlsY);
       if (choice ? Math.abs(dx) <= choiceSize / 2 && Math.abs(dy) <= choiceSize * 0.5 : Math.hypot(dx, dy) <= controlsRadius) return i;
@@ -1341,7 +1377,7 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
       data = services.save.gameData<PicnicData>(GAME_ID, defaultData());
       sanitizePicnicData(data, () => services.save.protect());
       data.rounds = Math.max(data.rounds, rewards(services).rounds[GAME_ID] ?? 0);
-      sceneT = 0; startMusic(audio, 'dino-picnic');
+      sceneT = 0; bookGlide = false; startMusic(audio, 'dino-picnic');
       if (data.pending) {
         pending = data.pending; stars = pending.stars; tier = pending.tier; dinoOffset = pending.dinoOffset; intro = false;
         layout(services.canvas.width, services.canvas.height);
@@ -1359,7 +1395,7 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     },
     // Any route away from rest (corner Home, the break nudge's Home) closes the finished round.
     exit() {
-      stopMusic(audio); stopIdle(); closeFinishedRound(); services.save.flush();
+      stopMusic(audio); stopIdle(); offers.cancel(); closeFinishedRound(); services.save.flush();
       // Leaving releases every canvas scaled for this game; the next entry scales what it draws again.
       releaseArt(); sprites.clearScaled(BG); bgCanvas = undefined; sizeKey = ''; madeName = '';
     },
