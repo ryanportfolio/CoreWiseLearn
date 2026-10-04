@@ -1,5 +1,5 @@
 {
-  "style": "Flat chunky vector, thick dark outlines, flat saturated fills, single soft highlight, no text. Sprites are 512x512 RGBA with the subject centred and fitted to 80 percent of the canvas; backgrounds are 1920x1080 opaque WebP.",
+  "style": "Flat chunky vector, thick dark outlines, flat saturated fills, single soft highlight, no text. Sprites are 512x512 RGBA (mascot poses 768x768) with the subject centred and fitted to 80 percent of the canvas; backgrounds are 1920x1080 opaque WebP.",
   "generatedWith": "OpenAI image_gen through Codex CLI (gpt-6-astra agent), downscaled with the project scratch script .tmp/art/png.mjs",
   "count": 59,
   "totalBytes": 3731712,
