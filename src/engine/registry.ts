@@ -10,6 +10,7 @@ import { dinoPicnic } from '../games/dino-picnic';
 import { letterTrain } from '../games/letter-train';
 import { webPlayground } from '../games/web-playground';
 import { shapeWorkshop } from '../games/shape-workshop';
+import { rideFare } from '../games/ride-fare';
 
 /** Everything a game may need from the hub, handed in when its scene is created. */
 export type GameServices = AppServices;
@@ -45,6 +46,7 @@ const games: GameDefinition[] = [
   letterTrain,
   webPlayground,
   shapeWorkshop,
+  rideFare,
   // Add games here in hub order. See docs/adding-a-game.md.
 ];
 
