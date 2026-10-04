@@ -9,9 +9,10 @@
  *
  * Each sticker's look is baked once per image, size and pixel ratio into two cached canvases (the sticker and its
  * shadow), and the book once per size and pixel ratio, so a frame only draws images: no canvas, gradient, shadowBlur
- * or fillText. All baking happens in idle periods, never inside a frame: warm() bakes ahead (games call it during the
- * celebration), and a draw that finds no bake at the size it needs queues one and meanwhile draws a bake at another
- * size scaled, or nothing.
+ * or fillText. All baking happens in idle periods, never inside a frame, in short steps spread over several idle
+ * periods, on canvases the CPU draws (so the GPU has no new shader programs to build): warm() bakes ahead (games call
+ * it during the celebration), and a draw that finds no bake at the size it needs queues one and meanwhile draws a bake
+ * at another size scaled, or nothing.
  */
 import type { SpriteStore } from '../engine/sprites';
 import { OUTLINE, roundedRect } from './draw';
@@ -91,10 +92,16 @@ interface Baked {
 }
 interface BookArt { h: number; ratio: number; star: HTMLImageElement | undefined; canvas: HTMLCanvasElement }
 
+/**
+ * A canvas drawn by the CPU. The bakes draw only into these: on a GPU-backed canvas, the GPU process builds a shader
+ * program the first time in a browser session that it meets each new mix of draw and composite mode the bakes use
+ * (a Chrome trace showed eight, 12 to 20 ms each), and the frames on screen wait for it. Here the only GPU work is one
+ * upload of each finished canvas on its first draw.
+ */
 function canvas2d(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContext2D] | undefined {
   const c = document.createElement('canvas');
   c.width = Math.max(1, Math.ceil(w)); c.height = Math.max(1, Math.ceil(h));
-  const ctx = c.getContext('2d');
+  const ctx = c.getContext('2d', { willReadFrequently: true });
   return ctx ? [c, ctx] : undefined;
 }
 /** Fill the half-plane x + y > c (the corner side of a fold along x + y = c). */
@@ -102,31 +109,49 @@ function beyond(ctx: CanvasRenderingContext2D, c: number, reach: number): void {
   const m = reach * 4 + Math.abs(c);
   ctx.beginPath(); ctx.moveTo(c + m, -m); ctx.lineTo(-m, c + m); ctx.lineTo(c + m, c + m); ctx.closePath(); ctx.fill();
 }
-function stamp(ctx: CanvasRenderingContext2D, src: HTMLCanvasElement, r: number, n: number): void {
-  for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2; ctx.drawImage(src, Math.cos(a) * r, Math.sin(a) * r); }
+/** Copies `from` to `to` (exclusive) of `n` copies of src, spaced evenly round a circle of radius r. */
+function stamp(ctx: CanvasRenderingContext2D, src: HTMLCanvasElement, r: number, n: number, from: number, to: number): void {
+  for (let i = from; i < to; i++) { const a = i / n * Math.PI * 2; ctx.drawImage(src, Math.cos(a) * r, Math.sin(a) * r); }
 }
+/**
+ * Draws the canvas's queued drawing now. A canvas records draw calls and draws them only when its pixels are next
+ * needed, so without this the work of every step would pile up into one long step, or into the first frame that
+ * shows the canvas.
+ */
+function settle(ctx: CanvasRenderingContext2D): void { ctx.getImageData(0, 0, 1, 1); }
+/** Copies per bake step, so that one step stays short enough for an idle period. */
+const STAMPS_PER_STEP = 8;
 
-/** The sticker look of one image at `size` (its longest side, logical px) and pixel ratio `r`. */
-function bakeSticker(img: HTMLImageElement, size: number, r: number): Baked | undefined {
+/**
+ * The sticker look of one image at `size` (its longest side, logical px) and pixel ratio `r`. The bake runs in steps:
+ * the generator yields between them, so the work spreads over idle periods. The finished bake is passed to `done`.
+ */
+function* bakeSticker(img: HTMLImageElement, size: number, r: number, done: (b: Baked) => void): Generator<void, void, void> {
   const shape = shapeOf(img);
+  yield;
   const long = Math.max(img.naturalWidth, img.naturalHeight) || 1, P = size * r;
   const iw = img.naturalWidth / long * P, ih = img.naturalHeight / long * P;
   const border = Math.max(3, size * 0.045) * r, rim = Math.max(1.5, size * 0.007) * r, pad = Math.ceil(border + rim + 2);
   const cw = Math.ceil((shape.x1 - shape.x0) * P) + pad * 2, ch = Math.ceil((shape.y1 - shape.y0) * P) + pad * 2;
   const ox = pad - shape.x0 * P, oy = pad - shape.y0 * P;
-  const sil = canvas2d(cw, ch), out = canvas2d(cw, ch), flap = canvas2d(cw, ch), shade = canvas2d(cw, ch);
-  if (!sil || !out || !flap || !shade) return undefined;
-  const [silC, s] = sil, [stickerC, o] = out, [flapC, f] = flap, [shadowC, sh] = shade;
-  s.imageSmoothingEnabled = o.imageSmoothingEnabled = true;
-  s.imageSmoothingQuality = o.imageSmoothingQuality = 'high';
+  const art = canvas2d(cw, ch), sil = canvas2d(cw, ch), out = canvas2d(cw, ch), flap = canvas2d(cw, ch), shade = canvas2d(cw, ch);
+  if (!art || !sil || !out || !flap || !shade) return;
+  const [artC, a] = art, [silC, s] = sil, [stickerC, o] = out, [flapC, f] = flap, [shadowC, sh] = shade;
+  // The art at its size, resampled once; every later use of it is an unscaled copy.
+  a.imageSmoothingEnabled = true; a.imageSmoothingQuality = 'high';
+  a.drawImage(img, ox, oy, iw, ih);
+  settle(a); yield;
   // The paper: the art's silhouette spread outward by the border, a thin rim colour just outside it.
-  s.drawImage(img, ox, oy, iw, ih);
+  s.drawImage(artC, 0, 0);
   s.globalCompositeOperation = 'source-in';
   s.fillStyle = RIM; s.fillRect(0, 0, cw, ch);
-  stamp(o, silC, border + rim, 24);
+  for (let i = 0; i < 24; i += STAMPS_PER_STEP) { stamp(o, silC, border + rim, 24, i, i + STAMPS_PER_STEP); settle(o); yield; }
   s.fillStyle = '#ffffff'; s.fillRect(0, 0, cw, ch);
-  stamp(o, silC, border, 24); stamp(o, silC, border * 0.5, 12); o.drawImage(silC, 0, 0);
-  o.drawImage(img, ox, oy, iw, ih);
+  for (let i = 0; i < 24; i += STAMPS_PER_STEP) { stamp(o, silC, border, 24, i, i + STAMPS_PER_STEP); settle(o); yield; }
+  stamp(o, silC, border * 0.5, 12, 0, 12); o.drawImage(silC, 0, 0);
+  o.drawImage(artC, 0, 0);
+  settle(o); artC.width = artC.height = 0; silC.width = silC.height = 0;
+  yield;
   // The peel: the paper beyond a fold near its lowest-right point is cut off and drawn folded back over the sticker
   // (its mirror image across the fold), pale side up, with a soft shadow under it.
   const corner = shape.diag * P + ox + oy + (border + rim) * Math.SQRT2;
@@ -143,22 +168,24 @@ function bakeSticker(img: HTMLImageElement, size: number, r: number): Baked | un
   f.globalCompositeOperation = 'source-in'; f.fillStyle = BACK; f.fillRect(0, 0, cw, ch);
   o.drawImage(flapC, 0, 0);
   o.setTransform(1, 0, 0, 1, 0, 0);
+  settle(o); flapC.width = flapC.height = 0;
+  yield;
   // The shadow is the finished sticker's silhouette in the outline colour; its alpha and offset are set when drawn.
   sh.drawImage(stickerC, 0, 0);
   sh.globalCompositeOperation = 'source-in'; sh.fillStyle = OUTLINE; sh.fillRect(0, 0, cw, ch);
-  silC.width = silC.height = 0; flapC.width = flapC.height = 0;
-  return {
+  settle(sh);
+  done({
     img, size, ratio: r, sticker: stickerC, shadow: shadowC, w: cw / r, h: ch / r,
     cx: (pad + (shape.x1 - shape.x0) * P / 2) / r, cy: (pad + (shape.y1 - shape.y0) * P / 2) / r,
     visible: Math.max(shape.x1 - shape.x0, shape.y1 - shape.y0),
-  };
+  });
 }
 
-/** The closed sticker book, `h` logical px tall, centred in its canvas with room for its outline around it. */
-function bakeBook(star: HTMLImageElement | undefined, h: number, r: number): BookArt | undefined {
+/** The closed sticker book, `h` logical px tall, centred in its canvas with room for its outline around it. Baked in steps, like a sticker. */
+function* bakeBook(star: HTMLImageElement | undefined, h: number, r: number, done: (b: BookArt) => void): Generator<void, void, void> {
   const w = h * BOOK_ASPECT, line = Math.max(3, h * 0.035), margin = line + 2;
   const made = canvas2d((w + margin * 2) * r, (h + margin * 2) * r);
-  if (!made) return undefined;
+  if (!made) return;
   const [canvas, ctx] = made;
   ctx.scale(r, r); ctx.translate(margin + w / 2, margin + h / 2);
   ctx.lineJoin = 'round';
@@ -169,22 +196,26 @@ function bakeBook(star: HTMLImageElement | undefined, h: number, r: number): Boo
   ctx.beginPath();
   for (let i = 1; i <= 2; i++) { const x = -w / 2 + coverW + w * 0.1 * (i / 3); ctx.moveTo(x, -h / 2 + h * 0.12); ctx.lineTo(x, h / 2 - h * 0.06); }
   ctx.lineWidth = Math.max(1.5, h * 0.012); ctx.strokeStyle = '#d9cdb8'; ctx.stroke();
+  settle(ctx); yield;
   // Cover with a darker spine band.
   roundedRect(ctx, -w / 2, -h / 2, coverW, coverH, h * 0.07);
   ctx.fillStyle = BOOK_FILL; ctx.fill();
   ctx.save(); ctx.clip(); ctx.fillStyle = BOOK_SPINE; ctx.fillRect(-w / 2, -h / 2, coverW * 0.16, coverH); ctx.restore();
   roundedRect(ctx, -w / 2, -h / 2, coverW, coverH, h * 0.07);
   ctx.lineWidth = line; ctx.strokeStyle = OUTLINE; ctx.stroke();
+  settle(ctx); yield;
   if (star) {
     const long = Math.max(star.naturalWidth, star.naturalHeight) || 1, sw = STAR_SIZE * h * star.naturalWidth / long, sh = STAR_SIZE * h * star.naturalHeight / long;
     ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(star, PLACE_X * h - sw / 2, STAR_Y * h - sh / 2, sw, sh);
+    settle(ctx); yield;
   }
   // The empty place a new sticker goes, dotted like the sticker book's own empty places.
   BOOK_DASH[0] = h * 0.04; BOOK_DASH[1] = h * 0.035;
   ctx.setLineDash(BOOK_DASH); ctx.beginPath(); ctx.arc(PLACE_X * h, PLACE_Y * h, PLACE_R * h, 0, Math.PI * 2);
   ctx.lineWidth = Math.max(2, h * 0.022); ctx.strokeStyle = BOOK_PLACE; ctx.stroke(); ctx.setLineDash(NO_DASH);
-  return { h, ratio: r, star, canvas };
+  settle(ctx);
+  done({ h, ratio: r, star, canvas });
 }
 
 export interface StickerOffers {
@@ -241,11 +272,30 @@ export function createStickerOffers(sprites: SpriteStore): StickerOffers {
     if (img) queue(name, Math.round(size));
     return undefined;
   }
-  function bake(name: string, s: number): void {
-    const img = sprites.get(name);
-    if (!img || fresh(baked.get(name), name, s)) return;
-    const made = bakeSticker(img, s, sprites.pixelRatio);
-    if (made) baked.set(name, made);
+  /** The bake in progress, run a step at a time by onIdle, and what it is for ('' and a height: the book). */
+  let job: Generator<void, void, void> | undefined, jobName = '', jobSize = 0;
+  const stickerDone = (b: Baked): void => { baked.set(jobName, b); };
+  const bookDone = (made: BookArt): void => {
+    // Two sizes are kept (beside the offers and in the middle of the rest screen); a third replaces the one used less recently.
+    const slot = !books[0] ? 0 : !books[1] ? 1 : 1 - bookUsed;
+    books[slot] = made; bookUsed = slot;
+  };
+  /** Starts the next queued bake that is still needed; false when the queue is empty. */
+  function nextJob(): boolean {
+    while (queueNames.length) {
+      const name = queueNames.shift()!, s = queueSizes.shift()!;
+      if (name) {
+        const img = sprites.get(name);
+        if (!img || fresh(baked.get(name), name, s)) continue;
+        job = bakeSticker(img, s, sprites.pixelRatio, stickerDone);
+      } else {
+        if (bookFresh(books[0], s) || bookFresh(books[1], s)) continue;
+        job = bakeBook(sprites.get(BOOK_ICON), s, sprites.pixelRatio, bookDone);
+      }
+      jobName = name; jobSize = s;
+      return true;
+    }
+    return false;
   }
   const bookFresh = (b: BookArt | undefined, s: number): b is BookArt => !!b && b.h === s && b.ratio === sprites.pixelRatio && b.star === sprites.get(BOOK_ICON);
   /** The book baked at height `h`; as with stickers, a missing size is queued and another size is drawn scaled meanwhile. */
@@ -256,29 +306,21 @@ export function createStickerOffers(sprites: SpriteStore): StickerOffers {
     for (let i = 0; i < 2; i++) { const b = books[i]; if (b && b.star === star) return b; }
     return undefined;
   }
-  function bakeBookAt(s: number): void {
-    if (bookFresh(books[0], s) || bookFresh(books[1], s)) return;
-    const made = bakeBook(sprites.get(BOOK_ICON), s, sprites.pixelRatio);
-    if (!made) return;
-    // Two sizes are kept (beside the offers and in the middle of the rest screen); a third replaces the one used less recently.
-    const slot = !books[0] ? 0 : !books[1] ? 1 : 1 - bookUsed;
-    books[slot] = made; bookUsed = slot;
-  }
-  /** Bakes queued work while the idle period has 4 ms left; one item when it timed out. Never runs inside a frame. */
+  /** Runs bake steps while the idle period has 4 ms left; one step when it timed out. Never runs inside a frame. */
   function onIdle(deadline: IdleDeadline): void {
     idle = 0;
-    while (queueNames.length && (deadline.didTimeout || deadline.timeRemaining() >= 4)) {
-      const name = queueNames.shift()!, size = queueSizes.shift()!;
-      if (name) bake(name, size); else bakeBookAt(size);
+    while ((job || nextJob()) && (deadline.didTimeout || deadline.timeRemaining() >= 4)) {
+      if (job!.next().done) job = undefined;
       if (deadline.didTimeout) break;
     }
-    if (queueNames.length) request();
+    if (job || queueNames.length) request();
   }
   function request(): void {
     if (idle) return;
     idle = typeof requestIdleCallback === 'function' ? requestIdleCallback(onIdle, IDLE_OPTIONS) : window.setTimeout(onIdle, 0, TIMED_OUT);
   }
   function queue(name: string, size: number): void {
+    if (job && jobName === name && jobSize === size) return;
     for (let i = 0; i < queueNames.length; i++) if (queueNames[i] === name && queueSizes[i] === size) return;
     queueNames.push(name); queueSizes.push(size);
     request();
