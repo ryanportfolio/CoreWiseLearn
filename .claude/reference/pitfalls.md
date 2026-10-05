@@ -28,7 +28,7 @@ Two more quirks of the same browser, both confirmed by two agents:
 
 ## 2026-10-02: Vite watched `.tmp` and reloaded every dev page on scratch writes
 
-A smoke run lost its 75 s round when another agent wrote `.tmp/wa.html` and Vite full-page-reloaded the game. `server.watch.ignored` in `vite.config.ts` now excludes `.tmp` and `.playwright-mcp`. Source edits by a parallel agent still reload; run end-to-end checks after the builders finish, or on `npm run preview`.
+A smoke run lost its 75 s round when another agent wrote `.tmp/wa.html` and Vite full-page-reloaded the game. `server.watch.ignored` in `vite.config.ts` now excludes `.tmp` and `.playwright-mcp`. Source edits by a parallel agent still reload; run end-to-end checks after the builders finish, or on `npm run preview`. The same happens when `scripts/voice/generate.mjs` writes clips into `public/voice/<folder>/` (2026-10-05): files listed by an `import.meta.glob` are module dependencies, so each new clip reloaded every dev page and browser checks failed with "Execution context was destroyed". Render clips before browser checks, or give the check's dev server a config that adds `**/public/voice/**` to `server.watch.ignored`.
 
 ## 2026-10-02: stopping a background `npm run dev` leaves Vite holding the port
 
@@ -85,3 +85,7 @@ Hand-made worktrees here link `node_modules` to one shared install (a directory 
 ## 2026-10-04: a background that finishes loading after the first layout draws at full size
 
 A game scene computes its background's cover-fit scale in `layout()`, which runs on `enter()` and on resize. Ride Fare loads its own art in `enter()` without waiting, so the first layout ran before `launch-field.webp` had loaded, found no image and kept a scale of 1. The scaled background was made at that stale scale as soon as the image arrived, so it drew at its full 1920x1280 in a smaller window, cropped instead of fitted, and nothing remade it until the window size changed. Confirmed in Ride Fare round 3 (2026-10-04). Fix (`ensureBackground()` in `src/games/ride-fare/scene.ts`): compute the scale and offset from the loaded image at the moment the scaled background is first made, never from a value the layout stored while the image was missing. A game that loads art after `enter()` must do the same for every size it derives from an image's natural size.
+
+## 2026-10-05: Gemini TTS on OpenRouter speaks its directions and misreads bare letters
+
+`POST /api/v1/audio/speech` with `google/gemini-3.8-flash-tts` accepts only `response_format: "pcm"` (24 kHz mono 16-bit); `mp3` and `wav` return 400. A style instruction written before the line ("Say cheerfully, in a Yorkshire accent: ...") is read aloud. The `### DIRECTOR'S NOTES` / `#### TRANSCRIPT` input form usually keeps notes silent, but in the voice lab about one clip in six still read the notes aloud or added words ("Shh!", "First of all"), and a delivery note ("let the voice rise at the end") leaked on every retry until it was removed. A bare letter such as "M" comes back as its sound ("Mmm"); write the name ("Em!"). Every clip therefore goes through the transcription check in `scripts/voice/generate.mjs`, which re-renders mismatches. Cost: two lab reruns and a dropped prompt line.

@@ -8,7 +8,8 @@ import { createButton, dispatchDown, dispatchUp, type Button } from '../../ui/bu
 import { createKeyboardNavigation, drawPageArrow } from '../../ui/navigation';
 import { chunkyPanel, drawCover, drawSprite, OUTLINE } from '../../ui/draw';
 import { drawEnterFade } from '../../ui/motion';
-import { drawMascotAt } from '../../ui/mascot';
+import { createMascotMotion, drawMascotMoving, loadMascotMouths, pokeMascot, resetMascotMotion, stepMascotMotion } from '../../ui/mascot';
+import { WIBBLE, markGreeted, pickLine, sayLetter, sayTickle, wibbleVoice } from '../../ui/wibble';
 import { playSfx, type SfxName } from '../../audio/sfx';
 import { startMusic, stopMusic } from '../../audio/music';
 import { createSoundButton, soundArt, loadAllArt, syncSoundIcon, makeTextSprite, drawTextSprite, type TextSprite } from '../hub/shared';
@@ -46,6 +47,15 @@ const MASCOT_H = 0.66;
 /** Mascot sprite sizes: it shrinks to the room the keys leave and hides below MIN_MASCOT. */
 const MIN_MASCOT = 80;
 const MAX_MASCOT = 300;
+/** Spell-back after Go: letters start at least this far apart, and each waits for the one before to end plus SPELL_GAP. */
+const SPELL_SPACING = 0.35;
+const SPELL_GAP = 0.05;
+/** The longest a spell-back may hold the screen before going on to the hub regardless, seconds. */
+const SPELL_LIMIT = 15;
+/** Wibble's press area, as fractions of its sprite size: an ellipse BODY_Y above the feet with these half-axes, each at least 48 px. */
+const BODY_Y = 0.33;
+const BODY_RX = 0.4;
+const BODY_RY = 0.33;
 
 /** Largest diameter for n keys with n - 1 gaps of `gap` diameters in `span` px. */
 const fitKeys = (span: number, n: number, gap: number): number => span / (n + gap * (n - 1));
@@ -138,6 +148,13 @@ export function createNameEntryScene(services: AppServices, options: { renamePro
   let buttons: Button[] = [];
   const keyboard = createKeyboardNavigation(() => buttons, { input });
   const sound = createSoundButton(services);
+  const voice = wibbleVoice(services);
+  const motion = createMascotMotion();
+  /** True while Go's spell-back is speaking; the hub waits for it. */
+  let spelling = false;
+  /** Sequence step last seen, and the leave time each name letter bounced at (old timing, or as it was spoken). */
+  let spellStep = -1;
+  const letterAt = new Float32Array(MAX_LETTERS);
   function sfx(kind: SfxName, index?: number): void {
     counts[kind] = (counts[kind] ?? 0) + 1;
     playSfx(audio, kind, index === undefined ? undefined : { index });
@@ -180,17 +197,34 @@ export function createNameEntryScene(services: AppServices, options: { renamePro
     active(); flashes[index] = 0.24;
     if (name.length < MAX_LETTERS) { name += ALPHABET[index]; refreshName(); }
     sparkle(5);
-    // Input is never throttled. Only notes are coalesced, to at most eight per second.
+    // Input is never throttled. Only notes are coalesced, to at most eight per second; each letter's name always plays.
     pendingNote = index; pendingAt = time;
+    sayLetter(services, ALPHABET[index] ?? 'a');
   }
   function backspace(): void {
     if (leaving) return;
     active(); name = name.slice(0, -1); refreshName();
     if (time - lastSound >= 0.125) { sfx('backspace'); lastSound = time; }
   }
-  function depart(): void {
+  /**
+   * Leave for the hub. With `spell`, Wibble spells the typed name back, one letter's name per
+   * bouncing letter, then says a greeting, and the hub waits for it; with the sound off or no
+   * clips, the letters bounce to their notes on the old quick timing.
+   */
+  function depart(spell = false): void {
     leaving = true; leaveTime = 0; tuneIndex = 0; pendingNote = -1;
     services.save.save(); sfx('go'); sparkle(32);
+    spellStep = -1;
+    spelling = false;
+    if (spell && name) {
+      const clips = name.toLowerCase().split('').map((c) => `letter-${c}`);
+      const greet = pickLine(services, 'greet');
+      if (greet) clips.push(greet);
+      spelling = voice.sequence(WIBBLE, clips, SPELL_SPACING, SPELL_GAP);
+      // The greeting stands in for the hub's hello.
+      if (spelling && greet) markGreeted();
+    }
+    for (let i = 0; i < MAX_LETTERS; i++) letterAt[i] = spelling ? 1e6 : i * 0.14;
   }
   function commit(): void {
     if (leaving) return;
@@ -199,7 +233,7 @@ export function createNameEntryScene(services: AppServices, options: { renamePro
       if (!services.save.renameProfile(renaming.id, name)) { sparkle(); return; }
       services.save.selectProfile(renaming.id);
     } else services.save.selectProfile(name);
-    depart();
+    depart(true);
   }
   function pick(profile: Profile): void {
     if (leaving) return;
@@ -287,8 +321,9 @@ export function createNameEntryScene(services: AppServices, options: { renamePro
    * Letter keys fill the free area below the name field: as large as fits, up
    * to MAX_KEY times uiScale, with the uiScale-adjusted KEY_GAP between keys,
    * never under 96 px and never smaller than the touching keys of the layout
-   * before gaps. The block is centred, and the mascot takes whatever room the
-   * keys leave in the bottom-right corner, or hides.
+   * before gaps. The block is centred (on one page, its last row starts under
+   * the first key), and the mascot takes whatever room the keys leave in the
+   * bottom-right corner, or hides.
    */
   function layoutKeys(scale: number): void {
     const availH = Math.max(96, height - keyTop - 12);
@@ -342,7 +377,9 @@ export function createNameEntryScene(services: AppServices, options: { renamePro
         let row = Math.floor(local / cols), col = local % cols, inRow = Math.min(cols, 26 - keyPage * perPage - row * cols);
         if (full) { row = index < rowSizes[0]! ? 0 : index < rowSizes[0]! + rowSizes[1]! ? 1 : 2; col = index - (row === 0 ? 0 : row === 1 ? rowSizes[0]! : rowSizes[0]! + rowSizes[1]!); inRow = rowSizes[row]!; }
         const b = keys[ALPHABET.indexOf(order[index]!)]!;
-        b.x = 12 + (areaW - inRow * size - (inRow - 1) * keyGap) / 2 + col * pitch + size / 2;
+        // On one page, the last (shortest) row starts under the first key, leaving the corner beside it to Wibble.
+        const lead = full && row === 2 ? rowSizes[0]! : inRow;
+        b.x = 12 + (areaW - lead * size - (lead - 1) * keyGap) / 2 + col * pitch + size / 2;
         b.y = top + row * pitch + size / 2;
         b.radius = size / 2; b.visible = true;
         avoid(b.x + size / 2, b.y + size / 2);
@@ -372,6 +409,21 @@ export function createNameEntryScene(services: AppServices, options: { renamePro
     }
     return near ? best : undefined;
   }
+  /** Wibble's feet, where render draws it. */
+  const wibbleX = (): number => width - mascotSize * 0.4;
+  const wibbleGround = (): number => height + 10;
+  /** True when (x, y) is on Wibble's body: an ellipse at least 96 px across each way. */
+  function onWibble(x: number, y: number): boolean {
+    if (mascotSize <= 0) return false;
+    const dx = (x - wibbleX()) / Math.max(48, mascotSize * BODY_RX);
+    const dy = (y - (wibbleGround() - mascotSize * BODY_Y)) / Math.max(48, mascotSize * BODY_RY);
+    return dx * dx + dy * dy <= 1;
+  }
+  /** A click on Wibble: it jiggles (with the sound off too) and, unless it is already talking, says a ticklish line. */
+  function poke(): void {
+    pokeMascot(motion);
+    sayTickle(services);
+  }
   function rebuildBackground(): void {
     const canvas = document.createElement('canvas');
     canvas.width = Math.round(width * services.canvas.dpr); canvas.height = Math.round(height * services.canvas.dpr);
@@ -385,10 +437,14 @@ export function createNameEntryScene(services: AppServices, options: { renamePro
       time = 0; idle = 0; name = renaming && !renaming.unnamed ? renaming.name : ''; leaving = false; profilePage = keyPage = 0; pendingNote = -1;
       particles.clear(); refreshName(); keyboard.focus(name ? go : guest);
       if (renaming) void sprites.load(avatarSpriteName(renaming), services.art(avatarPath(renaming))).catch(() => undefined);
+      resetMascotMotion(motion); spelling = false;
+      voice.preload(WIBBLE);
+      void loadMascotMouths(services, [IDLE, CHEER]);
       startMusic(audio, 'name-entry');
     },
-    exit() { stopMusic(audio); },
-    pause() { stopMusic(audio); },
+    // Leaving, or being covered, silences Wibble.
+    exit() { voice.stop(); stopMusic(audio); },
+    pause() { voice.stop(); stopMusic(audio); },
     resume() { time = 0; startMusic(audio, 'name-entry'); },
     resize(w, h) { width = w; height = h; buildProfiles(); layout(); },
     update(dt) {
@@ -397,11 +453,19 @@ export function createNameEntryScene(services: AppServices, options: { renamePro
       if (pendingNote >= 0 && time - pendingAt >= 0.03 && time - lastSound >= 0.125) { sfx('key', pendingNote); lastSound = time; pendingNote = -1; }
       for (const b of buttons) b.update(dt, input.pointer.inside ? input.pointer.x : -9999, input.pointer.inside ? input.pointer.y : -9999);
       syncSoundIcon(sound, services); particles.update(dt);
-      if (leaving) {
+      if (leaving && spelling) {
+        leaveTime += dt;
+        // Each letter bounces, with its note, as Wibble says its name; then the greeting, then the hub.
+        const step = voice.sequenceIndex;
+        if (step !== spellStep && step >= 0 && step < name.length) { letterAt[step] = leaveTime; sfx('key', ALPHABET.indexOf(name[step]!)); }
+        spellStep = step;
+        if ((!voice.busy() && leaveTime > 0.6) || leaveTime > SPELL_LIMIT) { leaveTime = -100; spelling = false; services.nav.toHub(); }
+      } else if (leaving) {
         leaveTime += dt;
         if (tuneIndex < name.length && leaveTime > 0.15 + tuneIndex * 0.14) { sfx('key', ALPHABET.indexOf(name[tuneIndex]!)); tuneIndex++; }
         if (leaveTime > Math.max(0.6, name.length * 0.14 + 0.3)) { leaveTime = -100; services.nav.toHub(); }
       }
+      stepMascotMotion(motion, dt, voice.isSpeaking(), voice.speakingLevel());
     },
     render({ ctx }) {
       if (!background) rebuildBackground();
@@ -411,7 +475,7 @@ export function createNameEntryScene(services: AppServices, options: { renamePro
       for (let i = 0; i < nameGlyphs.length; i++) {
         const x = (compactName ? (width - nameColumns * namePitch) / 2 : 26) + namePitch * (i % nameColumns + 0.5);
         const y = nameY + (compactName ? -24 + Math.floor(i / nameColumns) * 48 : Math.floor(i / nameColumns) * 64);
-        const bounce = leaving ? Math.max(0, Math.sin(Math.min(1, Math.max(0, (leaveTime - i * 0.14) / 0.35)) * Math.PI)) * 12 : 0;
+        const bounce = leaving ? Math.max(0, Math.sin(Math.min(1, Math.max(0, (leaveTime - letterAt[i]!) / 0.35)) * Math.PI)) * 12 : 0;
         ctx.save(); ctx.translate(x, y - bounce);
         if (compactName) ctx.scale(Math.min(0.58, namePitch / 64), 0.58);
         chunkyPanel(ctx, -29, -38, 58, 76, COLORS[i % COLORS.length]!, OUTLINE, 14, 3);
@@ -441,14 +505,19 @@ export function createNameEntryScene(services: AppServices, options: { renamePro
       else drawSprite(ctx, sprites, avatarSpriteName(renaming), width / 2, guest.y, 100);
       drawPageArrow(ctx, profileNext, 1); drawPageArrow(ctx, keyNext, 1);
       if (name && !leaving) { ctx.beginPath(); ctx.arc(go.x, go.y, go.radius - 5 + Math.sin(time * 3) * 2, 0, Math.PI * 2); ctx.lineWidth = 4; ctx.strokeStyle = '#fff8ad'; ctx.stroke(); }
-      if (mascotSize > 0) drawMascotAt(ctx, sprites, reaction > 0 ? CHEER : IDLE, IDLE, width - mascotSize * 0.4, height + 10, mascotSize, Math.sin(time * 2) * 3);
+      if (mascotSize > 0) drawMascotMoving(ctx, sprites, motion, reaction > 0 ? CHEER : IDLE, IDLE, wibbleX(), wibbleGround(), mascotSize, Math.sin(time * 2) * 3);
       particles.render(ctx); drawEnterFade(ctx, width, height, time);
     },
     handleInput(event) {
       if (leaving || time < 0.4) return;
       if (event.type === 'pointerdown') {
         active();
-        if (!dispatchDown(buttons, event.info.x, event.info.y)) { const k = keyNear(event.info.x, event.info.y); if (k) k.pointerDown(k.x, k.y); }
+        if (!dispatchDown(buttons, event.info.x, event.info.y)) {
+          const k = keyNear(event.info.x, event.info.y);
+          if (k) k.pointerDown(k.x, k.y);
+          // Keys never poke Wibble here: every key types a letter, so Wibble answers clicks only.
+          else if (onWibble(event.info.x, event.info.y)) poke();
+        }
       }
       else if (event.type === 'pointerup') dispatchUp(buttons, event.info.x, event.info.y);
       else if (event.type === 'keydown') {
