@@ -19,8 +19,10 @@ export const B1 = 0, B5 = 1, B10 = 2, B20 = 3;
 export const BILL_VALUE = [1, 5, 10, 20] as const;
 export const BILL_NAMES = ['one-dollar', 'five-dollars', 'ten-dollars', 'twenty-dollars'] as const;
 
-/** The highest learning step this build has content for. The step above it repeats this step's content for now. */
-export const BUILT_STEP = 4;
+/** A $1 bill in a payment counted in cents (steps 7 and 9): it pours 100¢. Drawn as the $1 bill. */
+export const K_DOLLAR = 4;
+const ALL_COINS = [PENNY, NICKEL, DIME, QUARTER] as const;
+const ALL_BILLS = [B1, B5, B10, B20] as const;
 
 export interface TierParams {
   /** Customers in one round. */
@@ -48,12 +50,14 @@ export const TIERS: readonly [TierParams, TierParams, TierParams] = [
 export interface CustomerPlan {
   /** Learning step this customer counts toward (a warm-up customer shows the step below and counts nothing). */
   step: number;
-  /** Content step 1 to BUILT_STEP: what the customer brings. */
+  /** Content step 1 to TOP_STEP: what the customer brings. */
   content: number;
-  /** Whole-dollar amounts with bills ($), else cents with coins (¢). */
+  /** Whole-dollar amounts with bills ($), else cents with coins (¢; a K_DOLLAR piece is a $1 bill worth 100¢). */
   dollars: boolean;
-  /** Price in cents or dollars. */
+  /** Price in cents or dollars (at step 9 the total of both items). */
   price: number;
+  /** The items' own prices: one, or two at step 9 (their tags slide together into the total). */
+  parts: number[];
   /** The payment's pieces (coin or bill kinds), largest first. */
   pay: number[];
   /** A short payment: the pieces the customer adds from its purse to make it exact. */
@@ -66,10 +70,9 @@ export interface CustomerPlan {
   till: number[];
 }
 
-const sumOf = (kinds: readonly number[], dollars: boolean): number => {
-  let s = 0; for (const k of kinds) s += dollars ? BILL_VALUE[k]! : COIN_VALUE[k]!; return s;
-};
-export const valueOf = (kind: number, dollars: boolean): number => (dollars ? BILL_VALUE[kind]! : COIN_VALUE[kind]!);
+
+export const valueOf = (kind: number, dollars: boolean): number => (dollars ? BILL_VALUE[kind]! : kind === K_DOLLAR ? 100 : COIN_VALUE[kind]!);
+const sumOf = (kinds: readonly number[], dollars: boolean): number => { let s = 0; for (const k of kinds) s += valueOf(k, dollars); return s; };
 export const paid = (plan: CustomerPlan): number => sumOf(plan.pay, plan.dollars) + sumOf(plan.topUp, plan.dollars);
 
 /** Coins for an amount, largest first, from the given kinds (dimes for the tens, a nickel for 5 or more, then pennies). */
@@ -85,6 +88,14 @@ function billsFor(amount: number, kinds: readonly number[]): number[] {
   for (let k = kinds.length - 1; k >= 0; k--) { const kind = kinds[k]!; while (left >= BILL_VALUE[kind]!) { out.push(kind); left -= BILL_VALUE[kind]!; } }
   return out;
 }
+/** Quarters and dimes for a multiple of 5 from 20 up (as many quarters as leave a multiple of ten), largest first. */
+function quartersAndDimes(amount: number): number[] {
+  let q = Math.floor(amount / 25);
+  while (q > 0 && (amount - q * 25) % 10 !== 0) q--;
+  const out: number[] = Array(q).fill(QUARTER);
+  for (let left = amount - q * 25; left >= 10; left -= 10) out.push(DIME);
+  return out;
+}
 
 /** The till's kinds: the needed ones, plus (tier 1) the next larger kind the change does not need, or (tier 2) all. */
 export function tillKinds(needed: readonly number[], all: readonly number[], tier: Tier): number[] {
@@ -98,16 +109,24 @@ export function tillKinds(needed: readonly number[], all: readonly number[], tie
   }
   return out.sort((a, b) => a - b);
 }
+/** Coins (or bills) worth no more than the change, from `kinds`; the smallest is always included. */
+const neededFor = (change: number, kinds: readonly number[], dollars: boolean): number[] =>
+  kinds.filter((k, i) => i === 0 || valueOf(k, dollars) <= change);
 
-/** Content step for customer `index` of a round at learning step `step`: the first customer above step 1 warms up with the step below. */
+/**
+ * Content step for customer `index` of a round at learning step `step`: the first customer above step 1 warms up with
+ * the step below. At the top step a round's customers come from steps 7, 9, 8 and 9 in that order (only the step-9
+ * customers count), so the child keeps getting varied full rounds.
+ */
 export function customerStep(step: number, index: number): number {
   const s = Math.max(1, Math.min(TOP_STEP, step));
+  if (s === TOP_STEP) return [TOP_STEP - 2, TOP_STEP, TOP_STEP - 1, TOP_STEP][index % 4]!;
   return index === 0 && s > 1 ? s - 1 : s;
 }
-export const contentOf = (step: number): number => Math.max(1, Math.min(BUILT_STEP, step));
+export const contentOf = (step: number): number => Math.max(1, Math.min(TOP_STEP, step));
 
-const plan = (step: number, content: number, dollars: boolean, price: number, pay: number[], topUp: number[], decide: boolean, change: number, till: number[]): CustomerPlan =>
-  ({ step, content, dollars, price, pay, topUp, decide, change, till });
+const plan = (step: number, content: number, dollars: boolean, price: number, pay: number[], topUp: number[], decide: boolean, change: number, till: number[], parts = [price]): CustomerPlan =>
+  ({ step, content, dollars, price, parts, pay, topUp, decide, change, till });
 
 /**
  * A customer for learning step `step` (content from contentOf(step)). `last` is the previous customer's price, avoided
@@ -116,6 +135,7 @@ const plan = (step: number, content: number, dollars: boolean, price: number, pa
 export function planCustomer(step: number, tier: Tier, random: () => number, last: number, exact?: boolean): CustomerPlan {
   const content = contentOf(step);
   const pick = (lo: number, hi: number): number => { let n = lo + Math.floor(random() * (hi - lo + 1)); if (n === last && hi > lo) n = n < hi ? n + 1 : lo; return n; };
+  const any = (lo: number, hi: number): number => lo + Math.floor(random() * (hi - lo + 1));
   if (content === 1) {
     // Prices 10 to 50 cents; the payment in pennies, nickels and dimes is exact half the time, else short by 1 to 10.
     const price = pick(10, 50), isExact = exact ?? random() < 0.5;
@@ -128,7 +148,7 @@ export function planCustomer(step: number, tier: Tier, random: () => number, las
     let price = pick(11, 49);
     if (price % 10 === 0) price += price === 40 ? -1 : 1;
     const payTens = Math.ceil(price / 10);
-    return plan(step, 2, false, price, Array(payTens).fill(DIME), [], false, payTens * 10 - price, tillKinds([PENNY], [PENNY, NICKEL, DIME, QUARTER], tier));
+    return plan(step, 2, false, price, Array(payTens).fill(DIME), [], false, payTens * 10 - price, tillKinds([PENNY], ALL_COINS, tier));
   }
   if (content === 3) {
     // Whole-dollar prices $1 to $10 in $1 and $5 bills, exact half the time, else short by $1 to $3.
@@ -136,16 +156,82 @@ export function planCustomer(step: number, tier: Tier, random: () => number, las
     const short = isExact ? 0 : 1 + Math.floor(random() * Math.min(3, price - 1));
     return plan(step, 3, true, price, billsFor(price - short, [B1, B5]), billsFor(short, [B1]), true, 0, []);
   }
-  // Step 4: prices $1 to $9 paid with a $5 bill (prices $1 to $4, half the time) or a $10 bill; change in $1 bills.
-  const price = pick(1, 9), bill = price < 5 && random() < 0.5 ? B5 : B10;
-  return plan(step, 4, true, price, [bill], [], false, BILL_VALUE[bill] - price, tillKinds([B1], [B1, B5, B10], tier));
+  if (content === 4) {
+    // Prices $1 to $9 paid with a $5 bill (prices $1 to $4, half the time) or a $10 bill; change in $1 bills.
+    const price = pick(1, 9), bill = price < 5 && random() < 0.5 ? B5 : B10;
+    return plan(step, 4, true, price, [bill], [], false, BILL_VALUE[bill] - price, tillKinds([B1], [B1, B5, B10], tier));
+  }
+  if (content === 5) {
+    // Prices 26 to 99 cents; a payment with at least one quarter (largest coins first) that is exact, short by 1 to
+    // 10 cents or more by 1 to 24 cents (at most 100), a third each. The child decides; when it is more, counts the change.
+    const price = pick(26, 99);
+    const mode = exact === true ? 0 : exact === false ? 1 + Math.floor(random() * 2) : Math.floor(random() * 3);
+    if (mode === 1) {
+      const short = 1 + Math.floor(random() * Math.min(10, price - 25));
+      return plan(step, 5, false, price, coinsFor(price - short, ALL_COINS), coinsFor(short, [PENNY, NICKEL, DIME]), true, 0, []);
+    }
+    if (mode === 2) {
+      const change = 1 + Math.floor(random() * Math.min(24, 100 - price));
+      return plan(step, 5, false, price, coinsFor(price + change, ALL_COINS), [], true, change, tillKinds(neededFor(change, [PENNY, NICKEL, DIME], false), ALL_COINS, tier));
+    }
+    return plan(step, 5, false, price, coinsFor(price, ALL_COINS), [], true, 0, []);
+  }
+  if (content === 6) {
+    // Change of 10 to 50 cents: a price of 10 to 89 cents (half the time its ones digit is not 0 or 5), paid with a
+    // multiple of 10 or of 25 in quarters and dimes (price 23, paid two quarters). Counted up through the next 5 and 10.
+    for (let tries = 0; tries < 40; tries++) {
+      let price = pick(10, 89);
+      if (random() < 0.5) while (price % 5 === 0) price++;
+      const options: number[] = [];
+      for (let p = price + 10; p <= Math.min(100, price + 50); p++) if (p % 10 === 0 || p % 25 === 0) options.push(p);
+      if (!options.length) continue;
+      const pay = options[Math.floor(random() * options.length)]!, change = pay - price;
+      const needed = change >= 25 ? [PENNY, NICKEL, DIME, QUARTER] : [PENNY, NICKEL, DIME];
+      return plan(step, 6, false, price, quartersAndDimes(pay), [], false, change, tillKinds(needed, ALL_COINS, tier));
+    }
+    return demoPlan(6, step, tier);
+  }
+  if (content === 7) {
+    // Change from $1: prices 5 to 95 cents, paid with a $1 bill that pours 100 cups; counted up to 100 with any coins.
+    const price = pick(5, 95), change = 100 - price;
+    return plan(step, 7, false, price, [K_DOLLAR], [], false, change, tillKinds(neededFor(change, ALL_COINS, false), ALL_COINS, tier));
+  }
+  if (content === 8) {
+    // $20 and bigger jumps: prices $1 to $19 paid with a $20 bill, or (prices $11 to $14, half the time) with $10 and $5.
+    const price = pick(1, 19), pay = price >= 11 && price <= 14 && random() < 0.5 ? [B10, B5] : [B20];
+    const change = sumOf(pay, true) - price;
+    return plan(step, 8, true, price, pay, [], false, change, tillKinds(neededFor(change, [B1, B5, B10], true), ALL_BILLS, tier));
+  }
+  // Step 9: two items, both in cents (each 5 to 60, total 20 to 95) paid with a $1 bill, or both in dollars (each $1 to
+  // $12, total $5 to $19) paid with a $20 bill. The tags slide together and the cups combine before the payment.
+  if (random() < 0.5) {
+    for (;;) {
+      const a = any(5, 60), b = any(5, 60), total = a + b;
+      if (total < 20 || total > 95 || total === last || Math.ceil(a / 10) + Math.ceil(b / 10) > 10) continue;
+      return plan(step, 9, false, total, [K_DOLLAR], [], false, 100 - total, tillKinds(neededFor(100 - total, ALL_COINS, false), ALL_COINS, tier), [a, b]);
+    }
+  }
+  for (;;) {
+    const a = any(1, 12), b = any(1, 12), total = a + b;
+    if (total < 5 || total > 19 || total === last) continue;
+    return plan(step, 9, true, total, [B20], [], false, 20 - total, tillKinds(neededFor(20 - total, [B1, B5, B10], true), ALL_BILLS, tier), [a, b]);
+  }
+}
+
+/**
+ * The first customer of a step whose demonstration needs fixed numbers: step 6 is 23¢ paid with two quarters (the hand
+ * gives two pennies and a nickel: 24, 25, 30), step 8 is $13 paid with $20 (the hand gives two $1 bills: 14, 15).
+ */
+export function demoPlan(content: number, step: number, tier: Tier): CustomerPlan {
+  if (content === 8) return plan(step, 8, true, 13, [B20], [], false, 7, tillKinds([B1, B5], ALL_BILLS, tier));
+  return plan(step, 6, false, 23, [QUARTER, QUARTER], [], false, 27, tillKinds([PENNY, NICKEL, DIME, QUARTER], ALL_COINS, tier));
 }
 
 /** The introduction's first customer: the goal, price 27¢ paid with three dimes, three pennies of change. */
 export function goalCustomer(): CustomerPlan { return plan(2, 2, false, 27, [DIME, DIME, DIME], [], false, 3, [PENNY]); }
 /** The introduction's taught customer: price 26¢ paid with three dimes; the helper gives the first penny. */
 export function taughtCustomer(tier: Tier): CustomerPlan {
-  return plan(2, 2, false, 26, [DIME, DIME, DIME], [], false, 4, tillKinds([PENNY], [PENNY, NICKEL, DIME, QUARTER], tier));
+  return plan(2, 2, false, 26, [DIME, DIME, DIME], [], false, 4, tillKinds([PENNY], ALL_COINS, tier));
 }
 
 const push = (list: number[], value: number, max: number): void => { list.push(value); while (list.length > max) list.shift(); };
@@ -157,11 +243,10 @@ export function recordCustomer(data: StallData, right: boolean): void { push(dat
 /**
  * Between rounds: `counted` is the round's counted customers (1 = right). Moves up on a clean round of three or more,
  * or six right in the last eight; moves down on two or fewer in the last six; a child who plays only with keys at
- * steps 1 and 2 moves up after three rounds, up to step 3. Never above the step after the last built one (it repeats
- * the last built step's content until the next steps are built) unless a save already holds a higher step.
+ * steps 1 and 2 moves up after three rounds, up to step 3. Never above TOP_STEP.
  */
 export function applyLearning(data: StallData, counted: readonly number[]): void {
-  const before = data.step, top = Math.max(before, Math.min(TOP_STEP, BUILT_STEP + 1));
+  const before = data.step, top = TOP_STEP;
   if (data.step <= 2 && counted.length === 0) data.quietRounds++; else data.quietRounds = 0;
   const recent = data.learn.slice(-6);
   if (counted.length >= 3 && sum(counted) === counted.length) data.step++;
