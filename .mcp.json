@@ -2,7 +2,7 @@
   "mcpServers": {
     "playwright-iso": {
       "command": "npx",
-      "args": ["@playwright/mcp@latest", "--isolated"]
+      "args": ["@playwright/mcp@latest", "--isolated", "--config", "playwright-mcp.config.json"]
     }
   }
 }
