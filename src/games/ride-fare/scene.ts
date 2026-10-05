@@ -50,10 +50,15 @@ const PWIN_X0 = 0.08, PWIN_X1 = 0.92, PWIN_Y0 = 0.17, PWIN_Y1 = 0.83;
 /** The second panel's width as a share of the fare box's: its rows of small cups then match the box's. */
 const PANEL_W = 1.04;
 /**
+ * Step 6's small cups are at least 12 px across (radius ROWS_MIN_R). On narrow windows the box is at least
+ * ROWS_BOX_MIN CSS px wide with six rows of ten, and the panel ROWS_PANEL_MIN wide with the last four.
+ */
+const ROWS_MIN_R = 6, ROWS_BOX_MIN = 218, ROWS_PANEL_MIN = 182;
+/**
  * swap-stand.webp (582x700): the open space between its posts above the table top (x 0.137..0.864, awning bottom 0.43,
  * table top 0.636), where the dotted circles and coins sit, and its press zone (most of the stand below the awning).
  */
-const STAND_X0 = 0.17, STAND_X1 = 0.83, STAND_TABLE = 0.64, STAND_ZONE_Y0 = 0.3, STAND_ZONE_Y1 = 0.86;
+const STAND_X0 = 0.17, STAND_X1 = 0.83, STAND_TABLE = 0.64, STAND_AWNING = 0.43, STAND_ZONE_Y0 = 0.3, STAND_ZONE_Y1 = 0.86;
 /** Stand width in layout units (478 px at 1920x1080, under its 582 px). */
 const STAND_W = 340;
 /** tray.webp: the end caps' width in its own pixels; the middle repeats, mirrored, so nothing draws above 1.0. */
@@ -290,6 +295,8 @@ export function createRideFareScene(services: AppServices): RideFareScene {
   let nPlaces = 0;
   const cupPulse = new Float32Array(MAX_CUPS).fill(9), cupX = new Float32Array(MAX_CUPS), cupY = new Float32Array(MAX_CUPS);
   const have = new Int32Array(3);
+  /** Coins of each kind the fare box took for the current rider. */
+  const paidN = new Int32Array(3);
   const plateKind = new Int8Array(3), plateState = new Uint8Array(3), platePulse = new Float32Array(3).fill(9);
   const carry = { active: false, sticky: false, keyed: false, place: 0, kind: 0, downAt: 0, downX: 0, downY: 0, deliberate: false };
   /** The helper hand: what it does, its clock, the place and coin it takes, its target, and further carries to make. */
@@ -334,6 +341,8 @@ export function createRideFareScene(services: AppServices): RideFareScene {
   let basketL = 0, basketBottom = 0, BW = 0, BH = 0, EW = 0, EH = 0, animalH = 0;
   let boxX = 0, boxY = 0, boxW = 0, boxH = 0, zoneX0 = 0, zoneY0 = 0, zoneX1 = 0, zoneY1 = 0;
   let gateX = 0, feetY = 0, cupR = 0, smallR = 0;
+  /** Step 6: rows of ten in the box's window (5, or 6 on narrow windows); the panel holds the rest. */
+  let boxRows = 5, rowsLaid = false;
   /** The second panel (above the box), the numeral plate (right of the box), the swap stand and the animal's paws. */
   let panelX = 0, panelY = 0, panelW = 0, panelH = 0, numX = 0, numY = 0, numW = 0, numH = 0, numPx = 0;
   let standX = 0, standY = 0, standW = 0, standH = 0, sZoneX0 = 0, sZoneY0 = 0, sZoneX1 = 0, sZoneY1 = 0;
@@ -452,7 +461,15 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     basketL = Math.round(BASKET_LEFT * s);
     basketBottom = trayY + Math.round(40 * s);
     animalH = Math.round(ANIMAL_H * s * (W < H ? 0.8 : 1));
-    boxW = Math.round(boxUnits * s); boxH = Math.round(boxW * 454 / 720);
+    boxW = Math.round(boxUnits * s);
+    // Step 6's rows of small cups must be 12 px across. Where five rows in the box and five in the panel would make
+    // them smaller (narrow windows), the box grows and holds six rows and a smaller panel the last four.
+    const rowsWidth = Math.min(boxW * (WIN_X1 - WIN_X0) / 10.6, boxW * PANEL_W * 264 / 600 * (PWIN_Y1 - PWIN_Y0) / 5);
+    // Only a step-6 rider shows rows; startRider lays out again when the next rider changes that.
+    rowsLaid = !intro && plan.step === 6;
+    boxRows = rowsLaid && Math.floor(0.46 * rowsWidth) < ROWS_MIN_R ? 6 : 5;
+    if (boxRows === 6) boxW = Math.max(boxW, ROWS_BOX_MIN);
+    boxH = Math.round(boxW * 454 / 720);
     boxX = Math.max(6, Math.round(basketL - 0.09 * BW));
     const rimBottom = basketBottom - (1 - RIM_BOTTOM) * BH;
     boxY = Math.round((rimBottom + trayY) / 2 - 10 * s - boxH / 2);
@@ -468,33 +485,44 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     feetY = trayY + 10 * s;
     // Cups fill the window as in the concept: five across with a thin gap, the brass rim inside each cup.
     const wx = boxW * (WIN_X1 - WIN_X0), wy = boxH * (WIN_Y1 - WIN_Y0);
-    cupR = Math.max(7, Math.floor(Math.min(wx / 5 * 0.48, wy / 2 * 0.44)));
-    // The second panel sits above the box on the basket's rim, centred on the box's window.
-    panelW = Math.round(boxW * PANEL_W); panelH = Math.round(panelW * 264 / 600);
+    // The second panel sits above the box on the basket's rim, centred on the box's window; the smaller panel of a
+    // narrow window moves right, between the corner buttons, as far as it must to clear the Home button.
+    panelW = boxRows === 5 ? Math.round(boxW * PANEL_W) : ROWS_PANEL_MIN; panelH = Math.round(panelW * 264 / 600);
     panelX = Math.max(6, Math.round(boxX + boxW * (WIN_X0 + WIN_X1) / 2 - panelW / 2));
     panelY = Math.round(boxY - 6 * s - panelH);
-    // Step 6: rows of ten small cups (five, a gap, five), five rows in the box's window and five more in the panel's.
+    if (boxRows === 6) while (panelX + panelW < W - 6 && clearsCorner(homeX, panelX, panelY, panelW, panelH)) panelX += 2;
     const pwx = panelW * (PWIN_X1 - PWIN_X0), pwy = panelH * (PWIN_Y1 - PWIN_Y0);
-    smallR = Math.max(4, Math.floor(0.46 * Math.min(wx / 10.6, wy / 5, pwx / 10.6, pwy / 5)));
+    // Grids of ten (two rows of five) fit both windows.
+    cupR = Math.max(7, Math.floor(Math.min(wx / 5 * 0.48, wy / 2 * 0.44, pwx / 5 * 0.48, pwy / 2 * 0.44)));
+    // Step 6: rows of ten small cups (five, a gap, five), `boxRows` rows in the box's window and the rest in the panel's.
+    smallR = Math.max(4, Math.floor(0.46 * Math.min(wx / 10.6, wy / boxRows, pwx / 10.6, pwy / (10 - boxRows))));
     // The numeral plate hangs on the basket right of the box.
     numH = Math.round(boxH * 0.5); numW = Math.round(numH * 1.15);
     numX = boxX + boxW + Math.round(6 * s); numY = Math.round(boxY + (boxH - numH) / 2);
     numPx = Math.max(12, Math.round(numH * 0.42));
+    // The grown box of a narrow window: the gate animal stands right of the numeral plate.
+    if (boxRows === 6) gateX = Math.max(gateX, numX + numW + 4 + animalH * 0.34);
   }
   /** Everything on screen: the whole fare box and its press zone, clear of the tray and the Home button, and the gate animal. */
   function fits(): boolean {
     if (boxX + boxW > W - 6 || boxY < 4 || boxY + boxH > trayY - 4 || zoneY1 - zoneY0 < 128) return false;
     if (clearsHome(boxX, boxY, boxW, boxH)) return false;
-    if (roundPanel() && (panelY < 4 || clearsHome(panelX, panelY, panelW, panelH) || numX + numW > W - 4)) return false;
+    if (roundPanel() && (panelY < 4 || clearsHome(panelX, panelY, panelW, panelH) || clearsCorner(soundX, panelX, panelY, panelW, panelH) || numX + numW > W - 4)) return false;
     return gateX + animalH * 0.36 <= W - 4;
   }
   /** Whether a rectangle comes within reach of the Home button. */
-  function clearsHome(x: number, y: number, w: number, h: number): boolean {
-    const nx = Math.min(x + w, Math.max(x, homeX)), ny = Math.min(y + h, Math.max(y, cornerY));
-    return Math.hypot(homeX - nx, cornerY - ny) < cornerRadius + 4;
+  function clearsHome(x: number, y: number, w: number, h: number): boolean { return clearsCorner(homeX, x, y, w, h); }
+  /** Whether a rectangle comes within reach of the corner button centred at (cx, cornerY). */
+  function clearsCorner(cx: number, x: number, y: number, w: number, h: number): boolean {
+    const nx = Math.min(x + w, Math.max(x, cx)), ny = Math.min(y + h, Math.max(y, cornerY));
+    return Math.hypot(cx - nx, cornerY - ny) < cornerRadius + 4;
   }
-  /** Coin size on the swap stand: `n` coins side by side between its posts. */
-  const standCoinD = (n: number): number => Math.round(Math.min(standW * (STAND_X1 - STAND_X0) / n * 0.9, coinD[NICKEL]!));
+  /**
+   * Coin size on the swap stand: `n` coins side by side between its posts, each standing on the table top with its
+   * dashed ring (a little wider than the coin) and the swap's pop under the awning.
+   */
+  const standCoinD = (n: number): number =>
+    Math.round(Math.min(standW * (STAND_X1 - STAND_X0) / n * 0.9, standH * (STAND_TABLE - STAND_AWNING) / 1.2, coinD[NICKEL]!));
   /** The swap stand (step 7) on the meadow at the right, and the animal's paws (step 8), each with its press zone. */
   function placeExtras(snap: number, paws: readonly [number, number]): void {
     standW = Math.round(STAND_W * u); standH = Math.round(standW * 700 / 582);
@@ -504,21 +532,23 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     sZoneX0 = standX + standW * 0.04 - snap; sZoneX1 = standX + standW * 0.96 + snap;
     sZoneY0 = Math.max(cornerY + cornerRadius + 4, standY + standH * STAND_ZONE_Y0 - snap); sZoneY1 = Math.min(trayY - 2, standY + standH * STAND_ZONE_Y1 + snap);
     const pw = Math.max(96, paws[0] * u), ph = Math.max(96, paws[1] * u), cy = feetY - animalH * 0.42;
-    pawsX0 = gateX - pw / 2; pawsX1 = gateX + pw / 2; pawsY0 = cy - ph / 2; pawsY1 = Math.min(trayY - 4, cy + ph / 2);
+    // Centred on the animal, kept inside the window (a narrow window's gate animal stands near the right edge).
+    pawsX0 = Math.min(gateX - pw / 2, W - 2 - pw); pawsX1 = pawsX0 + pw; pawsY0 = cy - ph / 2; pawsY1 = Math.min(trayY - 4, cy + ph / 2);
     if (pawsY1 - pawsY0 < 96) pawsY0 = pawsY1 - 96;
     pZoneX0 = Math.max(zoneX1 + 2, pawsX0 - snap); pZoneX1 = Math.min(W, pawsX1 + snap);
     pZoneY0 = Math.max(cornerY + cornerRadius + 4, pawsY0 - snap); pZoneY1 = Math.min(trayY - 2, pawsY1 + snap);
   }
   /**
    * Cup centres for the current fare. Grid: the box's window holds ten (two rows of five; one middle row for five or
-   * fewer), the panel's window the next ten. Rows (step 6): ten to a row with a gap after five, five rows in the box,
-   * then five in the panel.
+   * fewer), the panel's window the next ten. Rows (step 6): ten to a row with a gap after five, `boxRows` rows in the
+   * box, then the rest in the panel.
    */
   function placeCups(): void {
     const wx0 = boxX + boxW * WIN_X0, wx1 = boxX + boxW * WIN_X1, wy0 = boxY + boxH * WIN_Y0, wy1 = boxY + boxH * WIN_Y1;
     const px0 = panelX + panelW * PWIN_X0, px1 = panelX + panelW * PWIN_X1, py0 = panelY + panelH * PWIN_Y0, py1 = panelY + panelH * PWIN_Y1;
+    if (cupMode === CUPS_ROWS) panelOn = nCups > boxRows * 10;
     for (let i = 0; i < nCups; i++) {
-      const inPanel = cupMode === CUPS_GRID ? i >= 10 : i >= 50;
+      const inPanel = cupMode === CUPS_GRID ? i >= 10 : i >= boxRows * 10;
       const x0 = inPanel ? px0 : wx0, x1 = inPanel ? px1 : wx1, y0 = inPanel ? py0 : wy0, y1 = inPanel ? py1 : wy1;
       if (cupMode === CUPS_GRID) {
         const j = i % 10, row = j < 5 ? 0 : 1, col = j % 5, count = inPanel ? nCups - 10 : Math.min(10, nCups);
@@ -526,9 +556,9 @@ export function createRideFareScene(services: AppServices): RideFareScene {
         cupX[i] = x0 + (col + 0.5) * (x1 - x0) / 5;
         cupY[i] = count > 5 ? y0 + (y1 - y0) * (row === 0 ? 0.27 : 0.73) : (y0 + y1) / 2;
       } else {
-        const j = i % 50, row = Math.floor(j / 10), col = j % 10, pitch = (x1 - x0) / 10.6;
+        const j = inPanel ? i - boxRows * 10 : i, row = Math.floor(j / 10), col = j % 10, pitch = (x1 - x0) / 10.6;
         cupX[i] = x0 + pitch * (col + 0.5 + (col >= 5 ? 0.6 : 0));
-        cupY[i] = y0 + (y1 - y0) * (row + 0.5) / 5;
+        cupY[i] = y0 + (y1 - y0) * (row + 0.5) / (inPanel ? 10 - boxRows : boxRows);
       }
     }
   }
@@ -572,7 +602,9 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     const step = riderStep(data.step, i);
     // The first swap a profile sees is the simplest one (five pennies make the nickel the plate asks for).
     plan = intro && introStage === 2 && i === 0 ? introRider() : step === 7 && demoDue(7) ? swapRider(0) : planRider(step, random, lastFare);
-    fare = plan.fare; lit = 0; reserved = 0; pourLeft = 0; pourTimer = 0;
+    // A narrow window grows the box for step-6 rows only: lay out again when this rider changes whether rows show.
+    if (!intro && (plan.step === 6) !== rowsLaid) layout(W, H);
+    fare = plan.fare; lit = 0; reserved = 0; pourLeft = 0; pourTimer = 0; paidN.fill(0);
     plateN = plan.plate.length;
     for (let k = 0; k < 3; k++) { plateKind[k] = plan.plate[k] ?? 0; plateState[k] = 0; platePulse[k] = 9; }
     lastFare = plan.step <= 1 ? plateN : fare;
@@ -580,7 +612,7 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     changeOwed = plan.animalPays ? plan.animalPays - fare : 0; changeLeft = 0; changeReserved = 0; animalPaid = false;
     nCups = usesPlate() ? 0 : plan.animalPays ? plan.animalPays : fare;
     cupMode = plan.step === 6 ? CUPS_ROWS : CUPS_GRID;
-    panelOn = cupMode === CUPS_GRID ? nCups > 10 : nCups > 50;
+    panelOn = cupMode === CUPS_GRID ? nCups > 10 : nCups > boxRows * 10;
     numeralOn = plan.step === 6 || plan.step === 8;
     standKind = -1; standCount = 0; standIn = 0; mergeT = -1;
     cupPulse.fill(9); placeCups();
@@ -632,7 +664,7 @@ export function createRideFareScene(services: AppServices): RideFareScene {
    * a lone nickel never block each other on the stand).
    */
   function standTakes(kind: number): boolean {
-    if (!plan.swap || mergeT >= 0 || plateState[0] !== 0) return false;
+    if (!plan.swap || mergeT >= 0 || plateState[0] !== 0 || plateCoinMade()) return false;
     if (kind === PENNY) return (standKind < 0 || standKind === PENNY) && standCount + standIn < 5;
     if (kind !== NICKEL || plateKind[0] !== DIME || (standKind >= 0 && standKind !== NICKEL) || standCount + standIn >= 2) return false;
     countCoins();
@@ -645,10 +677,12 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     countCoins();
     return have[PENNY]! > 0 ? PENNY : NICKEL;
   }
-  /** Whether the empty stand shows its dotted circles: only while it would take a coin (not once the plate is satisfied or wants a nickel already made). */
+  /** Whether the coin the plate asks for is already made (on the tray, in the hand or on its way there). */
+  function plateCoinMade(): boolean { countCoins(); return have[plateKind[0]!]! > 0; }
+  /** Whether the empty stand shows its dotted circles: only while it would take a coin (not once the plate is satisfied or its coin is made). */
   function standOpen(): boolean {
     if (standKind >= 0 || standIn > 0) return true;
-    if (!plan.swap || plateState[0] !== 0) return false;
+    if (!plan.swap || plateState[0] !== 0 || plateCoinMade()) return false;
     return standMode() === PENNY || plateKind[0] === DIME;
   }
   /** Centre of coin `i` of `n` on the swap stand's table, into pos. */
@@ -686,8 +720,9 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     if (usesPlate() || plan.animalPays || riderPhase !== 'pay') return;
     const need = fare - reserved; if (need <= 0) return;
     countCoins();
-    const rest = need - 10 * Math.min(have[DIME]!, Math.floor(need / 10));
-    const short = rest - 5 * Math.min(have[NICKEL]!, Math.floor(rest / 5)) - have[PENNY]!;
+    // An endless stack refills as it is used, so it counts as any number of its coins.
+    const rest = need - 10 * Math.min(trayStart(DIME) === Infinity ? Infinity : have[DIME]!, Math.floor(need / 10));
+    const short = rest - 5 * Math.min(trayStart(NICKEL) === Infinity ? Infinity : have[NICKEL]!, Math.floor(rest / 5)) - have[PENNY]!;
     if (short <= 0) return;
     for (let p = 0; p < nPlaces; p++) if (pKind[p] === PENNY) { pCount[p] = pCount[p]! + short; return; }
   }
@@ -729,7 +764,7 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     } else {
       if (usesPlate()) {
         for (let k = 0; k < plateN; k++) if (plateState[k] === 0 && plateKind[k] === kind) { plateState[k] = 1; take = true; break; }
-      } else if (!plan.animalPays && COIN_VALUE[kind]! <= fare - reserved) { reserved += COIN_VALUE[kind]!; take = true; }
+      } else if (!plan.animalPays && COIN_VALUE[kind]! <= fare - reserved) { reserved += COIN_VALUE[kind]!; paidN[kind]!++; take = true; }
       launch(take ? SEND : REJECT, kind, 1, place, fromX, fromY, slotX(), slotY(), take ? SEND_SECONDS : REJECT_SECONDS);
     }
     if (!take) {
@@ -793,10 +828,32 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     // Learning evidence: only riders at the current step, paid with deliberate pointer choices, without a hint or keys.
     const counted = !intro && !riderAssisted && !riderKeyed && riderDeliberate && riderDrops > 0 && plan.step === data.step;
     if (counted) {
-      const exact = plan.step === 3 ? nickelFirst && !riderBounced : !riderBounced;
+      // Steps 3 to 6 also ask for the step's coin: a fare paid in pennies alone rides, but counts as a miss.
+      const exact = plan.step === 3 ? nickelFirst && !riderBounced : !riderBounced && usedStepCoins();
       recordRider(data, exact); roundCounted.push(exact ? 1 : 0);
     }
     play('pop-big', 'C', 4, 0.8);
+  }
+  /**
+   * Steps 4 to 6: whether the payment used the step's coin wherever it fits, as far as the tray had it. Step 4: the
+   * nickel; step 5: a dime per full ten; step 6: a dime per full ten, then a nickel for a full five left over.
+   */
+  function usedStepCoins(): boolean {
+    let rest = fare;
+    for (let kind = DIME; kind >= NICKEL; kind--) {
+      const asked = plan.step === 6 || (plan.step === 5 && kind === DIME) || (plan.step === 4 && kind === NICKEL);
+      if (!asked) continue;
+      const want = Math.min(trayStart(kind), Math.floor(rest / COIN_VALUE[kind]!));
+      if (paidN[kind]! < want) return false;
+      rest -= want * COIN_VALUE[kind]!;
+    }
+    return true;
+  }
+  /** Coins of a kind the rider's tray started with (an endless stack counts as any number). */
+  function trayStart(kind: number): number {
+    let n = 0;
+    for (const it of plan.tray) if (it.kind === kind) { if (it.unlimited) return Infinity; n += it.count; }
+    return n;
   }
   /** The introduction's goal: every cup lit and the hedgehog riding, before any coin is shown. */
   function startGoal(): void {
@@ -1323,7 +1380,7 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     const merging = mergeT >= 0 && mergeT < MERGE_AT, mode = merging ? standKind : standMode(), n = standNeed(mode), d = standCoinD(n);
     if (mergeT >= MERGE_AT) {
       // The new coin, with its dots glowing inside, pops in the middle of the stand.
-      const k = clamp01((mergeT - MERGE_AT) / 0.25), sc = (standCoinD(2) / coinD[standKind]!) * (1 + Math.sin(k * Math.PI) * 0.3);
+      const k = clamp01((mergeT - MERGE_AT) / 0.25), sc = (standCoinD(2) / coinD[standKind]!) * (1 + Math.sin(k * Math.PI) * 0.2);
       const cx = standX + standW / 2, cy = standY + standH * STAND_TABLE - standCoinD(2) * 0.55 - hop;
       if (glowCanvas) { const g = standCoinD(2) * 1.8; ctx.drawImage(glowCanvas, cx - g / 2, cy - g / 2, g, g); }
       coin(ctx, standKind, 0, cx, cy, sc, 0, 1); coinDots(ctx, standKind, cx, cy, 1, sc);
@@ -1341,7 +1398,8 @@ export function createRideFareScene(services: AppServices): RideFareScene {
   }
   /** Step 8: a warm glow at the animal's paws while change is owed, and the pennies handed back so far. */
   function renderPaws(ctx: CanvasRenderingContext2D): void {
-    const back = changeOwed - changeLeft, cx = pawsCX(), cy = pawsCY(), hop = pawsHop < 0.3 ? Math.sin(pawsHop / 0.3 * Math.PI) * 8 * u : 0;
+    // Nothing is owed until the animal's dime has poured; then one penny shows per hand-back.
+    const back = animalPaid ? changeOwed - changeLeft : 0, cx = pawsCX(), cy = pawsCY(), hop = pawsHop < 0.3 ? Math.sin(pawsHop / 0.3 * Math.PI) * 8 * u : 0;
     if (animalPaid && changeReserved < changeOwed && glowCanvas) {
       const g = (pawsX1 - pawsX0) * 1.2 * (0.92 + Math.sin(time * 4) * 0.08); ctx.globalAlpha = 0.75;
       ctx.drawImage(glowCanvas, cx - g / 2, cy - g / 2, g, g); ctx.globalAlpha = 1;
@@ -1671,7 +1729,7 @@ export function createRideFareScene(services: AppServices): RideFareScene {
   const cupGroups = (): CupGroup[] => {
     const out: CupGroup[] = [];
     if (usesPlate() || nCups <= 0) return out;
-    // Ten cups to a group: the box's grid and the panel's grid, or one row of ten (step 6: rows 0-4 in the box, 5-9 in the panel).
+    // Ten cups to a group: the box's grid and the panel's grid, or one row of ten (step 6: the box's rows, then the panel's).
     for (let start = 0, g = 0; start < nCups; start += 10, g++) {
       const end = Math.min(nCups, start + 10);
       let litN = 0, change = 0;
@@ -1681,7 +1739,8 @@ export function createRideFareScene(services: AppServices): RideFareScene {
       }
       // Step 8: change cups exist only once the dime has lit them.
       const total = plan.animalPays ? Math.max(0, Math.min(end, Math.max(fare, lit)) - start) : end - start;
-      out.push({ where: (cupMode === CUPS_GRID ? start >= 10 : start >= 50) ? 'panel' : 'box', row: cupMode === CUPS_ROWS ? g % 5 : 0, total, lit: litN, change });
+      const inPanel = cupMode === CUPS_GRID ? start >= 10 : start >= boxRows * 10;
+      out.push({ where: inPanel ? 'panel' : 'box', row: cupMode === CUPS_ROWS ? (inPanel ? g - boxRows : g) : 0, total, lit: litN, change });
     }
     return out;
   };
