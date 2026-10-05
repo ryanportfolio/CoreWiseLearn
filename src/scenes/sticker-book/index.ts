@@ -289,9 +289,14 @@ function slotDiameter(width: number, height: number, uiScale: number): number {
 const BUILD_BUDGET_MS = 3;
 /** Idle warming starts a piece of work only with at least this many ms left before the next frame. */
 const WARM_SLICE_MS = 7;
+/** Longest a warm step waits for a long enough idle period, counted from when the wait began, across callbacks. */
+const WARM_TIMEOUT = 400;
+const WARM_OPTIONS: IdleRequestOptions = { timeout: WARM_TIMEOUT };
 let warmServices: AppServices | undefined;
 let warmList: readonly StickerDef[] = [];
 let warmQueued = false;
+/** When the wait for the next warm step began, or -1 when none is waiting. */
+let warmWaitFrom = -1;
 
 /**
  * Bakes the album and each sticker's art at the current screen size, one
@@ -308,18 +313,29 @@ function warmStickerBook(services: AppServices, stickers: readonly StickerDef[])
 function queueWarm(): void {
   if (warmQueued) return;
   warmQueued = true;
-  if (typeof requestIdleCallback === 'function') requestIdleCallback(warmStep);
-  else setTimeout(warmStep, 50);
+  const now = performance.now();
+  if (warmWaitFrom < 0) warmWaitFrom = now;
+  if (typeof requestIdleCallback === 'function') {
+    // The callback's own timeout is what is left of the wait, so it fires by WARM_TIMEOUT after the wait began.
+    WARM_OPTIONS.timeout = Math.max(1, WARM_TIMEOUT - (now - warmWaitFrom));
+    requestIdleCallback(warmStep, WARM_OPTIONS);
+  } else setTimeout(warmStep, 50);
 }
 
+/**
+ * Runs one warm step when the idle period has WARM_SLICE_MS left. Once the wait has lasted WARM_TIMEOUT (however many
+ * short idle periods it took), the step runs regardless, so a busy machine still finishes warming.
+ */
 function warmStep(deadline?: IdleDeadline): void {
   warmQueued = false;
   const services = warmServices;
   if (!services) return;
-  if (deadline && deadline.timeRemaining() < WARM_SLICE_MS) {
+  const overdue = !deadline || deadline.didTimeout || performance.now() - warmWaitFrom >= WARM_TIMEOUT;
+  if (!overdue && deadline!.timeRemaining() < WARM_SLICE_MS) {
     queueWarm();
     return;
   }
+  warmWaitFrom = -1;
   const { width, height } = services.canvas;
   if (!albumCurrent(services, width, height)) {
     albumFor(services, width, height);
