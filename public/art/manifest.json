@@ -1,8 +1,8 @@
 {
   "style": "Flat chunky vector, thick dark outlines, flat saturated fills, single soft highlight, no text. Sprites are 512x512 RGBA (mascot poses 768x768) with the subject centred and fitted to 80 percent of the canvas; backgrounds are 1920x1080 opaque WebP.",
   "generatedWith": "OpenAI image_gen through Codex CLI (gpt-6-astra agent), downscaled with the project scratch script .tmp/art/png.mjs",
-  "count": 113,
-  "totalBytes": 6044345,
+  "count": 114,
+  "totalBytes": 6091953,
   "files": [
     {
       "file": "art/mascot/cheer.png",
@@ -735,6 +735,16 @@
       "bytes": 177870
     },
     {
+      "file": "art/frog-pond/tile.webp",
+      "group": "frog-pond",
+      "name": "tile",
+      "use": "Hub tile icon for Frog Pond: the frog on its lily pad smiling up at a ladybird",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 47608
+    },
+    {
       "file": "art/frog-pond/word-pad.webp",
       "group": "frog-pond",
       "name": "word-pad",
@@ -1205,6 +1215,7 @@
     "prompt": "Every sprite prompt locked the house style (flat chunky vector, thick even dark navy outline, flat saturated fills, one soft highlight per part, simple faces with dark eyes, a white shine dot and pink cheeks), a fully transparent square canvas, one centred subject filling about 80 percent, and no text, letters, numbers or logos; the lily pads asked for a plain flat centre for a word, the hopscotch for blank squares, the laptop for blank keys. The pond asked for an opaque 16:9 calm pond with mostly empty open water in the middle and a clear bottom centre.",
     "attempts": "One attempt each, except: frog-open (the first, frog-tongue, had a long tongue sticking up and a smaller frog; replaced by an open mouth so the game draws the tongue), cw-zipline (the first was thin and hard to read when small).",
     "source": "Raw 1254x1254 RGBA PNGs (frog-sit 1024x1024; pond 1672x941 opaque) and prompts retained outside public in D:/CoreWise/_artifacts/CoreWiseLearn/frog-pond-art",
-    "preparation": "Sprites: alpha under 12 cleared, cropped to the alpha bounds, longest side fitted to 410 px (80 percent) centred on a 512x512 transparent canvas with Lanczos 3; frog-open and frog-puff instead take frog-sit's scale and foot line, matched by the width of the feet, so swapping poses does not shift the frog. Pond: cover-fit to 1920x1080 with Lanczos 3, opaque. WebP quality 92 with alpha quality 100 for sprites, quality 95 for the pond. Done with a scratch sharp script in place of scripts/prepare-art.mjs, which writes PNG and fits backgrounds within 1366x768."
+    "preparation": "Sprites: alpha under 12 cleared, cropped to the alpha bounds, longest side fitted to 410 px (80 percent) centred on a 512x512 transparent canvas with Lanczos 3; frog-open and frog-puff instead take frog-sit's scale and foot line, matched by the width of the feet, so swapping poses does not shift the frog. Pond: cover-fit to 1920x1080 with Lanczos 3, opaque. WebP quality 92 with alpha quality 100 for sprites, quality 95 for the pond. Done with a scratch sharp script in place of scripts/prepare-art.mjs, which writes PNG and fits backgrounds within 1366x768.",
+    "tile": "tile.webp, 2026-10-05, same Codex CLI and image_gen as the sprites, first attempt, with frog-sit, lily-pad and bug-ladybird attached as style references. Prompt: the same happy frog on its round lily pad looking up and to the right at a small ladybird flying above its head, mouth open in a delighted smile, a few water ripple lines, compact silhouette filling about 80 percent, no text, background, frame, tongue or extra frogs; 1024x1024 transparent PNG. Prepared like the sprites (alpha under 12 cleared, cropped, fitted to 410 px on a 512x512 canvas, WebP quality 92, alpha quality 100). Raw file in D:/CoreWise/_artifacts/CoreWiseLearn/frog-pond-art/raw/tile-raw.png."
   }
 }

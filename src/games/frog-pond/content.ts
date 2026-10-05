@@ -27,7 +27,7 @@ export interface RhymeFamily {
 }
 
 export const RHYME_FAMILIES: readonly RhymeFamily[] = [
-  { rime: 'AT', words: ['bat', 'cat', 'hat', 'mat', 'pat', 'rat', 'sat', 'vat'] },
+  { rime: 'AT', words: ['bat', 'cat', 'hat', 'mat', 'pat', 'rat', 'sat'] },
   { rime: 'AN', words: ['can', 'fan', 'man', 'pan', 'ran', 'tan', 'van'] },
   { rime: 'AP', words: ['cap', 'gap', 'lap', 'map', 'nap', 'tap', 'zap'] },
   { rime: 'IG', words: ['big', 'dig', 'fig', 'jig', 'pig', 'wig', 'twig'] },
