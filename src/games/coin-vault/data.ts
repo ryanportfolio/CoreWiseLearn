@@ -5,11 +5,8 @@ import type { Tier } from '../../engine/difficulty';
 export const GAME_ID = 'coin-vault';
 /** Highest learning step in the design (docs/games/coin-vault.md). Saves keep any step up to it. */
 export const TOP_STEP = 8;
-/**
- * Highest step whose content is built. The progression may move one step past it; that step plays the last built
- * step's content until its own is built.
- */
-export const BUILT_STEP = 4;
+/** Highest step whose content is built (all eight). */
+export const BUILT_STEP = 8;
 
 export interface PendingRound {
   /** Names this round across tabs, so two rounds with the same fields stay apart. */
