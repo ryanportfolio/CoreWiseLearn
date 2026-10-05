@@ -136,7 +136,8 @@ export function createFrogPondScene(services: AppServices): FrogPondScene {
   function startRound(): void {
     pending = null; data.pending = null; bookGlide = false;
     tier = services.debug.tier ?? toTier(data.tier);
-    adaptive.setTier(tier);
+    // setTier clears the attempt window, so only force it when the tier differs (a loaded profile or a debug tier).
+    if (adaptive.tier !== tier) adaptive.setTier(tier);
     intro = data.rounds === 0;
     phase = 'play'; phaseT = time = 0; stars = ROUND_STARS; starsPlayed = 0; cornerFocus = -1;
     particles.clear();

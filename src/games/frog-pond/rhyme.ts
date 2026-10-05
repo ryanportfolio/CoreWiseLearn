@@ -223,6 +223,8 @@ export function createRhymeSnack(services: AppServices): RhymeSnack {
 
   // ---------------------------------------------------------------- actions
   const flying = (i: number): boolean => i >= 0 && i < nBugs && state[i] === FLY && arriveT[i]! >= 0;
+  /** A bug the keyboard may focus and catch: flying and already inside the pond, so its card is in view. */
+  const focusable = (i: number): boolean => flying(i) && !entering[i];
   function sayTarget(): void { if (plan.target) { sayWord(audio, 'say', plan.target); sayT = 0; } }
 
   function sparkle(x: number, y: number, n: number, spread: number): void {
@@ -268,7 +270,7 @@ export function createRhymeSnack(services: AppServices): RhymeSnack {
   function nearestFlying(x: number, y: number, except: number): number {
     let best = -1, bestD = Infinity;
     for (let i = 0; i < nBugs; i++) {
-      if (i === except || state[i] !== FLY || arriveT[i]! < 0) continue;
+      if (i === except || state[i] !== FLY || arriveT[i]! < 0 || entering[i]) continue;
       const d = Math.hypot(bx[i]! - x, by[i]! - y);
       if (d < bestD) { bestD = d; best = i; }
     }
@@ -404,7 +406,7 @@ export function createRhymeSnack(services: AppServices): RhymeSnack {
   }
 
   function updateDwell(dt: number): void {
-    const at = keyMode ? (flying(focus) ? focus : -1) : hover;
+    const at = keyMode ? (focusable(focus) ? focus : -1) : hover;
     if (at !== dwellBug) { dwellBug = at; dwellT = 0; dwellSaid = false; return; }
     if (!help || at < 0 || dwellSaid) return;
     dwellT += dt;
@@ -422,7 +424,7 @@ export function createRhymeSnack(services: AppServices): RhymeSnack {
     for (let i = 0; i < nBugs; i++) updateBug(i, dt);
     if (pointerX >= 0 && !keyMode) hover = bugAt(pointerX, pointerY);
     updateTongue(dt); updateHand(dt); updateDwell(dt);
-    if (keyMode && !flying(focus)) focus = nearestFlying(focus >= 0 ? bx[focus]! : padCX, focus >= 0 ? by[focus]! : top, -1);
+    if (keyMode && !focusable(focus)) focus = nearestFlying(focus >= 0 ? bx[focus]! : padCX, focus >= 0 ? by[focus]! : top, -1);
     if (doneT >= 0) {
       const before = doneT; doneT += dt;
       if (before < DONE_HOP_AT && doneT >= DONE_HOP_AT) { frogHop = 0; play('go', 'A', 0, 0.7); sparkle(padCX, frogTop, 24, 320 * u); }
@@ -572,7 +574,8 @@ export function createRhymeSnack(services: AppServices): RhymeSnack {
 
   // ---------------------------------------------------------------- input
   function interruptHand(): void { if (hand.mode === HAND_TAP || hand.mode === HAND_HINT) hand.mode = 0; }
-  const demoRunning = (): boolean => hand.mode === HAND_DEMO && !demoCatch;
+  /** The first round waits for the demonstration catch: before it (and while the hand moves) input is ignored. */
+  const demoRunning = (): boolean => (intro || hand.mode === HAND_DEMO) && !demoCatch;
   function pointerDown(x: number, y: number): void {
     pointerX = x; pointerY = y; idleT = 0; keyMode = false;
     if (demoRunning() || doneT >= 0) return;
@@ -593,18 +596,18 @@ export function createRhymeSnack(services: AppServices): RhymeSnack {
     pointerX = x; pointerY = y; keyMode = false; idleT = 0;
   }
   function moveFocus(code: string, shift: boolean): void {
-    if (!flying(focus)) { focus = nearestFlying(padCX, top, -1); return; }
+    if (!focusable(focus)) { focus = nearestFlying(padCX, top, -1); return; }
     if (code === 'Tab') {
       for (let step = 1; step <= nBugs; step++) {
         const j = (focus + (shift ? -step : step) + nBugs * 2) % nBugs;
-        if (flying(j)) { focus = j; return; }
+        if (focusable(j)) { focus = j; return; }
       }
       return;
     }
     const dx = code === 'ArrowLeft' ? -1 : code === 'ArrowRight' ? 1 : 0, dy = code === 'ArrowUp' ? -1 : code === 'ArrowDown' ? 1 : 0;
     let best = -1, score = Infinity;
     for (let j = 0; j < nBugs; j++) {
-      if (j === focus || !flying(j)) continue;
+      if (j === focus || !focusable(j)) continue;
       const x = bx[j]! - bx[focus]!, y = by[j]! - by[focus]!, along = x * dx + y * dy;
       if (along <= 1) continue;
       const v = along + Math.abs(x * dy - y * dx) * 2;
@@ -612,7 +615,7 @@ export function createRhymeSnack(services: AppServices): RhymeSnack {
     }
     if (best < 0) {
       // Nothing that way: wrap round in reading order, so every bug stays reachable.
-      for (let step = 1; step <= nBugs; step++) { const j = (focus + (dx + dy > 0 ? step : -step) + nBugs * 2) % nBugs; if (flying(j)) { best = j; break; } }
+      for (let step = 1; step <= nBugs; step++) { const j = (focus + (dx + dy > 0 ? step : -step) + nBugs * 2) % nBugs; if (focusable(j)) { best = j; break; } }
     }
     if (best >= 0) focus = best;
   }
@@ -624,7 +627,7 @@ export function createRhymeSnack(services: AppServices): RhymeSnack {
     if (!keyMode) {
       // The first key shows which bug has focus; it acts only from the next key.
       keyMode = true;
-      if (!flying(focus)) focus = nearestFlying(padCX, top, -1);
+      if (!focusable(focus)) focus = nearestFlying(padCX, top, -1);
       if (nav) moveFocus(code, shift);
       return;
     }
@@ -632,7 +635,7 @@ export function createRhymeSnack(services: AppServices): RhymeSnack {
     const now = performance.now();
     if (now < keyAfter) return;
     keyAfter = now + KEY_GAP_MS;
-    if (!flying(focus)) { focus = nearestFlying(padCX, top, -1); return; }
+    if (!focusable(focus)) { focus = nearestFlying(padCX, top, -1); return; }
     pointerX = -1; pointerY = -1;
     pressBug(focus, false);
   }
