@@ -529,8 +529,10 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     boxX = Math.max(6, Math.round(basketL - 0.09 * BW));
     const rimBottom = basketBottom - (1 - RIM_BOTTOM) * BH;
     boxY = Math.round((rimBottom + trayY) / 2 - 10 * s - boxH / 2);
-    boxY = Math.min(boxY, trayY - 8 - boxH);
+    // Below the basket's rim top where it can, but always above the tray (the grown box of a narrow window is taller
+    // than the space the rim leaves, so the tray wins).
     boxY = Math.max(boxY, Math.round(basketBottom - (1 - RIM_TOP) * BH));
+    boxY = Math.min(boxY, trayY - 8 - boxH);
     // The press zone: the box plus the snap distance, at least 200 x 128, never over the tray or a corner button.
     const snap = snapUnits * s;
     zoneX0 = Math.max(0, boxX - snap); zoneX1 = boxX + boxW + snap; zoneY0 = boxY - snap; zoneY1 = Math.min(trayY - 2, boxY + boxH + snap);
@@ -588,6 +590,12 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     standY = Math.max(standY, Math.round(cornerY + cornerRadius * 0.5));
     sZoneX0 = standX + standW * 0.04 - snap; sZoneX1 = Math.min(W, standX + standW * 0.96 + snap);
     sZoneY0 = Math.max(cornerY + cornerRadius + 4, standY + standH * STAND_ZONE_Y0 - snap); sZoneY1 = Math.min(trayY - 2, standY + standH * STAND_ZONE_Y1 + snap);
+    // A narrow window brings the stand's zone over the fare box's: they meet halfway, the box keeping its whole
+    // drawn width and the stand at least 96 px.
+    if (sZoneX0 < zoneX1 && sZoneY0 < zoneY1 && zoneY0 < sZoneY1) {
+      const meet = Math.min(Math.max((zoneX1 + sZoneX0) / 2, boxX + boxW), sZoneX1 - 98);
+      zoneX1 = Math.max(boxX + boxW, meet); sZoneX0 = Math.max(sZoneX0, meet + 2);
+    }
     const pw = Math.max(96, paws[0] * u), ph = Math.max(96, paws[1] * u), cy = feetY - animalH * 0.42;
     // Centred on the animal, kept inside the window (a narrow window's gate animal stands near the right edge) and
     // clear of the fare box's press zone (a small uiScale in a narrow window puts the animal close to the box).
@@ -1686,7 +1694,9 @@ export function createRideFareScene(services: AppServices): RideFareScene {
   const onStand = (x: number, y: number): boolean => x >= sZoneX0 && x <= sZoneX1 && y >= sZoneY0 && y <= sZoneY1;
   const onPaws = (x: number, y: number): boolean => x >= pZoneX0 && x <= pZoneX1 && y >= pZoneY0 && y <= pZoneY1;
   /** The drop target under a point: the swap stand (step 7), the paws (step 8), the fare box, or -1. */
-  const targetAt = (x: number, y: number): number => (swapOn() && onStand(x, y) ? T_STAND : pawsOn() && onPaws(x, y) ? T_PAWS : onBox(x, y) ? T_BOX : -1);
+  // A drop on the drawn fare box always pays, whatever zone reaches over it.
+  const onBoxArt = (x: number, y: number): boolean => x >= boxX && x <= boxX + boxW && y >= boxY && y <= boxY + boxH;
+  const targetAt = (x: number, y: number): number => (onBoxArt(x, y) ? T_BOX : swapOn() && onStand(x, y) ? T_STAND : pawsOn() && onPaws(x, y) ? T_PAWS : onBox(x, y) ? T_BOX : -1);
   /**
    * Where a single press (tier 0) or the keyboard's first choice sends a coin: the paws while change is owed (step 8);
    * at step 7 the fare box when it takes this coin, else the swap stand when it does; otherwise the fare box.
