@@ -1,0 +1,14 @@
+{
+  "folder": "piggy-parade",
+  "role": "londoner",
+  "lines": [
+    { "file": "penny", "text": "Penny." },
+    { "file": "nickel", "text": "Nickel." },
+    { "file": "dime", "text": "Dime." },
+    { "file": "quarter", "text": "Quarter." },
+    { "file": "number-1", "text": "One." },
+    { "file": "number-5", "text": "Five." },
+    { "file": "number-10", "text": "Ten." },
+    { "file": "number-25", "text": "Twenty-five." }
+  ]
+}

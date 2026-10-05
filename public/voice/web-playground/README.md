@@ -1,6 +1,6 @@
 # Web Playground voice clips
 
-Web Playground can say each number, letter and picture name out loud. No clips ship yet; the game plays fine without them.
+Web Playground can say each number, letter and picture name out loud. All 39 clips listed below ship as MP3, in the teacher's voice: Gemini's Vindemiatrix with a soft Scottish accent, rendered by `scripts/voice/generate.mjs` from `scripts/voice/lines/web-playground.json`. Edit the lines there and run the generator rather than replacing files by hand. The generator also rewrites `clips.json`.
 
 ## Adding clips
 

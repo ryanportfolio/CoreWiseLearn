@@ -1,8 +1,8 @@
 {
   "style": "Flat chunky vector, thick dark outlines, flat saturated fills, single soft highlight, no text. Sprites are 512x512 RGBA (mascot poses 768x768) with the subject centred and fitted to 80 percent of the canvas; backgrounds are 1920x1080 opaque WebP.",
   "generatedWith": "OpenAI image_gen through Codex CLI (gpt-6-astra agent), downscaled with the project scratch script .tmp/art/png.mjs",
-  "count": 59,
-  "totalBytes": 3731712,
+  "count": 64,
+  "totalBytes": 4397719,
   "files": [
     {
       "file": "art/mascot/cheer.png",
@@ -53,6 +53,56 @@
       "height": 768,
       "transparent": true,
       "bytes": 159600
+    },
+    {
+      "file": "art/mascot/cheer-closed.png",
+      "group": "mascot",
+      "name": "cheer-closed",
+      "use": "Mascot cheer pose with the mouth closed, swapped with the open pose while Wibble talks",
+      "width": 768,
+      "height": 768,
+      "transparent": true,
+      "bytes": 136683
+    },
+    {
+      "file": "art/mascot/wave-closed.png",
+      "group": "mascot",
+      "name": "wave-closed",
+      "use": "Mascot wave pose with the mouth closed, swapped with the open pose while Wibble talks",
+      "width": 768,
+      "height": 768,
+      "transparent": true,
+      "bytes": 122110
+    },
+    {
+      "file": "art/mascot/yawn-closed.png",
+      "group": "mascot",
+      "name": "yawn-closed",
+      "use": "Mascot yawn pose with the mouth closed, swapped with the open pose while Wibble talks",
+      "width": 768,
+      "height": 768,
+      "transparent": true,
+      "bytes": 160674
+    },
+    {
+      "file": "art/mascot/idle-open.png",
+      "group": "mascot",
+      "name": "idle-open",
+      "use": "Mascot idle pose with the mouth open, swapped with the closed pose while Wibble talks",
+      "width": 768,
+      "height": 768,
+      "transparent": true,
+      "bytes": 130957
+    },
+    {
+      "file": "art/mascot/point-open.png",
+      "group": "mascot",
+      "name": "point-open",
+      "use": "Mascot point pose with the mouth open, swapped with the closed pose while Wibble talks",
+      "width": 768,
+      "height": 768,
+      "transparent": true,
+      "bytes": 115583
     },
     {
       "file": "art/tiles/candy-rainbow.png",

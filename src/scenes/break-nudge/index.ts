@@ -23,7 +23,8 @@ import { createButton, dispatchDown, dispatchUp } from '../../ui/button';
 import { chunkyText, OUTLINE } from '../../ui/draw';
 import { starPath } from '../../ui/celebrate';
 import { clamp01, easeInOutSine, easeOutBack, easeOutCubic, pulse } from '../../ui/tween';
-import { drawMascotAt, mascotFeetY } from '../../ui/mascot';
+import { createMascotMotion, drawMascotMoving, loadMascotMouths, mascotFeetY, resetMascotMotion, stepMascotMotion } from '../../ui/mascot';
+import { WIBBLE, wibbleVoice } from '../../ui/wibble';
 import { playSfx } from '../../audio/sfx';
 import { artName, artRequest, buttonRadius, circleTarget, createSoundButton, soundArt, syncSoundIcon, loadAllArt, type LayoutTarget } from '../hub/shared';
 
@@ -61,10 +62,16 @@ const FOCUS_HOLD_MS = 250;
 /** A press on the backdrop bounces Play and Home once, over this long, to show where to press. */
 const BOUNCE_SECONDS = 0.45;
 const BOUNCE_SCALE = 0.2;
+/** Wibble's sleepy lines start this long after the nudge enters, as it finishes sliding up, with this pause between them. */
+const SLEEPY_AT = 0.8;
+const SLEEPY_GAP = 0.45;
 
 /** Load (or finish loading) the nudge's art. Never rejects. */
 export function loadBreakNudgeAssets(services: AppServices): Promise<void> {
-  return loadAllArt(services, [artRequest(services, `${YAWN}.png`, 'blob', '#3b9bff'), artRequest(services, `${PLAY}.png`, 'play', '#ffffff'), artRequest(services, 'buttons/home.png', 'home', '#ffffff'), ...soundArt(services)]);
+  return Promise.all([
+    loadAllArt(services, [artRequest(services, `${YAWN}.png`, 'blob', '#3b9bff'), artRequest(services, `${PLAY}.png`, 'play', '#ffffff'), artRequest(services, 'buttons/home.png', 'home', '#ffffff'), ...soundArt(services)]),
+    loadMascotMouths(services, [YAWN]),
+  ]).then(() => undefined);
 }
 
 export interface BreakNudgeLayout {
@@ -117,6 +124,11 @@ export function createBreakNudgeScene(services: AppServices): Scene {
   let focusAt = 0;
   /** Seconds since a backdrop press started the buttons' bounce; negative when idle. */
   let bounce = -1;
+
+  const voice = wibbleVoice(services);
+  const motion = createMascotMotion();
+  /** The sleepy lines have been started this visit. */
+  let sleepyStarted = false;
 
   let mascotSize = 300;
   let mascotX = 0;
@@ -246,7 +258,14 @@ export function createBreakNudgeScene(services: AppServices): Scene {
       bounce = -1;
       age.fill(0);
       life.fill(0);
+      resetMascotMotion(motion);
+      sleepyStarted = false;
+      voice.preload(WIBBLE);
       playSfx(audio, 'yawn');
+    },
+    exit() {
+      // Leaving the nudge (Play or Home) silences Wibble at once.
+      voice.stop();
     },
     update(dt) {
       time += dt;
@@ -266,6 +285,11 @@ export function createBreakNudgeScene(services: AppServices): Scene {
       for (const button of buttons) button.update(dt, input.pointer.inside ? input.pointer.x : -9999, input.pointer.inside ? input.pointer.y : -9999);
       syncSoundIcon(soundButton, services);
       if (bounce >= 0) { bounce += dt; if (bounce >= BOUNCE_SECONDS) bounce = -1; }
+      if (!sleepyStarted && time >= SLEEPY_AT) {
+        sleepyStarted = true;
+        voice.sequence(WIBBLE, ['sleepy-1', 'sleepy-2'], 0, SLEEPY_GAP);
+      }
+      stepMascotMotion(motion, dt, voice.isSpeaking(), voice.speakingLevel());
       spawnTimer -= dt;
       if (spawnTimer <= 0 && time > SLIDE_SECONDS * 0.6) {
         spawnDrifter();
@@ -314,7 +338,7 @@ export function createBreakNudgeScene(services: AppServices): Scene {
       const sy = 1 + 0.07 * yawn - breathe;
       const sx = 1 - 0.04 * yawn + breathe;
       const ground = mascotY + mascotFeetY(YAWN) * mascotSize + (height - mascotY + mascotSize) * (1 - slide);
-      drawMascotAt(ctx, services.sprites, artName(YAWN), YAWN, mascotX, ground, mascotSize, 0, 0, sx, sy);
+      drawMascotMoving(ctx, services.sprites, motion, artName(YAWN), YAWN, mascotX, ground, mascotSize, 0, 0, sx, sy);
 
       const saved = ctx.globalAlpha;
       for (let i = 0; i < DRIFTERS; i++) {

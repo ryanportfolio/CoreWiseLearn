@@ -1,0 +1,14 @@
+{
+  "folder": "shape-workshop",
+  "role": "narrator",
+  "list": "clips.json:names",
+  "lines": [
+    { "file": "circle", "text": "Circle." },
+    { "file": "square", "text": "Square." },
+    { "file": "triangle", "text": "Triangle." },
+    { "file": "rectangle", "text": "Rectangle." },
+    { "file": "star", "text": "Star." },
+    { "file": "heart", "text": "Heart." },
+    { "file": "semicircle", "text": "Half circle." }
+  ]
+}

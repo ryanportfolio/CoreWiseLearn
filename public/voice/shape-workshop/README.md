@@ -1,6 +1,6 @@
 # Shape Workshop voice clips
 
-Short spoken shape names for Shape Workshop. No clips ship yet; the game plays without them.
+Short spoken shape names for Shape Workshop. All 7 below ship as MP3, in the narrator's voice: Gemini's Charon with a received-pronunciation accent, rendered by `scripts/voice/generate.mjs` from `scripts/voice/lines/shape-workshop.json`. Edit the lines there and run the generator rather than replacing files by hand. The generator also rewrites `clips.json`.
 
 ## File names
 
