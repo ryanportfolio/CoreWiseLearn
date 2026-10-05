@@ -412,11 +412,15 @@ export function createNameEntryScene(services: AppServices, options: { renamePro
   /** Wibble's feet, where render draws it. */
   const wibbleX = (): number => width - mascotSize * 0.4;
   const wibbleGround = (): number => height + 10;
-  /** True when (x, y) is on Wibble's body: an ellipse at least 96 px across each way. */
+  /**
+   * True when (x, y) is on Wibble's body: an ellipse at least 96 px across each way, kept inside
+   * the screen (Wibble's feet sit below its bottom edge) so all of it can be pressed.
+   */
   function onWibble(x: number, y: number): boolean {
     if (mascotSize <= 0) return false;
-    const dx = (x - wibbleX()) / Math.max(48, mascotSize * BODY_RX);
-    const dy = (y - (wibbleGround() - mascotSize * BODY_Y)) / Math.max(48, mascotSize * BODY_RY);
+    const rx = Math.max(48, mascotSize * BODY_RX), ry = Math.max(48, mascotSize * BODY_RY);
+    const cx = Math.min(wibbleX(), width - rx), cy = Math.min(wibbleGround() - mascotSize * BODY_Y, height - ry);
+    const dx = (x - cx) / rx, dy = (y - cy) / ry;
     return dx * dx + dy * dy <= 1;
   }
   /** A click on Wibble: it jiggles (with the sound off too) and, unless it is already talking, says a ticklish line. */

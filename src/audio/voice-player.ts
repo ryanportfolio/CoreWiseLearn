@@ -359,7 +359,9 @@ function createVoicePlayer(audio: Audio): VoicePlayer {
     },
     isSpeaking,
     busy() {
-      return seqTimer !== undefined || pendingName !== '' || isSpeaking();
+      // A clip still loading past its deadline will not play, so it no longer counts.
+      const pending = pendingName !== '' && performance.now() - pendingAt <= PENDING_MS;
+      return seqTimer !== undefined || pending || isSpeaking();
     },
     speakingLevel() {
       if (!env || !isSpeaking()) return 0;
