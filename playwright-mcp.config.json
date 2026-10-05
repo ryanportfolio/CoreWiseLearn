@@ -1,0 +1,15 @@
+{
+  "browser": {
+    "launchOptions": {
+      "headless": false,
+      "args": [
+        "--mute-audio",
+        "--window-position=-2400,-2400",
+        "--window-size=1600,1000",
+        "--disable-background-timer-throttling",
+        "--disable-backgrounding-occluded-windows",
+        "--disable-renderer-backgrounding"
+      ]
+    }
+  }
+}
