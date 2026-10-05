@@ -66,6 +66,12 @@ export const STICKERS: readonly StickerDef[] = [
   { id: 'ride-fare-bunny', path: 'ride-fare/sticker-bunny.webp', game: 'ride-fare' },
   { id: 'ride-fare-bear', path: 'ride-fare/sticker-bear.webp', game: 'ride-fare' },
   { id: 'ride-fare-mouse', path: 'ride-fare/sticker-mouse.webp', game: 'ride-fare' },
+  { id: 'coin-vault-squirrel', path: 'coin-vault/sticker-squirrel.webp', game: 'coin-vault' },
+  { id: 'coin-vault-vault', path: 'coin-vault/sticker-vault.webp', game: 'coin-vault' },
+  { id: 'coin-vault-purse', path: 'coin-vault/sticker-purse.webp', game: 'coin-vault' },
+  { id: 'coin-vault-acorn', path: 'coin-vault/sticker-acorn.webp', game: 'coin-vault' },
+  { id: 'coin-vault-beaver', path: 'coin-vault/sticker-beaver.webp', game: 'coin-vault' },
+  { id: 'coin-vault-owl', path: 'coin-vault/sticker-owl.webp', game: 'coin-vault' },
 ];
 
 export function stickerById(id: string): StickerDef | undefined {
