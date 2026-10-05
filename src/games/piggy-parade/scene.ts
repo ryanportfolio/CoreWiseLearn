@@ -71,6 +71,11 @@ const DROP_GAP_MS = 600, ARROW_GAP_MS = 400;
 const IDLE_SECONDS = 6, IDLE_REPEAT = 8, SPAWN_GAP = 0.45;
 /** The round-end fanfare variant, rendered ahead during play. */
 const FANFARE: SfxOptions = { variant: 'D' };
+/** Idle preparation that has waited this long (or whose callback timed out) runs one step anyway, as the sticker offers do. */
+const IDLE_WAIT_MS = 400;
+const IDLE_OPTIONS: IdleRequestOptions = { timeout: IDLE_WAIT_MS };
+/** Step 8's helper hand points straight down at the dime: the art (pointing up and left) turned 225 degrees. */
+const HAND_DOWN = Math.PI * 1.25, HAND_COS = Math.cos(HAND_DOWN), HAND_SIN = Math.sin(HAND_DOWN);
 
 type Phase = 'play' | 'celebration' | 'choice' | 'sticker' | 'rest';
 // Coin states.
@@ -113,8 +118,19 @@ export interface PiggyParadeStats {
    * whether its baked label is on screen, and the box the dots and label fill (CSS px). Empty at steps 1 to 5.
    */
   readonly values: { kind: string; dots: number; rows: number; perRow: number; label: string; labelShown: boolean; dotD: number; x: number; y: number; w: number; h: number }[];
-  /** Step 8's line-up: running, seconds in, whether input skips it, and the coin kinds from left to right at this moment. */
-  readonly lineup: { active: boolean; t: number; skippable: boolean; order: string[] };
+  /**
+   * Step 8's line-up: running, seconds in, whether input skips it, the coin kinds from left to right at this moment,
+   * each coin's centre and drawn diameter, each label's drawn box and opacity, and the helper hand's drawn bounding box
+   * (null when not shown). CSS px.
+   */
+  readonly lineup: {
+    active: boolean; t: number; skippable: boolean; order: string[];
+    coinBoxes: { kind: string; x: number; y: number; d: number }[];
+    labels: { kind: string; x: number; y: number; w: number; h: number; alpha: number }[];
+    hand: { x: number; y: number; w: number; h: number } | null;
+  };
+  /** The round-end fanfare and every planned sprite size are ready (idle preparation finished). */
+  readonly prepared: boolean;
   /** First-time demonstrations shown (bits: 1 step 6, 2 step 7, 4 step 8) and whether the line-up has played once. */
   readonly demos: number; readonly lineupSeen: boolean;
   resetWork(): void;
@@ -162,12 +178,12 @@ function cpuCanvas(w: number, h: number, ratio: number): [HTMLCanvasElement, Can
   g?.setTransform(c.width / w, 0, 0, c.height / h, 0, 0);
   return [c, g];
 }
-/** One value dot: a cream clay dot with a brown rim, `d` CSS px across plus its rim. */
-function bakeDot(d: number, ratio: number): HTMLCanvasElement {
+/** One value dot: a cream clay dot with a brown rim, `d` CSS px across plus its rim; `lit` bakes its golden pulse look. */
+function bakeDot(d: number, ratio: number, lit = false): HTMLCanvasElement {
   const rim = Math.max(2, d * 0.12), size = d + rim * 2, [c, g] = cpuCanvas(size, size, ratio);
   if (!g) return c;
   g.beginPath(); g.arc(size / 2, size / 2, d / 2, 0, Math.PI * 2);
-  g.fillStyle = '#fff4dc'; g.fill(); g.lineWidth = rim; g.strokeStyle = '#6b3a17'; g.stroke();
+  g.fillStyle = lit ? GOLD : '#fff4dc'; g.fill(); g.lineWidth = rim; g.strokeStyle = lit ? '#b8741a' : '#6b3a17'; g.stroke();
   g.beginPath(); g.arc(size / 2 - d * 0.16, size / 2 - d * 0.16, d * 0.14, 0, Math.PI * 2); g.fillStyle = '#ffffff'; g.fill();
   g.getImageData(0, 0, 1, 1);
   return c;
@@ -232,14 +248,17 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
   let bgCanvas: HTMLCanvasElement | undefined, bgX = 0, bgY = 0, glowCanvas: HTMLCanvasElement | undefined;
   let artRatio = 0, glowSize = 0;
   let phase: Phase = 'play', tier: Tier = 0, intro = false, review = false, playStep = 1;
-  let content: StepContent = INTRO, pigCount = 2, coinsTotal = 0, nextCoin = 0, coinsDone = 0, trayCap = 2, spawnT = 0;
+  // trayWant: the places the round asks for (its tier's count); trayCap: how many fit the current layout.
+  let content: StepContent = INTRO, pigCount = 2, coinsTotal = 0, nextCoin = 0, coinsDone = 0, trayWant = 2, trayCap = 2, spawnT = 0;
   let time = 0, sceneT = 0, phaseT = 0, idleT = 0, endT = -1, henHop = 9;
   let hits = 0, misses = 0, stars = 1, starsPlayed = 0, evidence = 0, lastDropAt = -1e9;
   let keyMode: 'coin' | 'piggy' = 'coin', focusSlot = 0, focusPiggy = 0, lastPiggy = 0, arrowed = false, lastArrowAt = 0, introShown = false;
   let pending: PendingRound | null = null;
   let menuSelected = -1, inputAfter = 0, keyAfter = 0, focusAt = 0;
   let workHead = 0, workCount = 0, updateMs = 0;
-  let fanfareStarted = false, fanfareAsked = false, idleHandle = 0;
+  let fanfareStarted = false, fanfareAsked = false, idleHandle = 0, idleWaitFrom = -1;
+  /** The helper hand's drawn bounding box in CSS px (w 0 when not drawn), for checks. */
+  const handBox = new Float32Array(4);
   const warmNames: string[] = [], warmSizes: number[] = [], warmDone = new Set<string>();
   let warmIndex = 0, madeName = '', madeSize = 0, sizeKey = '';
   // Layout, all in CSS px.
@@ -253,7 +272,7 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
   const stairX = new Float32Array(4), stairFeet = new Float32Array(4), faceTop = new Float32Array(4);
   const labelX = new Float32Array(4), labelY = new Float32Array(4), dotsX = new Float32Array(4), dotsY = new Float32Array(4);
   let labelSide = false, dotPitch = 0, dotD = 0, labelPx = 0, bakeKey = '';
-  let dotCanvas: HTMLCanvasElement | undefined, groove5: HTMLCanvasElement | undefined, groove1: HTMLCanvasElement | undefined;
+  let dotCanvas: HTMLCanvasElement | undefined, litCanvas: HTMLCanvasElement | undefined, groove5: HTMLCanvasElement | undefined, groove1: HTMLCanvasElement | undefined;
   const labels: ({ canvas: HTMLCanvasElement; w: number; h: number } | undefined)[] = [undefined, undefined, undefined, undefined];
   let fontReady = false;
   /** Seconds since each step's dots began a pulse (9 = still), the row gap of that pulse, and each label's pop. */
@@ -389,8 +408,7 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
     for (let i = 0; i < pigCount; i++) zoneBottom = Math.max(zoneBottom, piggies[i]!.zone[3]!);
     rowY = Math.max(trayTop + trayW * TRAY_ASPECT * HAY_ROW, zoneBottom + big / 2 + 6);
     rowY = Math.min(rowY, H - big / 2 - 2);
-    // Tray places: the round's count (decided at its start), spread evenly along the hay.
-    for (let i = 0; i < trayCap; i++) slotX[i] = hayL + (i + 0.5) * (hayR - hayL) / trayCap;
+    fitTray();
     handH = Math.round(Math.max(80, 110 * s));
     const glow = Math.round(big * 1.7);
     if (!glowCanvas || reratio || glow !== glowSize) { glowSize = glow; glowCanvas = bakeGlow(glowSize, artRatio); }
@@ -412,10 +430,48 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
     if (key !== sizeKey) { sizeKey = key; releaseArt(); }
     if (resized || reratio || !bgCanvas) { sprites.clearScaled(BG); bgCanvas = undefined; }
   }
-  /** The tray holds the tier's count, or as many of the round's biggest coin as fit in one row on the hay. */
+  /**
+   * Tray places: the round's count, or as many of its biggest coin as fit in one row on the hay without touching
+   * (coins keep their full size, so each pick area stays at least 96 px), spread evenly. Runs on every layout, so a
+   * resize reflows the tray: places that no longer fit hand their coins to free places, or the coins roll back up the
+   * chute and wait their turn; places that fit again fill from the chute. Coins done, the total and a held coin stay.
+   */
   function fitTray(): void {
     const room = Math.floor((hayR - hayL) / (maxCoinD() + 10));
-    trayCap = Math.max(1, Math.min(intro ? 2 : TIERS[tier].tray, room, MAX_SLOTS));
+    const cap = Math.max(1, Math.min(trayWant, room, MAX_SLOTS));
+    if (cap < trayCap) shrinkTray(cap);
+    trayCap = cap;
+    for (let i = 0; i < trayCap; i++) slotX[i] = hayL + (i + 0.5) * (hayR - hayL) / trayCap;
+    if (focusSlot >= trayCap) focusSlot = trayCap - 1;
+    if (hand.mode === 2 && hand.slot >= trayCap) hand.mode = 0;
+    if (hand.mode === 1 && hand.coin >= 0 && coins[hand.coin]!.slot >= 0) hand.slot = coins[hand.coin]!.slot;
+  }
+  /** Rank for keeping a tray place: a coin in a hand (2), in the air (1), or waiting on the tray (0). */
+  const keepRank = (ci: number): number => { const c = coins[ci]!; return c.state === HELD ? 2 : c.state === FLY ? 1 : 0; };
+  /** Leave tray place `slot`: a coin in the air keeps flying (and waits up the chute if it bounces back); others go now. */
+  function vacate(ci: number): void {
+    const c = coins[ci]!;
+    if (slotCoin[c.slot] === ci) slotCoin[c.slot] = -1;
+    if (c.state === FLY) { c.slot = -1; return; }
+    c.slot = -1; c.state = BACK; c.held = 0; c.x0 = c.x; c.y0 = c.y; c.t = 0; c.dur = 0.5;
+  }
+  /** Fewer places fit: coins in places `cap` and up move to free places, a held coin first, else wait up the chute. */
+  function shrinkTray(cap: number): void {
+    for (let rank = 2; rank >= 0; rank--) {
+      for (let i = cap; i < trayCap; i++) {
+        const ci = slotCoin[i]!;
+        if (ci < 0 || keepRank(ci) !== rank) continue;
+        let j = -1;
+        for (let k = 0; k < cap && j < 0; k++) if (slotCoin[k]! < 0) j = k;
+        // No free place: a held coin takes one from a coin that ranks lower.
+        if (j < 0 && rank === 2) for (let k = 0; k < cap && j < 0; k++) if (keepRank(slotCoin[k]!) < 2) { vacate(slotCoin[k]!); j = k; }
+        if (j < 0) { vacate(ci); continue; }
+        const c = coins[ci]!;
+        slotCoin[i] = -1; slotCoin[j] = ci; c.slot = j;
+        // A coin on the tray slides over to its new place.
+        if (c.state === REST || c.state === ROLL) { c.state = BACK; c.x0 = c.x; c.y0 = c.y; c.t = 0; c.dur = 0.4; }
+      }
+    }
   }
   /**
    * Value dots and labels on the steps' front faces. One dot size and one label size for all four steps, the largest
@@ -456,7 +512,7 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
     const key = `${dotPitch}/${dotD}/${labelPx}/${artRatio}/${fontReady}`;
     if (key === bakeKey) return;
     bakeKey = key;
-    dotCanvas = bakeDot(dotD, artRatio);
+    dotCanvas = bakeDot(dotD, artRatio); litCanvas = bakeDot(dotD, artRatio, true);
     const gh = Math.round(dotPitch * 0.94);
     groove5 = bakeGroove(Math.round(dotPitch * 4 + gh), gh, artRatio); groove1 = bakeGroove(gh, gh, artRatio);
     for (let k = 0; k < 4; k++) labels[k] = labelPx && fontReady ? bakeLabel(LABEL_TEXT[k]!, labelPx, artRatio) : undefined;
@@ -492,6 +548,8 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
   function snoutPoint(p: number): void { const pg = piggies[p]!; pos.x = pg.x; pos.y = pg.feet - (PIG_FEET - PIG_SNOUT) * ph; }
   /** Where a coin rests in its tray place; the highlighted coin floats a little at tier 0. */
   function restPoint(c: Coin): void {
+    // A coin without a place heads back to where new coins come from: the chute's top, or off the left edge in portrait.
+    if (c.slot < 0) { if (chuteW > 0) chutePoint(0); else { pos.x = -coinD[c.kind]!; pos.y = rowY; } return; }
     pos.x = slotX[c.slot]!; pos.y = rowY;
     if (c.slot === focusSlot && keyMode === 'coin' && (intro || tier === 0)) pos.y -= coinD[c.kind]! * (0.08 + Math.abs(Math.sin(time * 2.6)) * 0.04);
   }
@@ -712,7 +770,9 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
           const k = clamp01(c.t / c.dur); restPoint(c);
           c.x = lerp(c.x0, pos.x, easeOutCubic(k)); c.y = lerp(c.y0, pos.y, easeOutCubic(k)) - Math.sin(k * Math.PI) * 60 * s;
           c.angle *= 1 - Math.min(1, dt * 10);
-          if (k >= 1) { c.state = REST; c.wob = 0; c.angle = 0; play('tick', 'C', 2, 0.3); }
+          // Back up the chute: the coin waits to come down again (its kind returns to the round's queue).
+          if (k >= 1 && c.slot < 0) { c.state = OFF; roundKinds[--nextCoin] = c.kind; }
+          else if (k >= 1) { c.state = REST; c.wob = 0; c.angle = 0; play('tick', 'C', 2, 0.3); }
           break;
         }
         default: break;
@@ -752,7 +812,8 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
     lineup.active = content.lineup; lineup.t = 0; lineup.skippable = data.lineupSeen; lineup.demo = content.lineup && !(data.demos & 4);
     setupPiggies();
     roundCoins(content.kinds, coinsTotal, random, roundKinds);
-    layout(W, H); fitTray(); layout(W, H);
+    trayWant = intro ? 2 : TIERS[tier].tray;
+    layout(W, H);
     guard(PLAY_GUARD_MS); cornerFocus = -1; services.save.flush();
     // The round-end fanfare's first (long) render step runs here, while the screen is still; the rest in idle periods.
     if (!fanfareStarted && audio.context) { fanfareStarted = true; if (prepareSfxStep(audio, 'fanfare', FANFARE)) fanfareAsked = true; }
@@ -765,20 +826,29 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
     for (let c = 0; c < 4; c++) add(piggyName(c, false), restSize * 0.62);
     add(BUTTON_PLAY, controlsRadius * 1.3); add(BUTTON_HOME, controlsRadius * 1.3);
   }
-  /** Idle periods with at least 4 ms left: the fanfare render a note at a time, then one planned sprite canvas each. */
+  /**
+   * Idle periods with at least 4 ms left: the fanfare render a note at a time, then one planned sprite canvas each.
+   * A callback that timed out, or a wait of IDLE_WAIT_MS over many short idle periods, runs one step anyway, so a busy
+   * machine still finishes the preparation before the round's end needs it.
+   */
   function prepareIdle(deadline: IdleDeadline): void {
     idleHandle = 0;
+    const overdue = deadline.didTimeout || (idleWaitFrom >= 0 && performance.now() - idleWaitFrom >= IDLE_WAIT_MS);
     if (!fanfareAsked && fanfareStarted) {
-      while (deadline.timeRemaining() >= 4) if (prepareSfxStep(audio, 'fanfare', FANFARE)) { fanfareAsked = true; break; }
+      while (overdue || deadline.timeRemaining() >= 4) {
+        idleWaitFrom = -1;
+        if (prepareSfxStep(audio, 'fanfare', FANFARE)) { fanfareAsked = true; break; }
+        if (overdue) break;
+      }
       return;
     }
-    if (madeName || deadline.timeRemaining() < 4) return;
+    if (madeName || (!overdue && deadline.timeRemaining() < 4)) return;
     for (; warmIndex < warmNames.length; warmIndex++) {
       const name = warmNames[warmIndex]!, size = warmSizes[warmIndex]!, key = `${name}@${size}`;
       if (warmDone.has(key)) continue;
       const img = sprites.get(name); if (!img) continue;
       sprites.scaled(name, size / (Math.max(img.naturalWidth, img.naturalHeight) || 1));
-      madeName = name; madeSize = size; warmIndex++;
+      madeName = name; madeSize = size; warmIndex++; idleWaitFrom = -1;
       return;
     }
   }
@@ -787,9 +857,16 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
   }
   function askIdle(): void {
     if (idleHandle) return;
-    if ((fanfareStarted && !fanfareAsked) || (playable() && time >= 0.5 && warmIndex < warmNames.length)) idleHandle = requestIdleCallback(prepareIdle, { timeout: 500 });
+    if ((fanfareStarted && !fanfareAsked) || (playable() && time >= 0.5 && warmIndex < warmNames.length)) {
+      const now = performance.now();
+      if (idleWaitFrom < 0) idleWaitFrom = now;
+      // The callback's own timeout is what is left of the wait, so it fires by IDLE_WAIT_MS after the wait began.
+      IDLE_OPTIONS.timeout = Math.max(1, IDLE_WAIT_MS - (now - idleWaitFrom));
+      idleHandle = requestIdleCallback(prepareIdle, IDLE_OPTIONS);
+    }
   }
-  function stopIdle(): void { if (idleHandle) cancelIdleCallback(idleHandle); idleHandle = 0; }
+  const prepared = (): boolean => (!fanfareStarted || fanfareAsked) && warmIndex >= warmNames.length && !madeName;
+  function stopIdle(): void { if (idleHandle) cancelIdleCallback(idleHandle); idleHandle = 0; idleWaitFrom = -1; }
 
   function chooseOffers(): string[] {
     if (!services.config.rewardsEnabled) return [];
@@ -884,11 +961,12 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
   function handTip(): void {
     const t = hand.t;
     if (hand.mode === 5) {
-      // Step 8's first line-up: the fingertip rises to the dime and rides along under it as it jumps.
+      // Step 8's first line-up: the hand comes in from the left above the coins, points down at the dime's top and
+      // rides along above it as it jumps, so it never covers the coins sliding underneath.
       const d = luD[DIME]!;
       if (!lineupPos(DIME)) { pos.x = luX0[DIME]!; pos.y = rowY; }
-      const tx = pos.x + d * 0.2, ty = pos.y + d * 0.42, e = easeOutCubic(clamp01(t / 0.45));
-      pos.x = lerp(W * 0.5, tx, e); pos.y = lerp(H + 60, ty, e);
+      const tx = pos.x, ty = pos.y - d * 0.7, e = easeOutCubic(clamp01(t / 0.45));
+      pos.x = lerp(-handH, tx, e); pos.y = lerp(ty - handH, ty, e);
       return;
     }
     pos.x = slotX[hand.slot]!; pos.y = rowY;
@@ -1007,7 +1085,7 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
       case FALL: sx = sy = lerp(CHUTE_SCALE, 1, clamp01(c.t / c.dur)); break;
       case REST: case BACK: {
         if (c.state === REST && c.wob < 0.6) { const w = Math.sin(c.wob * 26) * (1 - c.wob / 0.6); rot += w * 0.12; sy = 1 - Math.abs(w) * 0.08; }
-        groundShadow(ctx, c.state === REST ? c.x : slotX[c.slot]!, rowY + d * 0.42, d * 0.42, d * 0.1, c.state === REST ? 0.2 : 0.2 * clamp01(c.t / c.dur));
+        if (c.slot >= 0) groundShadow(ctx, c.state === REST ? c.x : slotX[c.slot]!, rowY + d * 0.42, d * 0.42, d * 0.1, c.state === REST ? 0.2 : 0.2 * clamp01(c.t / c.dur));
         break;
       }
       case HELD: size = Math.round(d * CARRY_SCALE); break;
@@ -1024,8 +1102,11 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
     }
     drawSprite(ctx, sprites, coinName(c.kind, false), c.x, c.y, size, rot, sx, sy);
   }
-  /** mode 0 play, 1 celebration dance (piggy `index` in turn), 2 still rest. */
-  function drawPiggy(ctx: CanvasRenderingContext2D, pg: Piggy, x: number, feet: number, h: number, mode: number, index: number): void {
+  /**
+   * mode 0 play, 1 celebration dance (piggy `index` in turn), 2 still rest. `part`: 0 the whole piggy, 1 its body only,
+   * 2 its belly badge only (drawn after the coin stacks, so a stack never covers a badge).
+   */
+  function drawPiggy(ctx: CanvasRenderingContext2D, pg: Piggy, x: number, feet: number, h: number, mode: number, index: number, part = 0): void {
     let rot = 0, sx = mode === 2 ? 1 : pigScaleX(pg), sy = mode === 2 ? 1 : pigScaleY(pg), lift = 0, happy = false;
     if (mode !== 2) {
       const breathe = Math.sin(time * 2 + pg.color * 1.3) * 0.012; sx += breathe; sy -= breathe;
@@ -1042,8 +1123,8 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
     ctx.save();
     // Wiggle, dance and plumpness all pivot on the feet.
     ctx.translate(x, feet - lift); ctx.rotate(rot); ctx.scale(sx, sy);
-    drawSprite(ctx, sprites, piggyName(pg.color, happy), 0, (1 - PIG_FEET - 0.5) * h, Math.round(h));
-    if (mode !== 2) {
+    if (part !== 2) drawSprite(ctx, sprites, piggyName(pg.color, happy), 0, (1 - PIG_FEET - 0.5) * h, Math.round(h));
+    if (mode !== 2 && part !== 1) {
       const yb = -(PIG_FEET - PIG_BADGE) * h, bd = badgeD[pg.kind]!;
       if (pg.glowT > 0) {
         ctx.globalAlpha = Math.min(1, pg.glowT * 2) * (0.75 + Math.sin(time * 9) * 0.25);
@@ -1062,24 +1143,30 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
   }
   /** Each step's value on its front face: the label (steps 7 and 8) and the dots in rows of five, each row in a groove. */
   function drawValues(ctx: CanvasRenderingContext2D): void {
-    if (!dotCanvas || !groove5 || !groove1) return;
+    if (!dotCanvas || !litCanvas || !groove5 || !groove1) return;
     const dd = dotD + 2 * Math.max(2, dotD * 0.12), gh = dotPitch * 0.94;
     for (let k = 0; k < 4; k++) {
       const cx = dotsX[k]!, rows = DOT_ROWS[k]!, cols = DOT_COLS[k]!, pt = pulseT[k]!, gap = pulseGap[k]!;
       const lab = labels[k];
       if (lab && labelPx) {
-        const pop = labelPopT[k]! < 0.35 ? 1 + 0.25 * Math.sin(labelPopT[k]! / 0.35 * Math.PI) : 1;
-        ctx.drawImage(lab.canvas, labelX[k]! - lab.w * pop / 2, labelY[k]! - lab.h * pop / 2, lab.w * pop, lab.h * pop);
+        // The label pops by hopping up, always drawn at its baked size so it stays sharp.
+        const hop = labelPopT[k]! < 0.35 ? lab.h * 0.3 * Math.sin(labelPopT[k]! / 0.35 * Math.PI) : 0;
+        ctx.drawImage(lab.canvas, labelX[k]! - lab.w / 2, labelY[k]! - lab.h / 2 - hop, lab.w, lab.h);
       }
       for (let r = 0; r < rows; r++) {
         const y = dotsY[k]! + r * dotPitch * ROW_SPACE, gw = cols === 1 ? gh : dotPitch * 4 + gh;
         ctx.drawImage(cols === 1 ? groove1 : groove5, cx - gw / 2, y - gh / 2, gw, gh);
         for (let c = 0; c < cols; c++) {
           const x = cx + (c - (cols - 1) / 2) * dotPitch;
-          // A pulse lights the rows in turn, each row's dots left to right.
+          // A pulse lights the rows in turn, each row's dots left to right: the dot glows gold and a thin gold ring
+          // spreads from it. Dots are always drawn at their baked size; the ring is drawn in code, so both stay sharp.
           const k2 = pt < 9 ? clamp01((pt - r * gap - c * 0.04) / 0.28) : 0;
-          const sc = 1 + 0.55 * Math.sin(k2 * Math.PI), w = dd * sc;
-          ctx.drawImage(dotCanvas, x - w / 2, y - w / 2, w, w);
+          ctx.drawImage(dotCanvas, x - dd / 2, y - dd / 2, dd, dd);
+          if (k2 > 0 && k2 < 1) {
+            ctx.globalAlpha = Math.sin(k2 * Math.PI); ctx.drawImage(litCanvas, x - dd / 2, y - dd / 2, dd, dd);
+            ctx.globalAlpha = 1 - k2; ctx.beginPath(); ctx.arc(x, y, dd * (0.5 + 0.3 * k2), 0, Math.PI * 2);
+            ctx.lineWidth = Math.max(2, dd * 0.12); ctx.strokeStyle = GOLD; ctx.stroke(); ctx.globalAlpha = 1;
+          }
         }
       }
     }
@@ -1098,8 +1185,9 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
     else drawShelves(ctx);
     // Coins going into a slot draw behind their piggy, so the body hides them as they drop in.
     for (let i = 0; i < POOL; i++) { const c = coins[i]!; if (c.state === SLOT) drawCoin(ctx, c); }
-    for (let i = 0; i < pigCount; i++) { const pg = piggies[i]!; drawPiggy(ctx, pg, pg.x, pg.feet, ph, celebrating ? 1 : 0, i); }
+    for (let i = 0; i < pigCount; i++) { const pg = piggies[i]!; drawPiggy(ctx, pg, pg.x, pg.feet, ph, celebrating ? 1 : 0, i, 1); }
     for (let i = 0; i < pigCount; i++) drawStack(ctx, piggies[i]!);
+    for (let i = 0; i < pigCount; i++) { const pg = piggies[i]!; drawPiggy(ctx, pg, pg.x, pg.feet, ph, celebrating ? 1 : 0, i, 2); }
     if (chuteW > 0) drawSprite(ctx, sprites, CHUTE, chuteX + chuteW / 2, chuteY + chuteH / 2, Math.round(Math.max(chuteW, chuteH)));
     drawSprite(ctx, sprites, TRAY, trayX + trayW / 2, trayTop + trayW * TRAY_ASPECT / 2, Math.round(trayW));
   }
@@ -1151,14 +1239,27 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
       drawSprite(ctx, sprites, coinName(kind, false), x, y, d, lu.rot, lu.sx, 1);
       const lab = labels[kind];
       if (showLabels && lab) {
-        const g = clamp01((lineup.t - LU_LABELS) / 0.2);
+        const g = clamp01((lineup.t - LU_LABELS) / 0.2), a = labelAlpha(kind);
         // Below the coin, on the tray's front, clear of the steps' own labels.
-        ctx.drawImage(lab.canvas, x - lab.w * g / 2, Math.min(rowY + d / 2 + 2, H - lab.h - 2), lab.w * g, lab.h * g);
+        if (a > 0) {
+          ctx.globalAlpha = lu.alpha * a;
+          ctx.drawImage(lab.canvas, x - lab.w * g / 2, Math.min(rowY + d / 2 + 2, H - lab.h - 2), lab.w * g, lab.h * g);
+        }
       }
       ctx.globalAlpha = 1;
     }
   }
+  /**
+   * A line-up label's opacity: the dime's fades out as it jumps over the penny and the nickel (its label would cross
+   * theirs) and back in once it has landed; the others slide together and never meet.
+   */
+  function labelAlpha(kind: number): number {
+    const t = lineup.t;
+    if (kind !== DIME || t < LU_MOVE) return 1;
+    return t < LU_MOVE_END ? Math.max(0, 1 - (t - LU_MOVE) / 0.12) : clamp01((t - LU_MOVE_END) / 0.2);
+  }
   function renderHand(ctx: CanvasRenderingContext2D): void {
+    handBox[2] = 0;
     if (!hand.mode) return;
     const img = sprites.get(HAND); if (!img) return;
     if (ghostPoint() && glowCanvas) {
@@ -1178,8 +1279,16 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
     else if (hand.mode === 2 && tier === 2 && t >= 1.1 && t < 2.2) press = 0.9;
     else if (hand.mode === 2 && tier === 1 && t >= 2.1 && t < 2.3) press = 0.88;
     ctx.globalAlpha = alpha;
-    // The art points up and left: put its fingertip on the target.
-    drawSprite(ctx, sprites, HAND, pos.x + hw * 0.44, pos.y + handH * 0.42, handH, 0, press, press);
+    // The art points up and left: put its fingertip on the target. In step 8 it is turned to point straight down.
+    const ox = hw * 0.44, oy = handH * 0.42;
+    if (hand.mode === 5) {
+      const cx = pos.x + ox * HAND_COS - oy * HAND_SIN, cy = pos.y + ox * HAND_SIN + oy * HAND_COS, half = (hw + handH) * Math.SQRT1_2 * press / 2;
+      drawSprite(ctx, sprites, HAND, cx, cy, handH, HAND_DOWN, press, press);
+      handBox[0] = cx - half; handBox[1] = cy - half; handBox[2] = half * 2; handBox[3] = half * 2;
+    } else {
+      drawSprite(ctx, sprites, HAND, pos.x + ox, pos.y + oy, handH, 0, press, press);
+      handBox[0] = pos.x + ox - hw * press / 2; handBox[1] = pos.y + oy - handH * press / 2; handBox[2] = hw * press; handBox[3] = handH * press;
+    }
     ctx.globalAlpha = 1;
   }
   function focusRing(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
@@ -1326,8 +1435,13 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
       const held = keyHeld();
       if (held < 0) { keyMode = 'coin'; return; }
       if (left || right || up || down) {
-        const two = portrait && pigCount > 2, step = (up || down) && two ? 2 : 1, dir = left || up ? -1 : 1;
-        focusPiggy = (focusPiggy + dir * step + pigCount * 4) % pigCount;
+        // Up and Down follow the rows on screen: with two shelves they move to the nearest piggy on the other shelf;
+        // in one row they move one place like Left and Right (on the steps Up climbs to the next higher step).
+        const pg = piggies[focusPiggy]!;
+        let next = -1, best = 1e9;
+        if (up || down) for (let i = 0; i < pigCount; i++) { const o = piggies[i]!; if (o.row !== pg.row && Math.abs(o.x - pg.x) < best) { best = Math.abs(o.x - pg.x); next = i; } }
+        if (next < 0) next = (focusPiggy + (left || (up && !stairs) || (down && stairs) ? -1 : 1) + pigCount) % pigCount;
+        focusPiggy = next;
         arrowed = true; lastArrowAt = now;
         return;
       }
@@ -1343,10 +1457,15 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
     if (right || down) { moveCoinFocus(1); return; }
     if (now < keyAfter) return;
     keyAfter = now + KEY_GAP_MS;
-    ensureFocus();
-    const ci = slotCoin[focusSlot]!;
-    if (!resting(ci)) return;
-    pickUp(ci, BY_KEY);
+    // One coin in hand at a time: a coin the pointer carries becomes the key's coin, so keys can always finish the round.
+    let ci = carry.coin;
+    if (ci >= 0) { carry.coin = -1; carry.sticky = false; coins[ci]!.held = BY_KEY; focusSlot = coins[ci]!.slot; }
+    else {
+      ensureFocus();
+      ci = slotCoin[focusSlot]!;
+      if (!resting(ci)) return;
+      pickUp(ci, BY_KEY);
+    }
     keyMode = 'piggy'; arrowed = false;
     // After a miss the highlight starts on the matching piggy, so steady key pressing always moves the round on.
     const c = coins[ci]!;
@@ -1416,14 +1535,22 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
       return out;
     },
     get lineup() {
-      const order: string[] = [];
+      const order: string[] = [], coinBoxes: PiggyParadeStats['lineup']['coinBoxes'] = [], labelBoxes: PiggyParadeStats['lineup']['labels'] = [];
       if (lineup.active) {
         const xs: [number, string][] = [];
-        for (let k = 0; k < 4; k++) if (lineupPos(k)) xs.push([pos.x, COIN_NAMES[k]!]);
+        const showLabels = lineup.t >= LU_LABELS && lineup.t < LU_OFF, g = clamp01((lineup.t - LU_LABELS) / 0.2);
+        for (let k = 0; k < 4; k++) {
+          if (!lineupPos(k)) continue;
+          const d = luD[k]!, lab = labels[k];
+          xs.push([pos.x, COIN_NAMES[k]!]); coinBoxes.push({ kind: COIN_NAMES[k]!, x: pos.x, y: pos.y, d });
+          if (showLabels && lab) labelBoxes.push({ kind: COIN_NAMES[k]!, x: pos.x - lab.w * g / 2, y: Math.min(rowY + d / 2 + 2, H - lab.h - 2), w: lab.w * g, h: lab.h * g, alpha: lu.alpha * labelAlpha(k) });
+        }
         xs.sort((a, b) => a[0] - b[0]); for (const [, n] of xs) order.push(n);
       }
-      return { active: lineup.active, t: lineup.t, skippable: lineup.skippable, order };
+      const hb = hand.mode && handBox[2]! > 0 ? { x: handBox[0]!, y: handBox[1]!, w: handBox[2]!, h: handBox[3]! } : null;
+      return { active: lineup.active, t: lineup.t, skippable: lineup.skippable, order, coinBoxes, labels: labelBoxes, hand: hb };
     },
+    get prepared() { return prepared(); },
     get demos() { return data.demos; }, get lineupSeen() { return data.lineupSeen; },
     resetWork() { workHead = workCount = 0; },
   };
