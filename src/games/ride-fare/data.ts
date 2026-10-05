@@ -26,13 +26,15 @@ export interface RideData extends Record<string, unknown> {
   quietRounds: number;
   /** Recent counted riders at the current step, 1 = paid exactly. */
   learn: number[];
+  /** Steps whose first-time demonstration this profile has seen, one bit per step (bit n = step n). */
+  demos: number;
   pending: PendingRound | null;
 }
 
 export const LEARN_WINDOW = 8;
 
 export const defaultData = (): RideData => ({
-  tier: 0, qualifyingRounds: 0, rounds: 0, step: 1, stepRounds: 0, quietRounds: 0, learn: [], pending: null,
+  tier: 0, qualifyingRounds: 0, rounds: 0, step: 1, stepRounds: 0, quietRounds: 0, learn: [], demos: 0, pending: null,
 });
 
 const count = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0;
@@ -48,7 +50,7 @@ export function sanitizeRideData(bag: Record<string, unknown>, protect: () => vo
   const d = defaultData();
   const checks: Record<string, (v: unknown) => boolean> = {
     tier: v => range(v, 2), qualifyingRounds: count, rounds: count, step: v => range(v, TOP_STEP) && (v as number) >= 1,
-    stepRounds: count, quietRounds: count, learn: v => bits(v, LEARN_WINDOW),
+    stepRounds: count, quietRounds: count, learn: v => bits(v, LEARN_WINDOW), demos: v => range(v, 511),
   };
   for (const [key, valid] of Object.entries(checks)) {
     if (!(key in bag)) { bag[key] = d[key]; continue; }

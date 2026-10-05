@@ -3,7 +3,7 @@
  * rounds. Motor tiers and learning steps are separate and never change inside a round.
  */
 import type { Tier } from '../../engine/difficulty';
-import { LEARN_WINDOW, type RideData } from './data';
+import { LEARN_WINDOW, TOP_STEP, type RideData } from './data';
 
 export const PENNY = 0, NICKEL = 1, DIME = 2;
 export const COIN_NAMES = ['penny', 'nickel', 'dime'] as const;
@@ -14,12 +14,6 @@ export const DIME_MM = 17.91;
 /** The dime never draws below this many CSS px. */
 export const MIN_DIME_PX = 96;
 
-/**
- * Last learning step built so far. Progression stops here; the steps above it (dimes, the numeral, the swap stand,
- * change) come in a later build and are reached by raising this number.
- */
-export const BUILT_STEP = 4;
-
 export interface TierParams {
   /** Riders in one round. */
   riders: number;
@@ -29,41 +23,66 @@ export interface TierParams {
   dime: number;
   /** Fare-box width in layout units. */
   box: number;
-  /** How far outside the fare box a released coin still counts as dropped on it, in layout units. */
+  /** How far outside a target (fare box, swap stand, paws) a released coin still counts as dropped on it, in layout units. */
   snap: number;
-  /** A single press (click) on a coin sends it straight into the slot. */
+  /** A single press (click) on a coin sends it straight to the target the step asks for next. */
   oneTap: boolean;
+  /** The animal's paws target at step 8, in CSS px at u = 1 (never under 96 on its shortest side). */
+  paws: readonly [number, number];
 }
 
 export const TIERS: readonly [TierParams, TierParams, TierParams] = [
-  { riders: 3, places: 3, dime: 120, box: 380, snap: 80, oneTap: true },
-  { riders: 4, places: 4, dime: 108, box: 350, snap: 56, oneTap: false },
-  { riders: 4, places: 6, dime: 96, box: 320, snap: 40, oneTap: false },
+  { riders: 3, places: 3, dime: 120, box: 380, snap: 80, oneTap: true, paws: [160, 120] },
+  { riders: 4, places: 4, dime: 108, box: 350, snap: 56, oneTap: false, paws: [140, 110] },
+  { riders: 4, places: 6, dime: 96, box: 320, snap: 40, oneTap: false, paws: [120, 100] },
 ];
 
 export interface TrayItem { kind: number; count: number; unlimited: boolean }
 export interface RiderPlan {
   /** Learning step whose content this rider shows (a warm-up rider shows the step below). */
   step: number;
-  /** Cups to light; 0 at step 1, where the coin plate stands in for cups. */
+  /** The fare in cents: cups to light (at steps 1 and 7 the value of the plate's coins). */
   fare: number;
-  /** Step 1: the coin pictures on the plate, largest coin first. */
+  /** Steps 1 and 7: the coin pictures on the plate, largest coin first; the fare box takes only these coins. */
   plate: number[];
   tray: TrayItem[];
+  /** Step 7: the swap stand is open; `extra` lists the kinds of the empty tray places swapped coins land in. */
+  swap: boolean;
+  extra: number[];
+  /** Step 8: the coin the animal pays with (10 for a dime); the child hands back the change. 0 otherwise. */
+  animalPays: number;
 }
+
+const rider = (step: number, fare: number, tray: TrayItem[], plate: number[] = []): RiderPlan =>
+  ({ step, fare, plate, tray, swap: false, extra: [], animalPays: 0 });
+const item = (kind: number, count: number, unlimited = false): TrayItem => ({ kind, count, unlimited });
+
+/** At the top step a round mixes riders from steps 5, 6 and 8 (the step-8 riders are the counted ones). */
+const TOP_MIX = [5, 8, 6, 8] as const;
 
 /** Content step for rider `index` of a round at `step`: the first rider above step 2 warms up with the step below. */
 export function riderStep(step: number, index: number): number {
-  const s = Math.max(1, Math.min(BUILT_STEP, step));
+  const s = Math.max(1, Math.min(TOP_STEP, step));
+  if (s === TOP_STEP) return TOP_MIX[index % TOP_MIX.length]!;
   return index === 0 && s > 2 ? s - 1 : s;
 }
 
 /** The introduction's taught rider: fare 6, a nickel and pennies; the helper pays the nickel, the child adds a penny. */
 export function introRider(): RiderPlan {
-  return { step: 3, fare: 6, plate: [], tray: [{ kind: NICKEL, count: 1, unlimited: false }, { kind: PENNY, count: 5, unlimited: false }] };
+  return rider(3, 6, [item(NICKEL, 1), item(PENNY, 5)]);
 }
 
-/** A rider for a content step. `last` is the previous rider's fare or plate size, avoided where there is a choice. */
+/** Step 7 rider: the plate wants a nickel (from five pennies) or a dime (from two nickels, or from ten pennies). */
+export function swapRider(variant: number): RiderPlan {
+  const plan = variant === 0 ? rider(7, 5, [item(PENNY, 5)], [NICKEL])
+    : variant === 1 ? rider(7, 10, [item(NICKEL, 2)], [DIME])
+      : rider(7, 10, [item(PENNY, 10)], [DIME]);
+  plan.swap = true;
+  plan.extra = variant === 0 ? [NICKEL] : variant === 1 ? [DIME] : [NICKEL, DIME];
+  return plan;
+}
+
+/** A rider for a content step. `last` is the previous rider's fare (or plate size at step 1), avoided where there is a choice. */
 export function planRider(step: number, random: () => number, last: number): RiderPlan {
   if (step <= 1) {
     // Pennies and nickels only (dimes arrive at age 6, step 5). One to three pictures, the nickel first.
@@ -73,22 +92,46 @@ export function planRider(step: number, random: () => number, last: number): Rid
     for (let i = 0; i < n; i++) plate.push(random() < 0.4 ? NICKEL : PENNY);
     plate.sort((a, b) => b - a);
     const nickels = plate.filter(k => k === NICKEL).length, pennies = n - nickels;
-    const tray: TrayItem[] = [];
     // The needed coins plus one coin of the kind the plate does not show, when there is one.
-    tray.push({ kind: NICKEL, count: nickels || 1, unlimited: false });
-    tray.push({ kind: PENNY, count: pennies || 1, unlimited: false });
-    return { step: 1, fare: 0, plate, tray };
+    const plan = rider(1, nickels * 5 + pennies, [item(NICKEL, nickels || 1), item(PENNY, pennies || 1)], plate);
+    return plan;
   }
   if (step === 2) {
     let fare = 1 + Math.floor(random() * 5);
     if (fare === last) fare = 1 + (fare % 5);
-    return { step: 2, fare, plate: [], tray: [{ kind: PENNY, count: fare + 1, unlimited: false }] };
+    return rider(2, fare, [item(PENNY, fare + 1)]);
   }
-  if (step === 3) return { step: 3, fare: 5, plate: [], tray: [{ kind: NICKEL, count: 1, unlimited: false }, { kind: PENNY, count: 5, unlimited: false }] };
-  let fare = 6 + Math.floor(random() * 5);
-  if (fare === last) fare = 6 + ((fare - 5) % 5);
-  // The penny stack never runs out, so a fare is always payable whatever order the coins come in.
-  return { step: 4, fare, plate: [], tray: [{ kind: NICKEL, count: 1, unlimited: false }, { kind: PENNY, count: 5, unlimited: true }] };
+  if (step === 3) return rider(3, 5, [item(NICKEL, 1), item(PENNY, 5)]);
+  if (step === 4) {
+    let fare = 6 + Math.floor(random() * 5);
+    if (fare === last) fare = 6 + ((fare - 5) % 5);
+    // The penny stack never runs out, so a fare is always payable whatever order the coins come in.
+    return rider(4, fare, [item(NICKEL, 1), item(PENNY, 5, true)]);
+  }
+  if (step === 5) {
+    // Fares 11 to 20 on two panels of ten; one or two dimes (a second dime is too much below 20), one or two nickels.
+    let fare = 11 + Math.floor(random() * 10);
+    if (fare === last) fare = 11 + ((fare - 10) % 10);
+    const dimes = fare === 20 || random() < 0.4 ? 2 : 1, nickels = random() < 0.5 ? 2 : 1;
+    return rider(5, fare, [item(DIME, dimes), item(NICKEL, nickels), item(PENNY, 5, true)]);
+  }
+  if (step === 6) {
+    // Fares 21 to 99 cents, most of them under 60 so a round stays short; every coin kind never runs out.
+    let fare = 21 + Math.floor(Math.pow(random(), 1.6) * 79);
+    if (fare === last) fare = fare < 99 ? fare + 1 : 21;
+    return rider(6, fare, [item(DIME, 5, true), item(NICKEL, 5, true), item(PENNY, 5, true)]);
+  }
+  if (step === 7) {
+    // Rotate the swaps; a nickel fare (5) is followed by a dime fare where there is a choice.
+    const r = random();
+    return swapRider(last === 5 ? (r < 0.6 ? 1 : 2) : r < 0.45 ? 0 : r < 0.8 ? 1 : 2);
+  }
+  // Step 8: the animal pays a dime for a fare of 1 to 9 cents; the child hands back the change in pennies.
+  let fare = 1 + Math.floor(random() * 9);
+  if (fare === last) fare = 1 + (fare % 9);
+  const plan = rider(8, fare, [item(PENNY, 5, true)]);
+  plan.animalPays = 10;
+  return plan;
 }
 
 /**
@@ -131,7 +174,7 @@ const EXPOSURE = (step: number): boolean => step === 2 || step === 7;
 /**
  * Between rounds: `counted` is the round's counted riders (1 = exact). Moves up on a clean round of three or more, or
  * six exact in the last eight; moves down on two or fewer in the last six; exposure steps move up after two rounds; a
- * child who plays only with keys at steps 1 and 2 moves up after three rounds, up to step 3. Never above BUILT_STEP.
+ * child who plays only with keys at steps 1 and 2 moves up after three rounds, up to step 3. Never above TOP_STEP.
  */
 export function applyLearning(data: RideData, counted: readonly number[]): void {
   const before = data.step;
@@ -143,7 +186,7 @@ export function applyLearning(data: RideData, counted: readonly number[]): void 
   else if (data.learn.length >= LEARN_WINDOW && sum(data.learn) >= 6) data.step++;
   else if (recent.length >= 6 && sum(recent) <= 2 && data.step > 1) data.step--;
   if (data.step === before && data.quietRounds >= 3 && data.step < 3) data.step++;
-  data.step = Math.max(1, Math.min(BUILT_STEP, data.step));
+  data.step = Math.max(1, Math.min(TOP_STEP, data.step));
   if (data.step !== before) { data.learn.length = 0; data.stepRounds = 0; data.quietRounds = 0; }
 }
 

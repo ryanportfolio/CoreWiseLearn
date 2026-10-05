@@ -2,7 +2,9 @@
  * Ride Fare: animal friends queue for a hot-air balloon ride. The child pays each fare by dropping coins from a wooden
  * tray into the brass fare box: each coin lights as many dot cups as it is worth, and when every cup is lit the animal
  * climbs in, the balloon lifts off, drifts and lands, and the next animal steps up. Step 1 shows coin pictures to match
- * instead of cups. A coin worth more than the unlit cups hops back to the tray.
+ * instead of cups. A coin worth more than the unlit cups hops back to the tray. The age-6 steps add dimes and a second
+ * panel of cups (5), the fare as a numeral with rows of ten small cups (6), a swap stand that turns five pennies into a
+ * nickel and two nickels into a dime (7), and change handed back to the animal's paws (8).
  */
 import { rewards, type AppServices } from '../../app/services';
 import { STICKERS, stickerSpriteName } from '../../app/stickers';
@@ -11,7 +13,7 @@ import { createParticleSystem } from '../../engine/particles';
 import type { Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
 import { playSfx, prepareSfxStep, type SfxName, type SfxOptions, type SfxVariant } from '../../audio/sfx';
 import { startMusic, stopMusic } from '../../audio/music';
-import { chunkyCircle, chunkyPanel, drawSprite, OUTLINE } from '../../ui/draw';
+import { chunkyCircle, chunkyPanel, DISPLAY_FONT, drawSprite, OUTLINE } from '../../ui/draw';
 import { confettiBurst, drawStarRow, STAR_GAP_SECONDS, STAR_HIT_SECONDS } from '../../ui/celebrate';
 import { drawEnterFade } from '../../ui/motion';
 import { BOOK_GLIDE, BOOK_ICON_PATH, createStickerOffers, leaveAlpha, leaveDrop, onBook, PICK_FLY, PICK_LIFT, PICK_SECONDS, placeBook } from '../../ui/sticker-offer';
@@ -19,19 +21,20 @@ import { clamp01, easeInCubic, easeInOutSine, easeOutCubic, lerp } from '../../u
 import { createSoundButton, soundArt, syncSoundIcon } from '../../scenes/hub/shared';
 import { defaultData, GAME_ID, sanitizeRideData, TOP_STEP, type PendingRound, type RideData } from './data';
 import {
-  applyLearning, applyMotor, arrangeTray, BUILT_STEP, COIN_MM, COIN_NAMES, COIN_VALUE, DIME_MM, introRider, MIN_DIME_PX, NICKEL,
-  PENNY, planRider, recordRider, riderStep, ROUND_STARS, TIERS, type RiderPlan,
+  applyLearning, applyMotor, arrangeTray, COIN_MM, COIN_NAMES, COIN_VALUE, DIME, DIME_MM, introRider, MIN_DIME_PX, NICKEL,
+  PENNY, planRider, recordRider, riderStep, ROUND_STARS, swapRider, TIERS, type RiderPlan,
 } from './rules';
 import { playVoice, preloadVoice } from './voice';
 
 export { GAME_ID };
 const ART = 'ride-fare/';
 const BG = `${ART}launch-field`, BASKET = `${ART}basket`, ENVELOPE = `${ART}envelope`, FAREBOX = `${ART}fare-box`, TRAY = `${ART}tray`, HAND = `${ART}helper-hand`;
+const PANEL = `${ART}fare-panel`, STAND = `${ART}swap-stand`;
 const BUTTON_PLAY = 'buttons/play-arrow', BUTTON_HOME = 'buttons/home';
 const ANIMALS = ['hedgehog', 'bunny', 'fox', 'raccoon', 'bear', 'mouse'] as const;
 const ANIMAL_NAMES = ANIMALS.map(a => [`${ART}${a}-wait`, `${ART}${a}-wave`] as const);
 const COIN_FACES = COIN_NAMES.map(c => [`${ART}coin-${c}-heads`, `${ART}coin-${c}-tails`] as const);
-const NUMBER_CLIPS = Array.from({ length: 21 }, (_, n) => `number-${n}` as const);
+const NUMBER_CLIPS = Array.from({ length: 100 }, (_, n) => `number-${n}` as const);
 
 // Measured once from the sprites' pixels (round 2), as fractions of each image.
 /** basket.webp: top of the rim, its bottom edge, the front rim line animals inside are clipped at, the door's left edge. */
@@ -42,6 +45,17 @@ const ENVELOPE_AT = 0.27;
 const MOUTH = 0.8;
 /** fare-box.webp: the dark window where code draws the cups (x0, x1, y0, y1) and the coin slot's centre line and top. */
 const WIN_X0 = 0.265, WIN_X1 = 0.912, WIN_Y0 = 0.271, WIN_Y1 = 0.859, SLOT_X = 0.146, SLOT_TOP = 0.37;
+/** fare-panel.webp (600x264): its dark window, measured round 3 (42..556 x 42..222 px), inset a little. */
+const PWIN_X0 = 0.08, PWIN_X1 = 0.92, PWIN_Y0 = 0.17, PWIN_Y1 = 0.83;
+/** The second panel's width as a share of the fare box's: its rows of small cups then match the box's. */
+const PANEL_W = 1.04;
+/**
+ * swap-stand.webp (582x700): the open space between its posts above the table top (x 0.137..0.864, awning bottom 0.43,
+ * table top 0.636), where the dotted circles and coins sit, and its press zone (most of the stand below the awning).
+ */
+const STAND_X0 = 0.17, STAND_X1 = 0.83, STAND_TABLE = 0.64, STAND_ZONE_Y0 = 0.3, STAND_ZONE_Y1 = 0.86;
+/** Stand width in layout units (478 px at 1920x1080, under its 582 px). */
+const STAND_W = 340;
 /** tray.webp: the end caps' width in its own pixels; the middle repeats, mirrored, so nothing draws above 1.0. */
 const TRAY_CAP = 200;
 /** Layout units: basket width and left edge, envelope width, animal height. */
@@ -52,7 +66,7 @@ const U_MAX = 1.405;
 const DRIFT_K = 0.3;
 /** Queue spots on the path, in launch-field.webp pixels (nearest first). */
 const PATH = [[1180, 880], [1330, 838], [1480, 790], [1620, 740]] as const;
-const MAX_PLACES = 8, MAX_CUPS = 10, POOL = 16, PARTICLES = 160;
+const MAX_PLACES = 8, MAX_CUPS = 100, POOL = 24, PARTICLES = 160;
 
 const CELEBRATION_SECONDS = 4.6, STAR_START = 0.5;
 const MENU_GUARD_MS = 1200, FOCUS_HOLD_MS = 250, PLAY_GUARD_MS = 350, KEY_GAP_MS = 150, IDLE_SECONDS = 6, IDLE_SOON = 4, IDLE_REPEAT = 7;
@@ -61,40 +75,77 @@ const MENU_GUARD_MS = 1200, FOCUS_HOLD_MS = 250, PLAY_GUARD_MS = 350, KEY_GAP_MS
  * in play; a stream of quick presses (mashing) plays fully but records no learning evidence.
  */
 const DELIBERATE_MS = 700;
-/** Cups light this far apart as a coin pours: a nickel's five within 0.3 s. */
-const POUR_GAP = 0.07;
+/** Cups light this far apart as a coin pours: a nickel's five within 0.3 s; a dime's ten in one quicker pour. */
+const POUR_GAP = 0.07, POUR_GAP_FAST = 0.032;
 /** A coin's trip into the slot: fly to the slot, show its dots, slip in edge-on. */
 const SEND_FLY = 0.3, SEND_DOTS = 0.25, SEND_SLIP = 0.15, SEND_SECONDS = SEND_FLY + SEND_DOTS + SEND_SLIP;
 /** A coin that is too much: fly to the slot, show its dots, hop home. */
 const REJECT_HOLD = 0.35, REJECT_HOP = 0.5, REJECT_SECONDS = SEND_FLY + REJECT_HOLD + REJECT_HOP;
-const RETURN_SECONDS = 0.4, ARRIVE_SECONDS = 0.55, LEAVE_SECONDS = 0.35;
-/** The fare-paid sequence: cups pulse, the animal hops in, the balloon lifts, drifts small across the sky and lands. */
-const SEQ_PULSE = 0.5, SEQ_HOP = 0.6, SEQ_LIFT = 1.0, SEQ_DRIFT = 1.5, SEQ_LAND = 1.0;
-const SEQ_HOP_AT = SEQ_PULSE, SEQ_LIFT_AT = SEQ_HOP_AT + SEQ_HOP, SEQ_DRIFT_AT = SEQ_LIFT_AT + SEQ_LIFT, SEQ_LAND_AT = SEQ_DRIFT_AT + SEQ_DRIFT;
-const SEQ_SECONDS = SEQ_LAND_AT + SEQ_LAND;
-/** The introduction's goal (every cup lit, the hedgehog rides) plays the same sequence this much faster: about 3 s. */
-const GOAL_SPEED = 1.5;
+const RETURN_SECONDS = 0.4, ARRIVE_SECONDS = 0.45, ARRIVE_STAGGER = 0.06, LEAVE_SECONDS = 0.35;
+/** A coin's trip to the swap stand or the paws, and a coin those hand back. */
+const TO_SECONDS = 0.35, BACK_HOLD = 0.3, BACK_HOP = 0.5;
+/** The swap: hold, the coins slide together, the new coin shows its dots, then hops onto the tray. */
+const MERGE_SLIDE_AT = 0.2, MERGE_AT = 0.55, MERGE_HOP_AT = 1.15, MERGE_HOP = 0.5;
+/**
+ * The fare-paid sequence: cups pulse, the animal hops in, the balloon lifts off the top. A fresh balloon then lands
+ * while the small one carries the rider across the sky in the background, and the next rider can pay once it is down.
+ */
+const SEQ_PULSE = 0.35, SEQ_HOP = 0.5, SEQ_LIFT = 0.7, SEQ_LAND = 0.7, DRIFT_SECONDS = 2.6;
+const SEQ_HOP_AT = SEQ_PULSE, SEQ_LIFT_AT = SEQ_HOP_AT + SEQ_HOP, SEQ_SECONDS = SEQ_LIFT_AT + SEQ_LIFT;
+/** The introduction's goal holds its lit cups this long first; its helper starts this long after the rider steps up. */
+const GOAL_HOLD = 0.5, INTRO_HAND_AT = 0.35;
+/** Helper hand timeline: rise to the coin, press it, carry it to the target, then fade (or go back for the next coin). */
+const HAND_PRESS_AT = 0.5, HAND_CARRY_AT = 0.7, HAND_DROP_AT = 1.4, HAND_FADE = 0.5;
+/** Repeated carries of one demonstration (pennies to the swap stand) run quicker: back, press, carry. */
+const REP_BACK = 0.35, REP_PRESS = 0.15, REP_CARRY = 0.5;
 const FANFARE: SfxOptions = { variant: 'D' };
-const CUP_EMPTY = '#3c4150', CUP_RIM = '#e2b453', PLATE_FILL = '#fff4dc', PLATE_LINE = '#8a6232', HIGHLIGHT = '#fff6a3';
+const CUP_RIM = '#e2b453', PLATE_FILL = '#fff4dc', PLATE_LINE = '#8a6232', HIGHLIGHT = '#fff6a3';
+const NUM_FILL = '#5a3416', NUM_LIT = '#c77712';
 const DASH = [6, 6], NO_DASH: number[] = [];
 
 type Phase = 'play' | 'celebration' | 'choice' | 'sticker' | 'rest';
 type RiderPhase = 'enter' | 'pay' | 'paid';
-const ARRIVE = 0, LEAVE = 1, SEND = 2, REJECT = 3, RETURN = 4;
+/**
+ * Flight modes. ARRIVE: a coin slides onto the tray; LEAVE: off it; SEND: into the slot; REJECT: too much, back from
+ * the slot; RETURN: back from a miss; TO_STAND / TO_PAWS: onto the swap stand or into the animal's paws; BACK_STAND /
+ * BACK_PAWS: not wanted there, back to the tray; SWAPPED: a swapped coin hops from the stand onto the tray.
+ */
+const ARRIVE = 0, LEAVE = 1, SEND = 2, REJECT = 3, RETURN = 4, TO_STAND = 5, TO_PAWS = 6, BACK_STAND = 7, BACK_PAWS = 8, SWAPPED = 9;
 const HAND_DEMO = 1, HAND_TAP = 2, HAND_HINT = 3;
+/** Drop targets: the fare box, the swap stand (step 7), the animal's paws (step 8). */
+const T_BOX = 0, T_STAND = 1, T_PAWS = 2;
+/** Cup layouts: a 5 x 2 grid in the box (a second grid on the panel above 10), or rows of ten small cups (step 6). */
+const CUPS_GRID = 0, CUPS_ROWS = 1;
 
 interface Flight {
   active: boolean; mode: number; kind: number; n: number; place: number;
   x0: number; y0: number; x1: number; y1: number; t: number; dur: number; giggles: number;
 }
-interface CoinInfo { kind: string; face: 'heads' | 'tails'; x: number; y: number; d: number; place: number; count: number; hit: { x: number; y: number; w: number; h: number } | null }
-interface TargetInfo { kind: string; x: number; y: number; w: number; h: number; drawn?: { x: number; y: number; w: number; h: number } }
+interface Rect { x: number; y: number; w: number; h: number }
+interface CoinInfo { kind: string; face: 'heads' | 'tails'; x: number; y: number; d: number; place: number; count: number; dots: boolean; hit: Rect | null }
+interface TargetInfo { kind: string; x: number; y: number; w: number; h: number; drawn?: Rect }
+/** One group of cups: the box's grid, the panel's grid, or one row of ten (step 6), with how many are lit. */
+interface CupGroup { where: 'box' | 'panel'; row: number; total: number; lit: number; change: number }
 export interface RideFareStats {
   readonly step: number; readonly contentStep: number; readonly tier: Tier; readonly rounds: number; readonly phase: Phase; readonly riderPhase: RiderPhase;
   readonly intro: boolean; readonly introStage: number; readonly rider: number; readonly riders: number; readonly hits: number; readonly misses: number;
   readonly bounces: number; readonly stars: number; readonly stickerId: string; readonly choiceIds: readonly string[]; readonly hand: number;
   readonly carrying: boolean; readonly focus: number; readonly counted: readonly number[]; readonly learn: readonly number[];
+  /** The fare in cents (steps 1 and 7: the value of the plate's coins). */
+  readonly fare: number;
   readonly cups: { total: number; lit: number };
+  /** Drawn cup diameters in CSS px: the grids (steps 2-5, 8) and the rows of ten (step 6). */
+  readonly cupDiameter: { grid: number; rows: number };
+  /** Cups per panel (grid) or per row of ten (step 6), each with its lit count and (step 8) change cups still owed. */
+  readonly cupGroups: readonly CupGroup[];
+  /** Step 6 and 8: the numeral shown beside the cups (fare and, at step 6, the climbing count), or null. */
+  readonly numeral: { fare: number; counter: number; rect: Rect } | null;
+  /** Step 7: the swap stand (drawn rectangle, press zone, coins resting on it). */
+  readonly stand: { drawn: Rect; zone: Rect; kind: string; count: number; need: number } | null;
+  /** Step 8: the animal's paws target (rectangle and zone with the snap distance) and the change owed and still to hand back. */
+  readonly paws: { rect: Rect; zone: Rect; owed: number; left: number; paid: boolean } | null;
+  readonly demos: number;
+  readonly keyTarget: string;
   readonly plate: readonly { kind: string; lit: boolean }[];
   readonly coins: readonly CoinInfo[];
   readonly targets: readonly TargetInfo[];
@@ -110,7 +161,7 @@ const toTier = (n: unknown): Tier => (n === 1 ? 1 : n === 2 ? 2 : 0);
 const spriteName = (path: string): string => path.replace(/\.\w+$/, '');
 
 function artList(): { name: string; path: string }[] {
-  const paths = [`${BG}.webp`, `${BASKET}.webp`, `${ENVELOPE}.webp`, `${FAREBOX}.webp`, `${TRAY}.webp`, `${HAND}.webp`, `${BUTTON_PLAY}.png`, `${BUTTON_HOME}.png`, BOOK_ICON_PATH];
+  const paths = [`${BG}.webp`, `${BASKET}.webp`, `${ENVELOPE}.webp`, `${FAREBOX}.webp`, `${PANEL}.webp`, `${STAND}.webp`, `${TRAY}.webp`, `${HAND}.webp`, `${BUTTON_PLAY}.png`, `${BUTTON_HOME}.png`, BOOK_ICON_PATH];
   for (const pair of ANIMAL_NAMES) for (const n of pair) paths.push(`${n}.webp`);
   for (const pair of COIN_FACES) for (const n of pair) paths.push(`${n}.webp`);
   return [...paths.map(path => ({ name: spriteName(path), path })), ...STICKERS.filter(s => s.game === GAME_ID).map(s => ({ name: stickerSpriteName(s.id), path: s.path }))];
@@ -140,23 +191,62 @@ function bakeGlow(size: number, ratio: number, strong: boolean): HTMLCanvasEleme
   g.getImageData(0, 0, 1, 1);
   return c;
 }
-/** One dot cup, `r` in radius: an empty dark socket with a brass rim, or lit warm yellow. */
-function bakeCup(r: number, ratio: number, lit: boolean): HTMLCanvasElement {
-  const size = r * 2 + 6, { c, g } = cpuCanvas(size * ratio, size * ratio); if (!g) return c;
+/** Cup looks: an empty socket, lit warm yellow, or (step 8) a change cup lit copper like a penny. */
+const CUP_UNLIT = 0, CUP_LIT = 1, CUP_CHANGE = 2;
+/**
+ * One dot cup, `r` in radius to the outside of its brass rim (the rim is drawn inside, so the cup's whole size reads):
+ * an empty grey socket, lit warm yellow, or lit copper.
+ */
+function bakeCup(r: number, ratio: number, look: number): HTMLCanvasElement {
+  const size = r * 2 + 4, { c, g } = cpuCanvas(size * ratio, size * ratio); if (!g) return c;
   g.scale(ratio, ratio);
-  const cx = size / 2;
-  g.beginPath(); g.arc(cx, cx, r, 0, Math.PI * 2);
-  if (lit) {
+  const cx = size / 2, lw = Math.max(2, r * 0.16), ri = r - lw / 2;
+  g.beginPath(); g.arc(cx, cx, ri, 0, Math.PI * 2);
+  if (look === CUP_LIT) {
     const grad = g.createRadialGradient(cx - r * 0.25, cx - r * 0.3, r * 0.1, cx, cx, r);
     grad.addColorStop(0, '#fffbe0'); grad.addColorStop(0.55, '#ffd84f'); grad.addColorStop(1, '#f0a81e');
     g.fillStyle = grad;
+  } else if (look === CUP_CHANGE) {
+    const grad = g.createRadialGradient(cx - r * 0.25, cx - r * 0.3, r * 0.1, cx, cx, r);
+    grad.addColorStop(0, '#ffe2c4'); grad.addColorStop(0.55, '#e48a4e'); grad.addColorStop(1, '#a8501f');
+    g.fillStyle = grad;
   } else {
     const grad = g.createRadialGradient(cx, cx + r * 0.35, r * 0.1, cx, cx, r);
-    grad.addColorStop(0, '#8a8f9c'); grad.addColorStop(0.7, '#5d6271'); grad.addColorStop(1, CUP_EMPTY);
+    grad.addColorStop(0, '#9da2ad'); grad.addColorStop(0.7, '#727785'); grad.addColorStop(1, '#4d5260');
     g.fillStyle = grad;
   }
   g.fill();
-  g.lineWidth = Math.max(2.5, r * 0.2); g.strokeStyle = lit ? '#e09a1c' : CUP_RIM; g.stroke();
+  g.lineWidth = lw; g.strokeStyle = look === CUP_LIT ? '#e09a1c' : look === CUP_CHANGE ? '#8a4a1c' : CUP_RIM; g.stroke();
+  g.getImageData(0, 0, 1, 1);
+  return c;
+}
+/** A dashed ring `d` across: an empty place for a coin on the swap stand or on the tray. */
+function bakeRing(d: number, ratio: number, line: string): HTMLCanvasElement {
+  const size = d + 8, { c, g } = cpuCanvas(size * ratio, size * ratio); if (!g) return c;
+  g.scale(ratio, ratio);
+  const lw = Math.max(2.5, d * 0.045);
+  g.beginPath(); g.arc(size / 2, size / 2, d / 2, 0, Math.PI * 2);
+  g.fillStyle = 'rgba(255, 244, 220, 0.35)'; g.fill();
+  g.setLineDash([Math.max(5, d * 0.09), Math.max(4, d * 0.07)]); g.lineWidth = lw; g.strokeStyle = line; g.stroke();
+  g.getImageData(0, 0, 1, 1);
+  return c;
+}
+/** Glyphs "0" to "9" and the cent sign, baked once per size with the bundled font: x offset and width of each. */
+const GLYPHS = '0123456789¢';
+function bakeDigits(px: number, ratio: number, fill: string, offX: Float32Array, widths: Float32Array): HTMLCanvasElement {
+  const probe = cpuCanvas(1, 1).g, font = `700 ${Math.round(px)}px ${DISPLAY_FONT}`;
+  let total = 0;
+  if (probe) probe.font = font;
+  const pad = Math.ceil(px * 0.12);
+  for (let i = 0; i < GLYPHS.length; i++) {
+    const w = probe ? probe.measureText(GLYPHS[i]!).width : px * 0.6;
+    offX[i] = total + pad; widths[i] = w; total += w + pad * 2;
+  }
+  const h = Math.ceil(px * 1.35), { c, g } = cpuCanvas(total * ratio, h * ratio); if (!g) return c;
+  g.scale(ratio, ratio);
+  g.font = font; g.textAlign = 'left'; g.textBaseline = 'middle'; g.lineJoin = 'round';
+  g.lineWidth = Math.max(3, px * 0.14); g.strokeStyle = '#fff8e6'; g.fillStyle = fill;
+  for (let i = 0; i < GLYPHS.length; i++) { g.strokeText(GLYPHS[i]!, offX[i]!, h / 2 + px * 0.04); g.fillText(GLYPHS[i]!, offX[i]!, h / 2 + px * 0.04); }
   g.getImageData(0, 0, 1, 1);
   return c;
 }
@@ -195,23 +285,40 @@ export function createRideFareScene(services: AppServices): RideFareScene {
   // Tray places: coin kind, coins resting there, endless supply, and small timers (hop when pressed, spin on arrival).
   const pKind: number[] = [], pCount: number[] = [], pUnlimited: boolean[] = [];
   const pHop = new Float32Array(MAX_PLACES).fill(9), pX = new Float32Array(MAX_PLACES), pY = new Float32Array(MAX_PLACES);
+  /** Places whose coins came from the swap stand show their dots inside (step 7). */
+  const pDots = new Uint8Array(MAX_PLACES), pExtra = new Uint8Array(MAX_PLACES);
   let nPlaces = 0;
-  const cupPulse = new Float32Array(MAX_CUPS).fill(9);
+  const cupPulse = new Float32Array(MAX_CUPS).fill(9), cupX = new Float32Array(MAX_CUPS), cupY = new Float32Array(MAX_CUPS);
   const have = new Int32Array(3);
   const plateKind = new Int8Array(3), plateState = new Uint8Array(3), platePulse = new Float32Array(3).fill(9);
-  const carry = { active: false, sticky: false, place: 0, kind: 0, downAt: 0, downX: 0, downY: 0, deliberate: false };
-  const hand = { mode: 0, t: 0, place: 0, kind: 0, released: false };
+  const carry = { active: false, sticky: false, keyed: false, place: 0, kind: 0, downAt: 0, downX: 0, downY: 0, deliberate: false };
+  /** The helper hand: what it does, its clock, the place and coin it takes, its target, and further carries to make. */
+  const hand = { mode: 0, t: 0, place: 0, kind: 0, released: false, taken: false, target: T_BOX, reps: 0, cycle: 0, after: -1 };
   let data: RideData = defaultData();
   let W = 1366, H = 768, u = 1, fitS = 1;
   let bgCanvas: HTMLCanvasElement | undefined, bgX = 0, bgY = 0, bgScale = 1;
-  let trayCanvas: HTMLCanvasElement | undefined, cupCanvas: HTMLCanvasElement | undefined, litCanvas: HTMLCanvasElement | undefined;
+  let trayCanvas: HTMLCanvasElement | undefined;
+  /** Baked cups per look (unlit, lit, change): full-size cups for the grids and small ones for step 6's rows. */
+  const cupCanvas: (HTMLCanvasElement | undefined)[] = [undefined, undefined, undefined], smallCanvas: (HTMLCanvasElement | undefined)[] = [undefined, undefined, undefined];
   let glowCanvas: HTMLCanvasElement | undefined, dotCanvas: HTMLCanvasElement | undefined;
-  let artRatio = 0, glowSize = 0, dotSize = 0, bakedCupR = 0, bakedTray = '';
+  let ringStand: HTMLCanvasElement | undefined, ringStand2: HTMLCanvasElement | undefined, ringPlace: HTMLCanvasElement | undefined, digitsBig: HTMLCanvasElement | undefined, digitsLit: HTMLCanvasElement | undefined;
+  const digitX = new Float32Array(GLYPHS.length), digitW = new Float32Array(GLYPHS.length);
+  let artRatio = 0, glowSize = 0, dotSize = 0, bakedCupR = 0, bakedSmallR = 0, bakedTray = '', bakedRing = '', bakedDigits = 0, digitPad = 0;
   let phase: Phase = 'play', tier: Tier = 0, intro = false, introStage = 0, animalOffset = 0;
-  let riderPhase: RiderPhase = 'enter', riderT = 0, seqT = 0, seqSpeed = 1, riderIndex = 0, ridersTotal = 3;
-  let plan: RiderPlan = introRider(), fare = 0, lit = 0, reserved = 0, pourLeft = 0, pourTimer = 0, plateN = 0, lastFare = 0;
+  let riderPhase: RiderPhase = 'enter', riderT = 0, seqT = 0, riderIndex = 0, ridersTotal = 3, enterSeconds = 1;
+  let plan: RiderPlan = introRider(), fare = 0, lit = 0, reserved = 0, pourLeft = 0, pourTimer = 0, pourGap = POUR_GAP, plateN = 0, lastFare = 0;
+  /** Cups on show (step 8: the fare's cups plus the change cups) and how they are laid out. */
+  let nCups = 0, cupMode = CUPS_GRID, panelOn = false, numeralOn = false;
+  /** Step 8: cents of change owed after the animal's dime, still to hand back, and pennies on their way to the paws. */
+  let changeOwed = 0, changeLeft = 0, changeReserved = 0, animalPaid = false;
+  /** Step 7: coins resting on the swap stand, coins flying to it, and the swap's clock (-1 when no swap is running). */
+  let standKind = -1, standCount = 0, standIn = 0, mergeT = -1, mergeKind = 0;
+  /** Keyboard play with two targets: which target the held coin will drop on. */
+  let keyTarget = T_BOX;
   let riderAnimal = 0, riderAssisted = false, riderKeyed = false, riderDeliberate = true, riderBounced = false, nickelFirst = false, riderDrops = 0;
-  let bouncesHere = 0, lastPressAt = -9999, boxPulse = 9, boxHop = 9, gateHop = 9, queueHop = 9;
+  let bouncesHere = 0, lastPressAt = -9999, boxPulse = 9, boxHop = 9, gateHop = 9, queueHop = 9, standHop = 9, pawsHop = 9;
+  /** The fresh balloon landing after a lift-off, and the small balloon carrying the last rider across the sky. */
+  let landT = 9, driftT = 9, driftAnimal = 0;
   const roundCounted: number[] = [];
   let time = 0, sceneT = 0, phaseT = 0, idleT = 0;
   let hits = 0, misses = 0, bounces = 0, stars = 1, starsPlayed = 0, focus = 0;
@@ -226,9 +333,13 @@ export function createRideFareScene(services: AppServices): RideFareScene {
   let trayX = 0, trayY = 0, trayW = 0, trayH = 0, rowH = 0, rows = 1, placeW = 0, placeGap = 0, maxPlaces = 3;
   let basketL = 0, basketBottom = 0, BW = 0, BH = 0, EW = 0, EH = 0, animalH = 0;
   let boxX = 0, boxY = 0, boxW = 0, boxH = 0, zoneX0 = 0, zoneY0 = 0, zoneX1 = 0, zoneY1 = 0;
-  let gateX = 0, feetY = 0, cupR = 0;
+  let gateX = 0, feetY = 0, cupR = 0, smallR = 0;
+  /** The second panel (above the box), the numeral plate (right of the box), the swap stand and the animal's paws. */
+  let panelX = 0, panelY = 0, panelW = 0, panelH = 0, numX = 0, numY = 0, numW = 0, numH = 0, numPx = 0;
+  let standX = 0, standY = 0, standW = 0, standH = 0, sZoneX0 = 0, sZoneY0 = 0, sZoneX1 = 0, sZoneY1 = 0;
+  let pawsX0 = 0, pawsY0 = 0, pawsX1 = 0, pawsY1 = 0, pZoneX0 = 0, pZoneY0 = 0, pZoneX1 = 0, pZoneY1 = 0;
   /** The balloon's vertical offset (lift and landing) and the drifting small balloon's position. */
-  let liftY = 0, driftX = 0, driftY = 0, driftOn = false;
+  let liftY = 0, driftX = 0, driftY = 0;
   let starY = 0, starR = 0, cornerRadius = 48, cornerY = 60, homeX = 60, soundX = 1306, cornerFocus = -1;
   let choiceSize = 0, choiceY = 0, restSize = 0, restY = 0, controlsY = 0, controlsRadius = 60;
   const offers = createStickerOffers(sprites), bookAt = new Float32Array(2);
@@ -242,7 +353,13 @@ export function createRideFareScene(services: AppServices): RideFareScene {
   };
   const playable = (): boolean => phase === 'play';
   const contentStep = (): number => plan.step;
-  const usesPlate = (): boolean => plan.step <= 1 && plateN > 0;
+  const usesPlate = (): boolean => plateN > 0;
+  /** The round's content may need the second panel (any rider of step 5 or 6): the layout keeps room for it. */
+  const roundPanel = (): boolean => !intro && data.step >= 5;
+  const swapOn = (): boolean => plan.swap;
+  const pawsOn = (): boolean => plan.animalPays > 0 && riderPhase === 'pay';
+  /** Where the gate animal stands: where the swap stand would hide it (narrow windows), just left of the stand. */
+  const gateAt = (): number => (plan.swap ? Math.min(gateX, standX - animalH * 0.2) : gateX);
   const boxCX = (): number => boxX + boxW / 2;
   const slotX = (): number => boxX + boxW * SLOT_X;
   const slotY = (): number => boxY + boxH * SLOT_TOP + liftY;
@@ -282,7 +399,9 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     // Basket, fare box and gate animal: shrink together in 5 percent steps until everything fits on screen.
     for (fitS = 1; fitS >= 0.6; fitS -= 0.05) { placeBalloon(tp.box, tp.snap); if (fits()) break; }
     if (fitS < 0.6) { fitS = 0.6; placeBalloon(tp.box, tp.snap); }
+    placeExtras(tp.snap * u, tp.paws);
     if (nPlaces) placeCoins();
+    if (nCups) placeCups();
     // Celebration, choice and rest.
     const headerScale = Math.min(1.25, Math.max(0.6, Math.min(W / 1366, H / 768)));
     starR = 34 * headerScale; starY = 70 * headerScale;
@@ -298,7 +417,18 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     if (!glowCanvas || reratio || glow !== glowSize) { glowSize = glow; glowCanvas = bakeGlow(glowSize, artRatio, false); }
     const dot = Math.max(10, Math.round(coinD[PENNY]! * 0.26));
     if (!dotCanvas || reratio || dot !== dotSize) { dotSize = dot; dotCanvas = bakeGlow(dotSize, artRatio, true); }
-    if (!cupCanvas || reratio || cupR !== bakedCupR) { bakedCupR = cupR; cupCanvas = bakeCup(cupR, artRatio, false); litCanvas = bakeCup(cupR, artRatio, true); }
+    if (!cupCanvas[0] || reratio || cupR !== bakedCupR) { bakedCupR = cupR; for (let k = 0; k < 3; k++) cupCanvas[k] = bakeCup(cupR, artRatio, k); }
+    if (roundPanel() && (!smallCanvas[0] || reratio || smallR !== bakedSmallR)) { bakedSmallR = smallR; for (let k = 0; k < 3; k++) smallCanvas[k] = bakeCup(smallR, artRatio, k); }
+    const ringKey = `${coinD[PENNY]}/${standW}@${artRatio}`;
+    if (roundPanel() && ringKey !== bakedRing) {
+      bakedRing = ringKey;
+      ringStand = bakeRing(standCoinD(5), artRatio, PLATE_LINE); ringStand2 = bakeRing(standCoinD(2), artRatio, PLATE_LINE); ringPlace = bakeRing(coinD[NICKEL]! * 0.96, artRatio, PLATE_LINE);
+    }
+    if (roundPanel() && (!digitsBig || reratio || numPx !== bakedDigits)) {
+      bakedDigits = numPx; digitPad = Math.ceil(numPx * 0.12);
+      digitsBig = bakeDigits(numPx, artRatio, NUM_FILL, digitX, digitW);
+      digitsLit = bakeDigits(numPx, artRatio, NUM_LIT, digitX, digitW);
+    }
     const trayKey = `${trayW}x${trayH}@${artRatio}`, trayImg = sprites.get(TRAY);
     if (trayImg && trayKey !== bakedTray) { bakedTray = trayKey; trayCanvas = bakeTray(trayImg, trayW, trayH, artRatio); }
     planWarm();
@@ -336,15 +466,71 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     zoneY0 = Math.max(zoneY0, cornerY + cornerRadius + 4);
     gateX = basketL + BW + 16 * s + animalH * 0.34;
     feetY = trayY + 10 * s;
-    const win = boxW * (WIN_X1 - WIN_X0) / 5, winH = boxH * (WIN_Y1 - WIN_Y0) / 2;
-    cupR = Math.max(7, Math.round(Math.min(win, winH) * 0.42));
+    // Cups fill the window as in the concept: five across with a thin gap, the brass rim inside each cup.
+    const wx = boxW * (WIN_X1 - WIN_X0), wy = boxH * (WIN_Y1 - WIN_Y0);
+    cupR = Math.max(7, Math.floor(Math.min(wx / 5 * 0.48, wy / 2 * 0.44)));
+    // The second panel sits above the box on the basket's rim, centred on the box's window.
+    panelW = Math.round(boxW * PANEL_W); panelH = Math.round(panelW * 264 / 600);
+    panelX = Math.max(6, Math.round(boxX + boxW * (WIN_X0 + WIN_X1) / 2 - panelW / 2));
+    panelY = Math.round(boxY - 6 * s - panelH);
+    // Step 6: rows of ten small cups (five, a gap, five), five rows in the box's window and five more in the panel's.
+    const pwx = panelW * (PWIN_X1 - PWIN_X0), pwy = panelH * (PWIN_Y1 - PWIN_Y0);
+    smallR = Math.max(4, Math.floor(0.46 * Math.min(wx / 10.6, wy / 5, pwx / 10.6, pwy / 5)));
+    // The numeral plate hangs on the basket right of the box.
+    numH = Math.round(boxH * 0.5); numW = Math.round(numH * 1.15);
+    numX = boxX + boxW + Math.round(6 * s); numY = Math.round(boxY + (boxH - numH) / 2);
+    numPx = Math.max(12, Math.round(numH * 0.42));
   }
   /** Everything on screen: the whole fare box and its press zone, clear of the tray and the Home button, and the gate animal. */
   function fits(): boolean {
     if (boxX + boxW > W - 6 || boxY < 4 || boxY + boxH > trayY - 4 || zoneY1 - zoneY0 < 128) return false;
-    const nx = Math.min(boxX + boxW, Math.max(boxX, homeX)), ny = Math.min(boxY + boxH, Math.max(boxY, cornerY));
-    if (Math.hypot(homeX - nx, cornerY - ny) < cornerRadius + 4) return false;
+    if (clearsHome(boxX, boxY, boxW, boxH)) return false;
+    if (roundPanel() && (panelY < 4 || clearsHome(panelX, panelY, panelW, panelH) || numX + numW > W - 4)) return false;
     return gateX + animalH * 0.36 <= W - 4;
+  }
+  /** Whether a rectangle comes within reach of the Home button. */
+  function clearsHome(x: number, y: number, w: number, h: number): boolean {
+    const nx = Math.min(x + w, Math.max(x, homeX)), ny = Math.min(y + h, Math.max(y, cornerY));
+    return Math.hypot(homeX - nx, cornerY - ny) < cornerRadius + 4;
+  }
+  /** Coin size on the swap stand: `n` coins side by side between its posts. */
+  const standCoinD = (n: number): number => Math.round(Math.min(standW * (STAND_X1 - STAND_X0) / n * 0.9, coinD[NICKEL]!));
+  /** The swap stand (step 7) on the meadow at the right, and the animal's paws (step 8), each with its press zone. */
+  function placeExtras(snap: number, paws: readonly [number, number]): void {
+    standW = Math.round(STAND_W * u); standH = Math.round(standW * 700 / 582);
+    standX = Math.round(W - Math.max(6, 20 * u) - standW);
+    standY = Math.round(trayY + 10 * u - standH);
+    standY = Math.max(standY, Math.round(cornerY + cornerRadius * 0.5));
+    sZoneX0 = standX + standW * 0.04 - snap; sZoneX1 = standX + standW * 0.96 + snap;
+    sZoneY0 = Math.max(cornerY + cornerRadius + 4, standY + standH * STAND_ZONE_Y0 - snap); sZoneY1 = Math.min(trayY - 2, standY + standH * STAND_ZONE_Y1 + snap);
+    const pw = Math.max(96, paws[0] * u), ph = Math.max(96, paws[1] * u), cy = feetY - animalH * 0.42;
+    pawsX0 = gateX - pw / 2; pawsX1 = gateX + pw / 2; pawsY0 = cy - ph / 2; pawsY1 = Math.min(trayY - 4, cy + ph / 2);
+    if (pawsY1 - pawsY0 < 96) pawsY0 = pawsY1 - 96;
+    pZoneX0 = Math.max(zoneX1 + 2, pawsX0 - snap); pZoneX1 = Math.min(W, pawsX1 + snap);
+    pZoneY0 = Math.max(cornerY + cornerRadius + 4, pawsY0 - snap); pZoneY1 = Math.min(trayY - 2, pawsY1 + snap);
+  }
+  /**
+   * Cup centres for the current fare. Grid: the box's window holds ten (two rows of five; one middle row for five or
+   * fewer), the panel's window the next ten. Rows (step 6): ten to a row with a gap after five, five rows in the box,
+   * then five in the panel.
+   */
+  function placeCups(): void {
+    const wx0 = boxX + boxW * WIN_X0, wx1 = boxX + boxW * WIN_X1, wy0 = boxY + boxH * WIN_Y0, wy1 = boxY + boxH * WIN_Y1;
+    const px0 = panelX + panelW * PWIN_X0, px1 = panelX + panelW * PWIN_X1, py0 = panelY + panelH * PWIN_Y0, py1 = panelY + panelH * PWIN_Y1;
+    for (let i = 0; i < nCups; i++) {
+      const inPanel = cupMode === CUPS_GRID ? i >= 10 : i >= 50;
+      const x0 = inPanel ? px0 : wx0, x1 = inPanel ? px1 : wx1, y0 = inPanel ? py0 : wy0, y1 = inPanel ? py1 : wy1;
+      if (cupMode === CUPS_GRID) {
+        const j = i % 10, row = j < 5 ? 0 : 1, col = j % 5, count = inPanel ? nCups - 10 : Math.min(10, nCups);
+        // Rows spread over the window, as in the concept; five or fewer sit in one middle row.
+        cupX[i] = x0 + (col + 0.5) * (x1 - x0) / 5;
+        cupY[i] = count > 5 ? y0 + (y1 - y0) * (row === 0 ? 0.27 : 0.73) : (y0 + y1) / 2;
+      } else {
+        const j = i % 50, row = Math.floor(j / 10), col = j % 10, pitch = (x1 - x0) / 10.6;
+        cupX[i] = x0 + pitch * (col + 0.5 + (col >= 5 ? 0.6 : 0));
+        cupY[i] = y0 + (y1 - y0) * (row + 0.5) / 5;
+      }
+    }
   }
   function releaseArt(): void {
     for (const name of OWN_ART) sprites.clearScaled(name);
@@ -354,6 +540,9 @@ export function createRideFareScene(services: AppServices): RideFareScene {
   function ensureBackground(): void {
     if (bgCanvas) return;
     const image = sprites.get(BG); if (!image) return;
+    // The background may finish loading after the last layout: fit it to the window now, never at a stale scale.
+    bgScale = Math.max(W / image.naturalWidth, H / image.naturalHeight);
+    bgX = (W - image.naturalWidth * bgScale) / 2; bgY = (H - image.naturalHeight * bgScale) / 2;
     bgCanvas = sprites.scaled(BG, bgScale);
     note(BG, bgScale, 1);
   }
@@ -375,62 +564,130 @@ export function createRideFareScene(services: AppServices): RideFareScene {
   }
 
   // ---------------------------------------------------------------- riders
+  /** A new step's demonstration: shown once per profile, the first time a rider shows that step's content. */
+  const demoDue = (step: number): boolean => !intro && step >= 5 && (data.demos & (1 << step)) === 0;
+  let demoStarted = false;
   function startRider(i: number): void {
     riderIndex = i;
-    plan = intro && introStage === 2 && i === 0 ? introRider() : planRider(riderStep(data.step, i), random, lastFare);
+    const step = riderStep(data.step, i);
+    // The first swap a profile sees is the simplest one (five pennies make the nickel the plate asks for).
+    plan = intro && introStage === 2 && i === 0 ? introRider() : step === 7 && demoDue(7) ? swapRider(0) : planRider(step, random, lastFare);
     fare = plan.fare; lit = 0; reserved = 0; pourLeft = 0; pourTimer = 0;
     plateN = plan.plate.length;
     for (let k = 0; k < 3; k++) { plateKind[k] = plan.plate[k] ?? 0; plateState[k] = 0; platePulse[k] = 9; }
     lastFare = plan.step <= 1 ? plateN : fare;
-    cupPulse.fill(9);
+    // Cups: none with a plate; at step 8 the fare's cups and, once the dime pours, the change cups up to ten.
+    changeOwed = plan.animalPays ? plan.animalPays - fare : 0; changeLeft = 0; changeReserved = 0; animalPaid = false;
+    nCups = usesPlate() ? 0 : plan.animalPays ? plan.animalPays : fare;
+    cupMode = plan.step === 6 ? CUPS_ROWS : CUPS_GRID;
+    panelOn = cupMode === CUPS_GRID ? nCups > 10 : nCups > 50;
+    numeralOn = plan.step === 6 || plan.step === 8;
+    standKind = -1; standCount = 0; standIn = 0; mergeT = -1;
+    cupPulse.fill(9); placeCups();
     riderAnimal = intro ? (1 + i) % ANIMALS.length : (animalOffset + i) % ANIMALS.length;
     riderAssisted = intro && i === 0; riderKeyed = false; riderDeliberate = true; riderBounced = false; nickelFirst = false; riderDrops = 0;
-    bouncesHere = 0; idleT = 0; liftY = 0;
+    bouncesHere = 0; idleT = 0; demoStarted = false; keyTarget = T_BOX;
     riderPhase = 'enter'; riderT = 0;
     // Coins left from the last rider slide away; the new ones slide in from the right and spin as they settle.
     for (let p = 0; p < nPlaces; p++) if (pCount[p]! > 0) launch(LEAVE, pKind[p]!, Math.min(5, pCount[p]!), p, pX[p]!, pY[p]!, pX[p]! - W, pY[p]!, LEAVE_SECONDS);
-    nPlaces = arrangeTray(plan.tray, maxPlaces, pKind, pCount, pUnlimited);
+    nPlaces = arrangeTray(plan.tray, Math.max(1, maxPlaces - plan.extra.length), pKind, pCount, pUnlimited);
+    // Step 7: coins from the swap stand land on empty places of their own, shown as dashed rings.
+    for (const kind of plan.extra) { pKind.push(kind); pCount.push(0); pUnlimited.push(false); nPlaces++; }
     placeCoins();
     for (let p = 0; p < nPlaces; p++) {
-      const n = pCount[p]!; pCount[p] = 0; pHop[p] = 9;
-      const f = launch(ARRIVE, pKind[p]!, n, p, W + coinD[1]! + p * 30 * u, pY[p]!, pX[p]!, pY[p]!, ARRIVE_SECONDS + p * 0.07);
-      if (f) f.t = -0.12 * p;
+      const n = pCount[p]!; pCount[p] = 0; pHop[p] = 9; pDots[p] = 0; pExtra[p] = p >= nPlaces - plan.extra.length ? 1 : 0;
+      if (n <= 0) continue;
+      const f = launch(ARRIVE, pKind[p]!, n, p, W + coinD[1]! + p * 30 * u, pY[p]!, pX[p]!, pY[p]!, ARRIVE_SECONDS);
+      if (f) f.t = -ARRIVE_STAGGER * p;
     }
+    enterSeconds = ARRIVE_SECONDS + ARRIVE_STAGGER * Math.max(0, nPlaces - 1) + 0.05;
     focus = 0;
     play('pop-big', 'D', 2, 0.5);
-    if (plan.step > 1) playVoice(audio, NUMBER_CLIPS[Math.min(20, fare)]!);
+    if (plan.step > 1 && !usesPlate() && (fare <= 20 || fare % 10 === 0)) playVoice(audio, NUMBER_CLIPS[fare]!);
   }
-  /** Coins this place can still give. */
-  const available = (p: number): number => (pCount[p]! > 0 ? pCount[p]! : 0);
-  /** Whether a coin of this kind would be taken now (fits the unlit cups or matches an unlit picture). */
+  /** Whether place p has a coin to give. */
+  const available = (p: number): boolean => p >= 0 && p < nPlaces && pCount[p]! > 0;
+  /** The first place holding a coin of this kind, or -1. */
+  const placeOf = (kind: number): number => { for (let p = 0; p < nPlaces; p++) if (pKind[p] === kind && pCount[p]! > 0) return p; return -1; };
+  /** Whether the fare box would take a coin of this kind now (fits the unlit cups or matches an unpaid picture). */
   function fitsNow(kind: number): boolean {
     if (usesPlate()) { for (let k = 0; k < plateN; k++) if (plateState[k] === 0 && plateKind[k] === kind) return true; return false; }
+    if (plan.animalPays) return false;
     return COIN_VALUE[kind]! <= fare - reserved;
   }
+  /** Coins in play by kind, into `have`: on the tray, in the hand, flying (not into the slot or paws), on the swap stand. */
+  function countCoins(): void {
+    have[PENNY] = 0; have[NICKEL] = 0; have[DIME] = 0;
+    for (let p = 0; p < nPlaces; p++) have[pKind[p]!]! += pCount[p]!;
+    for (const f of flights) if (f.active && f.mode !== LEAVE && f.mode !== SEND && f.mode !== TO_PAWS) have[f.kind]! += f.n;
+    if (carry.active) have[carry.kind]!++;
+    if (hand.mode === HAND_DEMO && hand.taken && !hand.released) have[hand.kind]!++;
+    if (standKind >= 0) have[standKind]! += standCount;
+  }
+  /** Coins the swap stand needs for one swap: five pennies make a nickel, two nickels a dime. */
+  const standNeed = (kind: number): number => (kind === PENNY ? 5 : 2);
+  /**
+   * Whether the swap stand takes a coin of this kind now. Pennies while the plate still wants its coin and the stand
+   * holds pennies or nothing; nickels only when the plate wants a dime and no penny is left anywhere (so pennies and
+   * a lone nickel never block each other on the stand).
+   */
+  function standTakes(kind: number): boolean {
+    if (!plan.swap || mergeT >= 0 || plateState[0] !== 0) return false;
+    if (kind === PENNY) return (standKind < 0 || standKind === PENNY) && standCount + standIn < 5;
+    if (kind !== NICKEL || plateKind[0] !== DIME || (standKind >= 0 && standKind !== NICKEL) || standCount + standIn >= 2) return false;
+    countCoins();
+    return have[PENNY] === 0;
+  }
+  /** The kind of coin the stand is collecting: what lies on it, else pennies while any are left, else nickels. */
+  function standMode(): number {
+    if (standKind >= 0) return standKind;
+    for (const f of flights) if (f.active && f.mode === TO_STAND) return f.kind;
+    countCoins();
+    return have[PENNY]! > 0 ? PENNY : NICKEL;
+  }
+  /** Whether the empty stand shows its dotted circles: only while it would take a coin (not once the plate is satisfied or wants a nickel already made). */
+  function standOpen(): boolean {
+    if (standKind >= 0 || standIn > 0) return true;
+    if (!plan.swap || plateState[0] !== 0) return false;
+    return standMode() === PENNY || plateKind[0] === DIME;
+  }
+  /** Centre of coin `i` of `n` on the swap stand's table, into pos. */
+  function standSlot(i: number, n: number): void {
+    const d = standCoinD(n);
+    pos.x = standX + standW * (STAND_X0 + (i + 0.5) * (STAND_X1 - STAND_X0) / n);
+    pos.y = standY + standH * STAND_TABLE - d * 0.55;
+  }
+  const pawsCX = (): number => gateX;
+  const pawsCY = (): number => (pawsY0 + pawsY1) / 2;
+  /** Where a coin goes on a target, into pos: the slot's top, the stand's next free circle, the paws. */
+  function targetPoint(target: number, kind: number): void {
+    if (target === T_STAND) { const m = standMode(); standSlot(Math.min(standNeed(m) - 1, standCount + standIn), standNeed(m)); return; }
+    if (target === T_PAWS) { pos.x = pawsCX(); pos.y = pawsCY(); return; }
+    pos.x = slotX(); pos.y = slotY() - coinD[kind]! * 0.35;
+  }
+  /** Start a rider's highlight on a coin that fits the fare box (or the first coin). */
   function ensureFocus(): void {
-    if (focus < nPlaces && available(focus) && fitsNow(pKind[focus]!)) return;
+    if (available(focus) && fitsNow(pKind[focus]!)) return;
     for (let p = 0; p < nPlaces; p++) if (available(p) && fitsNow(pKind[p]!)) { focus = p; return; }
-    if (focus < nPlaces && available(focus)) return;
+    if (available(focus)) return;
     for (let p = 0; p < nPlaces; p++) if (available(p)) { focus = p; return; }
   }
+  /** Keep the highlight on the coin the child chose; move it only when that place has run out. */
+  function keepFocus(): void { if (!available(focus)) ensureFocus(); }
   function moveFocus(step: number): void {
     for (let k = 1; k <= nPlaces; k++) { const p = (focus + step * k + nPlaces * 4) % nPlaces; if (available(p)) { focus = p; return; } }
   }
   /**
-   * Whatever order the coins come in, the fare stays payable: unlimited stacks stay full, and when the pennies and
-   * nickels left (on the tray, in the hand, or on their way back) cannot make the unlit cups exactly, pennies are added.
+   * Whatever order the coins come in, the fare stays payable: unlimited stacks stay full, and when the dimes, nickels
+   * and pennies left (on the tray, in the hand, or on their way back) cannot make the unlit cups exactly, pennies are added.
    */
   function refill(): void {
     for (let p = 0; p < nPlaces; p++) if (pUnlimited[p] && pCount[p]! < 5) pCount[p] = 5;
-    if (usesPlate() || riderPhase !== 'pay') return;
+    if (usesPlate() || plan.animalPays || riderPhase !== 'pay') return;
     const need = fare - reserved; if (need <= 0) return;
-    // Coin counts by kind, in a preallocated table (this runs every frame).
-    have[PENNY] = 0; have[NICKEL] = 0; have[2] = 0;
-    for (let p = 0; p < nPlaces; p++) have[pKind[p]!]! += pCount[p]!;
-    for (const f of flights) if (f.active && (f.mode === RETURN || f.mode === REJECT || f.mode === ARRIVE)) have[f.kind]! += f.n;
-    if (carry.active) have[carry.kind]!++;
-    if (hand.mode === HAND_DEMO && hand.kind >= 10 && !hand.released) have[hand.kind % 10]!++;
-    const short = need - 5 * Math.min(have[NICKEL]!, Math.floor(need / 5)) - have[PENNY]!;
+    countCoins();
+    const rest = need - 10 * Math.min(have[DIME]!, Math.floor(need / 10));
+    const short = rest - 5 * Math.min(have[NICKEL]!, Math.floor(rest / 5)) - have[PENNY]!;
     if (short <= 0) return;
     for (let p = 0; p < nPlaces; p++) if (pKind[p] === PENNY) { pCount[p] = pCount[p]! + short; return; }
   }
@@ -444,32 +701,74 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     arrive(mode, kind, n, place);
     return undefined;
   }
+  /** A coin is on its way into the slot or pouring, or the helper is showing: new coins wait (the pressed one hops). */
   const busy = (): boolean => {
     if (pourLeft > 0 || hand.mode === HAND_DEMO) return true;
     for (const f of flights) if (f.active && (f.mode === SEND || f.mode === REJECT)) return true;
     return false;
   };
   /**
-   * Drop a coin into the fare box. `deliberate`: a pointer choice long enough after the previous drop to count as
-   * learning evidence. `keyed`: sent with a key (plays fully, never evidence).
+   * Drop a coin on a target (fare box, swap stand, paws). `deliberate`: a pointer choice long enough after the previous
+   * press to count as learning evidence. `keyed`: sent with a key (plays fully, never evidence).
    */
-  function dropCoin(kind: number, place: number, fromX: number, fromY: number, deliberate: boolean, keyed: boolean): void {
-    let take = false;
-    if (usesPlate()) {
-      for (let k = 0; k < plateN; k++) if (plateState[k] === 0 && plateKind[k] === kind) { plateState[k] = 1; take = true; break; }
-    } else if (COIN_VALUE[kind]! <= fare - reserved) { reserved += COIN_VALUE[kind]!; take = true; }
+  function dropTo(target: number, kind: number, place: number, fromX: number, fromY: number, deliberate: boolean, keyed: boolean): void {
     if (keyed) riderKeyed = true;
     if (!deliberate && !keyed) riderDeliberate = false;
-    if (riderDrops === 0 && kind === NICKEL && deliberate) nickelFirst = true;
-    riderDrops++;
-    if (!take) { riderBounced = true; bouncesHere++; bounces++; }
-    launch(take ? SEND : REJECT, kind, 1, place, fromX, fromY, slotX(), slotY(), take ? SEND_SECONDS : REJECT_SECONDS);
-    idleT = 0;
+    if (riderDrops === 0 && kind === NICKEL && deliberate && target === T_BOX) nickelFirst = true;
+    riderDrops++; idleT = 0;
+    let take = false;
+    if (target === T_STAND) {
+      take = standTakes(kind);
+      targetPoint(T_STAND, kind);
+      if (take) standIn++;
+      launch(take ? TO_STAND : BACK_STAND, kind, 1, place, fromX, fromY, pos.x, pos.y, take ? TO_SECONDS : TO_SECONDS + BACK_HOLD + BACK_HOP);
+    } else if (target === T_PAWS) {
+      take = kind === PENNY && animalPaid && changeReserved < changeOwed;
+      if (take) changeReserved++;
+      launch(take ? TO_PAWS : BACK_PAWS, kind, 1, place, fromX, fromY, pawsCX(), pawsCY(), take ? TO_SECONDS : TO_SECONDS + BACK_HOLD + BACK_HOP);
+    } else {
+      if (usesPlate()) {
+        for (let k = 0; k < plateN; k++) if (plateState[k] === 0 && plateKind[k] === kind) { plateState[k] = 1; take = true; break; }
+      } else if (!plan.animalPays && COIN_VALUE[kind]! <= fare - reserved) { reserved += COIN_VALUE[kind]!; take = true; }
+      launch(take ? SEND : REJECT, kind, 1, place, fromX, fromY, slotX(), slotY(), take ? SEND_SECONDS : REJECT_SECONDS);
+    }
+    if (!take) {
+      riderBounced = true; bouncesHere++; bounces++;
+      // Keyboard play: after a coin hops back, the highlight moves to a coin that helps, so pressing on never stalls.
+      if (keyed) focusHelpful();
+    }
   }
+  /** Highlight a coin that helps now: one the fare box takes (largest first), else one the stand takes, else a penny for the paws. */
+  function focusHelpful(): void {
+    let best = -1;
+    for (let p = 0; p < nPlaces; p++) if (available(p) && fitsNow(pKind[p]!) && (best < 0 || COIN_VALUE[pKind[p]!]! > COIN_VALUE[pKind[best]!]!)) best = p;
+    if (best < 0 && plan.swap) for (let p = 0; p < nPlaces; p++) if (available(p) && standTakes(pKind[p]!)) { best = p; break; }
+    if (best < 0 && plan.animalPays) best = placeOf(PENNY);
+    if (best >= 0) focus = best;
+  }
+  /** A flight has landed. */
   function arrive(mode: number, kind: number, n: number, place: number): void {
-    if (mode === ARRIVE || mode === RETURN || mode === REJECT) {
-      if (place < nPlaces && pKind[place] === kind) { pCount[place]! += n; pHop[place] = mode === ARRIVE ? 0 : pHop[place]!; }
+    if (mode === ARRIVE || mode === RETURN || mode === REJECT || mode === BACK_STAND || mode === BACK_PAWS || mode === SWAPPED) {
+      let p = place;
+      if (p < 0 || p >= nPlaces || pKind[p] !== kind) { p = -1; for (let q = 0; q < nPlaces; q++) if (pKind[q] === kind) { p = q; break; } }
+      if (p >= 0) {
+        pCount[p]! += n;
+        if (mode === ARRIVE || mode === SWAPPED) pHop[p] = 0;
+        if (mode === SWAPPED) pDots[p] = 1;
+      }
       if (mode === ARRIVE) play('tick', 'B', 2 + place, 0.35);
+      else if (mode === SWAPPED) play('tick', 'B', 7, 0.7);
+      return;
+    }
+    if (mode === TO_STAND) {
+      standIn = Math.max(0, standIn - 1); standCount++; standKind = kind; standHop = 0;
+      play('tick', 'B', standCount * 2, 0.6);
+      if (standCount >= standNeed(kind)) { mergeT = 0; mergeKind = kind === PENNY ? NICKEL : DIME; }
+      return;
+    }
+    if (mode === TO_PAWS) {
+      changeLeft = Math.max(0, changeLeft - 1); pawsHop = 0;
+      play('pop', 'C', changeOwed - changeLeft, 0.7);
       return;
     }
     if (mode !== SEND) return;
@@ -477,21 +776,22 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     boxPulse = 0;
     if (usesPlate()) {
       for (let k = 0; k < plateN; k++) if (plateState[k] === 1 && plateKind[k] === kind) { plateState[k] = 2; platePulse[k] = 0; play('tick', 'C', k * 2, 0.8); break; }
-    } else { pourLeft += COIN_VALUE[kind]!; if (pourTimer < 0) pourTimer = 0; }
+    } else { pourLeft += COIN_VALUE[kind]!; pourGap = COIN_VALUE[kind]! >= 10 ? POUR_GAP_FAST : POUR_GAP; if (pourTimer < 0) pourTimer = 0; }
   }
   function checkPaid(): void {
     if (riderPhase !== 'pay' || pourLeft > 0) return;
-    for (const f of flights) if (f.active && f.mode === SEND) return;
+    for (const f of flights) if (f.active && (f.mode === SEND || f.mode === TO_PAWS)) return;
     if (usesPlate()) { for (let k = 0; k < plateN; k++) if (plateState[k] !== 2) return; }
+    else if (plan.animalPays) { if (!animalPaid || changeLeft > 0 || changeReserved < changeOwed) return; }
     else if (lit < fare) return;
     farePaid();
   }
   function farePaid(): void {
-    riderPhase = 'paid'; seqT = 0; seqSpeed = 1;
-    if (carry.active) { carry.active = false; launch(RETURN, carry.kind, 1, carry.place, input.pointer.x, input.pointer.y, pX[carry.place]!, pY[carry.place]!, RETURN_SECONDS); }
+    riderPhase = 'paid'; seqT = 0;
+    if (carry.active) { carry.active = false; carry.keyed = false; launch(RETURN, carry.kind, 1, carry.place, input.pointer.x, input.pointer.y, pX[carry.place]!, pY[carry.place]!, RETURN_SECONDS); }
     if (hand.mode === HAND_HINT || hand.mode === HAND_TAP) hand.mode = 0;
     // Learning evidence: only riders at the current step, paid with deliberate pointer choices, without a hint or keys.
-    const counted = !intro && !riderAssisted && !riderKeyed && riderDeliberate && riderDrops > 0 && plan.step === Math.min(BUILT_STEP, data.step);
+    const counted = !intro && !riderAssisted && !riderKeyed && riderDeliberate && riderDrops > 0 && plan.step === data.step;
     if (counted) {
       const exact = plan.step === 3 ? nickelFirst && !riderBounced : !riderBounced;
       recordRider(data, exact); roundCounted.push(exact ? 1 : 0);
@@ -501,16 +801,31 @@ export function createRideFareScene(services: AppServices): RideFareScene {
   /** The introduction's goal: every cup lit and the hedgehog riding, before any coin is shown. */
   function startGoal(): void {
     introStage = 1;
-    plan = { step: 3, fare: 5, plate: [], tray: [] }; fare = 5; lit = 5; reserved = 5; plateN = 0; pourLeft = 0;
+    plan = { step: 3, fare: 5, plate: [], tray: [], swap: false, extra: [], animalPays: 0 }; fare = 5; lit = 5; reserved = 5; plateN = 0; pourLeft = 0;
+    nCups = 5; cupMode = CUPS_GRID; panelOn = false; numeralOn = false; changeOwed = 0; placeCups();
     riderAnimal = 0;
-    riderPhase = 'paid'; seqT = 0; seqSpeed = GOAL_SPEED; riderT = 0;
+    // The lit cups show alone for a moment before the sequence starts.
+    riderPhase = 'paid'; seqT = -GOAL_HOLD; riderT = 0;
   }
   function sequenceDone(): void {
+    // A fresh balloon lands while the small one carries the rider away across the sky.
+    landT = 0; driftT = 0; driftAnimal = riderAnimal;
     if (introStage === 1) { introStage = 2; startRider(0); return; }
     if (riderIndex + 1 < ridersTotal) startRider(riderIndex + 1);
     else finishRound();
   }
-
+  /** A new step's one demonstration: the helper hand shows the new idea, then (where useful) taps the coin to use. */
+  function startDemo(step: number): void {
+    data.demos |= 1 << step; riderAssisted = true; demoStarted = true;
+    const kind = step === 7 || step === 8 ? PENNY : DIME, p = placeOf(kind);
+    if (p < 0) return;
+    // Step 7: five pennies onto the stand one by one; step 8: one penny into the paws; steps 5 and 6: a dime into the slot.
+    startHand(p, kind, step === 7 ? T_STAND : step === 8 ? T_PAWS : T_BOX, step === 7 ? 5 : 1, step === 7 ? NICKEL : step === 8 ? PENNY : -1);
+  }
+  function startHand(place: number, kind: number, target: number, reps: number, after: number): void {
+    hand.mode = HAND_DEMO; hand.t = 0; hand.place = place; hand.kind = kind; hand.released = false; hand.taken = false;
+    hand.target = target; hand.reps = reps; hand.cycle = 0; hand.after = after;
+  }
   // ---------------------------------------------------------------- round
   function startRound(): void {
     pending = null; data.pending = null; bookGlide = false;
@@ -520,9 +835,10 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     phase = 'play'; phaseT = time = idleT = 0;
     ridersTotal = intro ? 3 : TIERS[tier].riders;
     hits = misses = bounces = 0; stars = 1; starsPlayed = 0; focus = 0; roundCounted.length = 0;
-    carry.active = false; hand.mode = 0; introStage = 0; driftOn = false; liftY = 0;
+    carry.active = false; carry.keyed = false; hand.mode = 0; introStage = 0; liftY = 0; landT = 9; driftT = 9;
     particles.clear(); for (const f of flights) f.active = false;
-    nPlaces = 0;
+    nPlaces = 0; nCups = 0; plateN = 0; lastFare = 0;
+    plan = introRider();
     layout(W, H);
     if (intro) startGoal(); else startRider(0);
     guard(PLAY_GUARD_MS); cornerFocus = -1; services.save.flush();
@@ -548,7 +864,7 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     const bag = rewards(services); bag.rounds[GAME_ID] = (bag.rounds[GAME_ID] ?? 0) + 1;
     if (services.config.rewardsEnabled) bag.stars += stars;
     services.save.flush();
-    phase = 'celebration'; phaseT = 0; starsPlayed = 0; carry.active = false; hand.mode = 0; cornerFocus = -1;
+    phase = 'celebration'; phaseT = 0; starsPlayed = 0; carry.active = false; carry.keyed = false; hand.mode = 0; cornerFocus = -1; driftT = 9;
     for (const f of flights) f.active = false; particles.clear(); layout(W, H);
     play('fanfare', FANFARE.variant!);
     confettiBurst(particles, W / 2, H * 0.45, 70, 380 * u);
@@ -592,6 +908,8 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     warmNames.length = 0; warmSizes.length = 0; warmIndex = 0;
     const add = (name: string, size: number): void => { warmNames.push(name); warmSizes.push(Math.round(size)); };
     const k = celebK();
+    // The age-6 pieces first, so they are scaled before the rider that uses them steps up.
+    if (roundPanel()) { add(PANEL, panelW); add(STAND, standH); }
     add(BASKET, BH * k); add(ENVELOPE, EH * k);
     for (const pair of ANIMAL_NAMES) { add(pair[1], animalH * k); add(pair[1], restSize * 0.62); }
     add(BASKET, BH * DRIFT_K); add(ENVELOPE, EH * DRIFT_K);
@@ -625,44 +943,78 @@ export function createRideFareScene(services: AppServices): RideFareScene {
   const celebK = (): number => Math.min(0.75, (H * 0.8) / (EH * MOUTH + BH * (1 - ENVELOPE_AT)));
 
   // ---------------------------------------------------------------- update
+  /** The helper's timeline for its current carry: when it presses the coin, picks it up and lets go. */
+  const handPressAt = (): number => (hand.cycle > 0 ? REP_BACK : HAND_PRESS_AT);
+  const handCarryAt = (): number => (hand.cycle > 0 ? REP_BACK + REP_PRESS : HAND_CARRY_AT);
+  const handDropAt = (): number => (hand.cycle > 0 ? REP_BACK + REP_PRESS + REP_CARRY : HAND_DROP_AT);
   function updateHand(dt: number): void {
     if (!hand.mode) return;
     hand.t += dt;
-    if (hand.mode === HAND_DEMO || hand.mode === HAND_HINT) {
-      if (hand.mode === HAND_DEMO && !hand.released && hand.t >= 0.9 && pCount[hand.place]! > 0 && hand.kind < 9) {
-        // The hand takes the real coin off the tray.
-        pCount[hand.place]!--; hand.kind += 10;
-      }
-      if (!hand.released && hand.t >= 1.9) {
-        hand.released = true;
-        if (hand.mode === HAND_DEMO) { const kind = hand.kind % 10; handTip(); dropCoin(kind, hand.place, pos.x, pos.y, false, false); hand.kind = kind; }
-        else play('pop', 'A', 5, 0.35);
-      }
-      if (hand.t >= 2.4) {
-        if (hand.mode === HAND_DEMO) { hand.mode = HAND_TAP; hand.t = 0; hand.place = pennyPlace(); }
-        else hand.mode = 0;
-        idleT = 0;
-      }
+    if (hand.mode === HAND_TAP) { hand.place = placeOf(hand.kind); return; }
+    const carryAt = handCarryAt(), dropAt = handDropAt();
+    if (hand.mode === HAND_DEMO && !hand.taken && hand.t >= carryAt) {
+      // The hand takes the real coin off the tray (waiting while it is still sliding in).
+      if (available(hand.place)) { if (!pUnlimited[hand.place]) pCount[hand.place]!--; hand.taken = true; }
+      else { const p = placeOf(hand.kind); if (p >= 0) hand.place = p; hand.t = carryAt; return; }
+    }
+    if (!hand.released && hand.t >= dropAt) {
+      hand.released = true;
+      if (hand.mode === HAND_DEMO) { handTip(); dropTo(hand.target, hand.kind, hand.place, pos.x, pos.y, false, false); }
+      else play('pop', 'A', 5, 0.35);
+    }
+    if (hand.mode === HAND_DEMO && hand.released && hand.reps > 1) {
+      // A repeated demonstration goes back to the tray for the next coin.
+      const p = placeOf(hand.kind);
+      if (p >= 0) { hand.reps--; hand.cycle++; hand.t = 0; hand.released = false; hand.taken = false; hand.place = p; return; }
+      hand.reps = 1;
+    }
+    if (hand.t >= dropAt + HAND_FADE) {
+      if (hand.mode === HAND_DEMO && hand.after >= 0) { hand.mode = HAND_TAP; hand.t = 0; hand.kind = hand.after; hand.place = placeOf(hand.kind); }
+      else hand.mode = 0;
+      idleT = 0;
     }
   }
-  const pennyPlace = (): number => { for (let p = 0; p < nPlaces; p++) if (pKind[p] === PENNY && available(p)) return p; return 0; };
+  /** After quiet seconds the see-through hint carries a coin that helps now to where it goes. */
   function startHint(): void {
-    let best = -1;
-    for (let p = 0; p < nPlaces; p++) if (available(p) && fitsNow(pKind[p]!) && (best < 0 || COIN_VALUE[pKind[p]!]! > COIN_VALUE[pKind[best]!]!)) best = p;
+    let best = -1, target = T_BOX;
+    if (plan.animalPays) { if (animalPaid && changeReserved < changeOwed) { best = placeOf(PENNY); target = T_PAWS; } }
+    else {
+      for (let p = 0; p < nPlaces; p++) if (available(p) && fitsNow(pKind[p]!) && (best < 0 || COIN_VALUE[pKind[p]!]! > COIN_VALUE[pKind[best]!]!)) best = p;
+      if (best < 0 && plan.swap) { for (let p = 0; p < nPlaces; p++) if (available(p) && standTakes(pKind[p]!)) { best = p; target = T_STAND; break; } }
+    }
     if (best < 0) return;
-    hand.mode = HAND_HINT; hand.t = 0; hand.place = best; hand.kind = pKind[best]!; hand.released = false;
+    hand.mode = HAND_HINT; hand.t = 0; hand.place = best; hand.kind = pKind[best]!; hand.released = false; hand.taken = false;
+    hand.target = target; hand.reps = 0; hand.cycle = 0; hand.after = -1;
     riderAssisted = true;
+  }
+  /** The basket's height off its rest: lifting off after a paid fare, or the fresh balloon landing. */
+  function updateLift(): void {
+    const dist = basketBottom - (basketTop() - (EH * MOUTH - BH * ENVELOPE_AT)) + 40;
+    if (riderPhase === 'paid') liftY = seqT < SEQ_LIFT_AT ? 0 : -easeInCubic(clamp01((seqT - SEQ_LIFT_AT) / SEQ_LIFT)) * dist;
+    else liftY = landT < SEQ_LAND ? -(1 - easeOutCubic(landT / SEQ_LAND)) * dist : 0;
   }
   function updateRider(dt: number): void {
     riderT += dt;
+    if (landT < SEQ_LAND) {
+      const before = landT; landT += dt;
+      if (before < SEQ_LAND * 0.9 && landT >= SEQ_LAND * 0.9) play('pop-big', 'D', 1, 0.45);
+    }
     if (riderPhase === 'enter') {
-      if (riderT >= ARRIVE_SECONDS + 0.12 * nPlaces + 0.1) {
-        riderPhase = 'pay'; idleT = 0; ensureFocus();
-        if (intro && introStage === 2 && riderIndex === 0) {
-          let p = 0; for (let k = 0; k < nPlaces; k++) if (pKind[k] === NICKEL) p = k;
-          hand.mode = HAND_DEMO; hand.t = 0; hand.place = p; hand.kind = NICKEL; hand.released = false;
-        }
+      // The introduction's helper starts while the coins land, so the first pour comes early.
+      if (intro && introStage === 2 && riderIndex === 0 && !demoStarted && riderT >= INTRO_HAND_AT) {
+        demoStarted = true;
+        let p = 0; for (let k = 0; k < nPlaces; k++) if (pKind[k] === NICKEL) p = k;
+        startHand(p, NICKEL, T_BOX, 1, PENNY);
       }
+      if (riderT >= enterSeconds && landT >= SEQ_LAND) {
+        riderPhase = 'pay'; idleT = 0; ensureFocus();
+        if (plan.animalPays) {
+          // Step 8: the animal pays first, dropping its dime into the slot.
+          reserved = plan.animalPays; gateHop = 0;
+          launch(SEND, DIME, 1, -1, pawsCX(), pawsCY(), slotX(), slotY(), SEND_SECONDS);
+        } else if (!demoStarted && demoDue(plan.step)) startDemo(plan.step);
+      }
+      updateLift();
       return;
     }
     if (riderPhase === 'pay') {
@@ -670,51 +1022,70 @@ export function createRideFareScene(services: AppServices): RideFareScene {
       if (pourLeft > 0) {
         pourTimer -= dt;
         while (pourLeft > 0 && pourTimer <= 0) {
-          lit = Math.min(fare, lit + 1); cupPulse[lit - 1] = 0; pourLeft--; pourTimer += POUR_GAP;
-          play('tick', 'C', lit - 1, 0.75);
+          lit = Math.min(nCups, lit + 1); cupPulse[lit - 1] = 0; pourLeft--; pourTimer += pourGap;
+          play('tick', 'C', (lit - 1) % 10, pourGap < POUR_GAP ? 0.55 : 0.75);
+          if (cupMode === CUPS_ROWS && lit % 10 === 0 && lit >= 30) playVoice(audio, NUMBER_CLIPS[lit]!);
         }
       }
+      if (plan.animalPays && !animalPaid && pourLeft === 0 && lit >= nCups) {
+        // The dime has poured: the cups past the fare are change to hand back.
+        animalPaid = true; changeLeft = changeOwed; ensureFocus();
+        if (!demoStarted && demoDue(8)) startDemo(8);
+      }
+      updateMerge(dt);
       refill();
       checkPaid();
       const wait = bouncesHere >= 2 ? IDLE_SOON : IDLE_SECONDS;
-      if (riderPhase === 'pay' && !hand.mode && !carry.active && !busy() && idleT >= wait) { startHint(); idleT = wait - IDLE_REPEAT; }
+      if (riderPhase === 'pay' && !hand.mode && !carry.active && !busy() && mergeT < 0 && idleT >= wait) { startHint(); idleT = wait - IDLE_REPEAT; }
+      updateLift();
       return;
     }
     // Fare paid: the sequence runs on its own clock.
-    seqT += dt * seqSpeed;
-    const prev = seqT - dt * seqSpeed;
+    const prev = seqT; seqT += dt;
     if (prev < SEQ_HOP_AT && seqT >= SEQ_HOP_AT) play('go', 'C', 0, 0.7);
     if (prev < SEQ_LIFT_AT && seqT >= SEQ_LIFT_AT) play('whoosh', 'B', 0, 0.6);
-    if (prev < SEQ_LAND_AT + SEQ_LAND * 0.9 && seqT >= SEQ_LAND_AT + SEQ_LAND * 0.9) play('pop-big', 'D', 1, 0.5);
-    const top = basketTop() - (EH * MOUTH - BH * ENVELOPE_AT);
-    if (seqT < SEQ_LIFT_AT) liftY = 0;
-    else if (seqT < SEQ_DRIFT_AT) liftY = -easeInCubic((seqT - SEQ_LIFT_AT) / SEQ_LIFT) * (basketBottom - top + 40);
-    else if (seqT < SEQ_LAND_AT) liftY = -(basketBottom - top + 40) - 9999;
-    else liftY = -(1 - easeOutCubic((seqT - SEQ_LAND_AT) / SEQ_LAND)) * (basketBottom - top + 40);
-    driftOn = seqT >= SEQ_DRIFT_AT && seqT < SEQ_LAND_AT;
-    if (driftOn) {
-      const k = (seqT - SEQ_DRIFT_AT) / SEQ_DRIFT;
-      driftX = lerp(basketL + BW * 0.5, W * 0.78, Math.sin(k * Math.PI)) ; driftY = H * 0.24 - Math.sin(k * Math.PI) * H * 0.06 + Math.sin(k * 9) * 4 * u;
+    updateLift();
+    if (seqT >= SEQ_SECONDS) { liftY = 0; sequenceDone(); updateLift(); }
+  }
+  /** Step 7: the coins on the swap stand slide together into one coin, which shows its dots and hops onto the tray. */
+  function updateMerge(dt: number): void {
+    if (mergeT < 0) return;
+    const prev = mergeT; mergeT += dt;
+    if (prev < MERGE_AT && mergeT >= MERGE_AT) {
+      standKind = mergeKind; standCount = 1;
+      play('pop-big', 'B', 2, 0.7);
     }
-    if (seqT >= SEQ_SECONDS) { liftY = 0; driftOn = false; sequenceDone(); }
+    if (mergeT >= MERGE_HOP_AT) {
+      let p = -1; for (let q = 0; q < nPlaces; q++) if (pKind[q] === mergeKind) { p = q; break; }
+      const cx = standX + standW / 2, cy = standY + standH * STAND_TABLE - standCoinD(2) * 0.55;
+      launch(SWAPPED, mergeKind, 1, p, cx, cy, p >= 0 ? pX[p]! : cx, p >= 0 ? pY[p]! : cy, MERGE_HOP);
+      standKind = -1; standCount = 0; mergeT = -1;
+    }
   }
   function updatePlay(dt: number): void {
     time += dt; idleT += dt;
-    boxPulse += dt; boxHop += dt; gateHop += dt; queueHop += dt;
+    boxPulse += dt; boxHop += dt; gateHop += dt; queueHop += dt; standHop += dt; pawsHop += dt;
     for (let p = 0; p < MAX_PLACES; p++) pHop[p]! += dt;
     for (let k = 0; k < MAX_CUPS; k++) cupPulse[k]! += dt;
     for (let k = 0; k < 3; k++) platePulse[k]! += dt;
+    if (driftT < DRIFT_SECONDS) {
+      // The small balloon carries the last rider up and away across the sky.
+      driftT += dt;
+      const k = clamp01(driftT / DRIFT_SECONDS);
+      driftX = lerp(basketL + BW * 0.5, W * 0.92, easeInOutSine(k)); driftY = H * 0.3 - easeOutCubic(k) * H * 0.14 + Math.sin(k * 9) * 4 * u;
+    }
     updateRider(dt);
     updateHand(dt);
-    if (riderPhase === 'pay' && !carry.active) ensureFocus();
+    if (riderPhase === 'pay' && !carry.active) keepFocus();
   }
   function updateFlights(dt: number): void {
     for (const f of flights) {
       if (!f.active) continue;
       f.t += dt;
-      // Too much: a soft giggle, three quiet notes 90 ms apart, and the animal at the gate smiles.
-      while (f.mode === REJECT && f.giggles < 3 && f.t >= SEND_FLY + f.giggles * 0.09) {
-        if (f.giggles === 0) gateHop = 0;
+      // Too much, or not wanted there: a soft giggle, three quiet notes 90 ms apart, and the animal at the gate smiles.
+      const at = f.mode === REJECT ? SEND_FLY : f.mode === BACK_STAND || f.mode === BACK_PAWS ? TO_SECONDS : -1;
+      while (at >= 0 && f.giggles < 3 && f.t >= at + f.giggles * 0.09) {
+        if (f.giggles === 0) { gateHop = 0; if (f.mode === BACK_STAND) standHop = 0; }
         play('pop', 'A', f.giggles === 1 ? 6 : 8, 0.4); f.giggles++;
       }
       if (f.t >= f.dur) { f.active = false; arrive(f.mode, f.kind, f.n, f.place); }
@@ -767,35 +1138,58 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     const y = boxY + liftY;
     if (y + boxH < -10) return;
     let s = 1;
+    const pulse = riderPhase === 'paid' && seqT >= 0 && seqT < SEQ_PULSE ? Math.sin(seqT / SEQ_PULSE * Math.PI) : 0;
     if (boxPulse < 0.25) s = 1 + Math.sin(boxPulse / 0.25 * Math.PI) * 0.04;
-    if (riderPhase === 'paid' && seqT < SEQ_PULSE) s = 1 + Math.sin(seqT / SEQ_PULSE * Math.PI) * 0.05;
-    const hop = boxHop < 0.3 ? Math.sin(boxHop / 0.3 * Math.PI) * 8 * u : 0;
+    if (pulse > 0) s = 1 + pulse * 0.05;
+    const hop = boxHop < 0.3 ? Math.sin(boxHop / 0.3 * Math.PI) * 8 * u : 0, dy = liftY - hop;
+    if (panelOn) { drawSprite(ctx, sprites, PANEL, panelX + panelW / 2, panelY + panelH / 2 + dy, panelW); note(PANEL, panelW, 600); }
     drawSprite(ctx, sprites, FAREBOX, boxCX(), y + boxH / 2 - hop, boxW, 0, s, s);
     note(FAREBOX, boxW * s, 720);
-    const wx0 = boxX + boxW * WIN_X0, wx1 = boxX + boxW * WIN_X1, wy0 = y - hop + boxH * WIN_Y0, wy1 = y - hop + boxH * WIN_Y1;
-    // The rider has flown: the balloon comes back with an empty window, and the next fare appears once it has landed.
-    if (riderPhase === 'paid' && seqT >= SEQ_DRIFT_AT) return;
-    if (usesPlate()) { renderPlate(ctx, wx0, wy0, wx1, wy1); return; }
-    if (!cupCanvas || !litCanvas || fare <= 0) return;
-    // Ten cups in two rows of five; only the fare's cups are in play. A fare of five or fewer uses one middle row.
-    const two = fare > 5, pitchX = (wx1 - wx0) / 5, pitchY = (wy1 - wy0) / 2, cw = cupCanvas.width / artRatio;
-    const paidGlow = riderPhase === 'paid' && seqT < SEQ_PULSE ? Math.sin(seqT / SEQ_PULSE * Math.PI) : 0;
-    for (let i = 0; i < fare; i++) {
-      const row = i < 5 ? 0 : 1, col = i % 5;
-      const cx = wx0 + (col + 0.5) * pitchX, cy = two ? wy0 + (row + 0.5) * pitchY : (wy0 + wy1) / 2;
-      const on = i < lit, p = cupPulse[i]!;
-      let sc = 1;
-      if (p < 0.25) sc = 1 + Math.sin(p / 0.25 * Math.PI) * 0.3;
-      sc += paidGlow * 0.12;
-      if (on && glowCanvas && (p < 0.4 || paidGlow > 0)) {
-        const g = cupR * 3.2 * (1 + paidGlow * 0.3); ctx.globalAlpha = Math.max(paidGlow, 1 - p / 0.4);
+    if (numeralOn) renderNumeral(ctx, dy);
+    if (usesPlate()) { renderPlate(ctx, boxX + boxW * WIN_X0, y - hop + boxH * WIN_Y0, boxX + boxW * WIN_X1, y - hop + boxH * WIN_Y1); return; }
+    const set = cupMode === CUPS_ROWS ? smallCanvas : cupCanvas, r = cupMode === CUPS_ROWS ? smallR : cupR;
+    if (!set[CUP_UNLIT] || nCups <= 0) return;
+    for (let i = 0; i < nCups; i++) {
+      const on = i < lit, change = plan.animalPays > 0 && i >= fare;
+      // Step 8: change cups appear as the animal's dime lights them, copper while owed, dim once handed back.
+      if (change && !on) continue;
+      const handed = change && animalPaid && i - fare >= changeLeft;
+      const cx = cupX[i]!, cy = cupY[i]! + dy, p = cupPulse[i]!;
+      let sc = p < 0.25 ? 1 + Math.sin(p / 0.25 * Math.PI) * 0.3 : 1;
+      sc += pulse * 0.12;
+      if (on && !handed && glowCanvas && (p < 0.4 || pulse > 0)) {
+        const g = r * 3.2 * (1 + pulse * 0.3); ctx.globalAlpha = Math.max(pulse, 1 - p / 0.4);
         ctx.drawImage(glowCanvas, cx - g / 2, cy - g / 2, g, g); ctx.globalAlpha = 1;
       }
-      const w = cw * sc;
-      ctx.drawImage(on ? litCanvas : cupCanvas, cx - w / 2, cy - w / 2, w, w);
+      const look = handed ? CUP_UNLIT : change ? CUP_CHANGE : on ? CUP_LIT : CUP_UNLIT, img = set[look]!, w = img.width / artRatio * sc;
+      if (handed) ctx.globalAlpha = 0.35;
+      ctx.drawImage(img, cx - w / 2, cy - w / 2, w, w);
+      ctx.globalAlpha = 1;
     }
   }
-  /** Step 1: a cream plate in the window with the coins to pay as pictures; each lights when its coin goes in. */
+  /** Steps 6 and 8: a cream plate beside the cups with the fare as a numeral and the cent sign; at step 6 the count climbs under it. */
+  function renderNumeral(ctx: CanvasRenderingContext2D, dy: number): void {
+    if (!digitsBig || !digitsLit) return;
+    const y = numY + dy, counter = plan.step === 6 && lit > 0;
+    chunkyPanel(ctx, numX, y, numW, numH, PLATE_FILL, PLATE_LINE, numH * 0.16, Math.max(2, 4 * u));
+    drawNumber(ctx, digitsBig, fare, numX + numW / 2, y + numH * (counter ? 0.34 : 0.5), 1);
+    if (counter) drawNumber(ctx, digitsLit, lit, numX + numW / 2, y + numH * 0.74, 0.62);
+  }
+  /** A value under 100 with the cent sign, centred on (cx, cy), from a baked glyph strip at `k` of its size. */
+  function drawNumber(ctx: CanvasRenderingContext2D, atlas: HTMLCanvasElement, value: number, cx: number, cy: number, k: number): void {
+    const tens = Math.floor(value / 10) % 10, ones = value % 10;
+    const w = (tens > 0 ? digitW[tens]! : 0) + digitW[ones]! + digitW[10]!;
+    let x = Math.round(cx - w * k / 2);
+    if (tens > 0) x = glyph(ctx, atlas, tens, x, cy, k);
+    x = glyph(ctx, atlas, ones, x, cy, k);
+    glyph(ctx, atlas, 10, x, cy, k);
+  }
+  function glyph(ctx: CanvasRenderingContext2D, atlas: HTMLCanvasElement, g: number, x: number, cy: number, k: number): number {
+    const r = artRatio, sx = Math.max(0, (digitX[g]! - digitPad) * r), sw = (digitW[g]! + 2 * digitPad) * r, dh = atlas.height / r * k;
+    ctx.drawImage(atlas, sx, 0, sw, atlas.height, Math.round(x - digitPad * k), Math.round(cy - dh / 2), sw / r * k, dh);
+    return x + digitW[g]! * k;
+  }
+  /** Steps 1 and 7: a cream plate in the window with the coins to pay as pictures; each lights when its coin goes in. */
   function renderPlate(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: number, y1: number): void {
     const pad = (y1 - y0) * 0.08;
     chunkyPanel(ctx, x0 + pad, y0 + pad, x1 - x0 - 2 * pad, y1 - y0 - 2 * pad, PLATE_FILL, PLATE_LINE, (y1 - y0) * 0.18, Math.max(2, 4 * u));
@@ -811,6 +1205,8 @@ export function createRideFareScene(services: AppServices): RideFareScene {
       }
       coin(ctx, kind, 0, cx, cy, base * sc, 0, 1);
       ctx.globalAlpha = 1;
+      // Step 7: the wanted coin shows its value as dots, like the coin the swap stand makes.
+      if (plan.swap) coinDots(ctx, kind, cx, cy, state === 2 ? 1 : 0.85, base * sc);
     }
   }
   function renderTray(ctx: CanvasRenderingContext2D): void {
@@ -819,6 +1215,8 @@ export function createRideFareScene(services: AppServices): RideFareScene {
       // A soft round well under each place.
       ctx.beginPath(); ctx.ellipse(pX[p]!, pY[p]! + coinD[pKind[p]!]! * 0.06, coinD[pKind[p]!]! * 0.56, coinD[pKind[p]!]! * 0.52, 0, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(70, 30, 10, 0.22)'; ctx.fill();
+      // Step 7: an empty place waits for the coin the swap stand makes.
+      if (pExtra[p] && pCount[p]! <= 0 && ringPlace) { const g = ringPlace.width / artRatio; ctx.drawImage(ringPlace, pX[p]! - g / 2, pY[p]! - g / 2, g, g); }
     }
     const showFocus = playable() && riderPhase === 'pay' && !carry.active && hand.mode !== HAND_DEMO;
     for (let p = 0; p < nPlaces; p++) {
@@ -837,12 +1235,13 @@ export function createRideFareScene(services: AppServices): RideFareScene {
         ctx.fillStyle = HIGHLIGHT; ctx.fill(); ctx.lineWidth = 3 * u; ctx.strokeStyle = OUTLINE; ctx.stroke();
       }
       coin(ctx, kind, 0, x, y, 1, 0, 1);
+      if (pDots[p]) coinDots(ctx, kind, x, y, 1, 1);
     }
   }
-  /** A ring of glowing dots on a coin, one per cent of its value, as it reaches the slot. */
-  function coinDots(ctx: CanvasRenderingContext2D, kind: number, x: number, y: number, a: number): void {
+  /** Dots on a coin, one per cent of its value, as a ring (a penny's one dot in the middle), `k` of the coin's size. */
+  function coinDots(ctx: CanvasRenderingContext2D, kind: number, x: number, y: number, a: number, k = 1): void {
     if (!dotCanvas || a <= 0) return;
-    const n = COIN_VALUE[kind]!, r = coinD[kind]! * (n === 1 ? 0 : 0.3), ds = dotSize * (n === 1 ? 1.6 : 1);
+    const n = COIN_VALUE[kind]!, r = coinD[kind]! * k * (n === 1 ? 0 : 0.3), ds = dotSize * Math.max(0.45, k) * (n === 1 ? 1.6 : 1);
     ctx.globalAlpha = a;
     for (let i = 0; i < n; i++) {
       const ang = -Math.PI / 2 + (i / n) * Math.PI * 2;
@@ -862,6 +1261,27 @@ export function createRideFareScene(services: AppServices): RideFareScene {
         const under = Math.min(4, f.n - 1);
         for (let j = under; j >= 1; j--) coin(ctx, kind, 1, x + j * 3 * u, y + j * 5 * u, 1, 0, 1);
         coin(ctx, kind, c >= 0 ? 0 : 1, x, y, 1, f.mode === RETURN ? k * 4 : 0, Math.max(0.08, Math.abs(c)));
+        continue;
+      }
+      if (f.mode === TO_STAND || f.mode === TO_PAWS || f.mode === BACK_STAND || f.mode === BACK_PAWS) {
+        // An arc onto the stand (shrinking to the stand's coin size) or into the paws; not wanted there, a jiggle and a hop home.
+        const small = (f.mode === TO_STAND || f.mode === BACK_STAND ? standCoinD(standNeed(kind)) : coinD[kind]! * 0.62) / coinD[kind]!;
+        if (f.t < TO_SECONDS) {
+          const k = f.t / TO_SECONDS, e = easeOutCubic(k);
+          coin(ctx, kind, 0, lerp(f.x0, f.x1, e), lerp(f.y0, f.y1, e) - Math.sin(k * Math.PI) * 70 * u, lerp(1, small, e), 0, 1);
+          continue;
+        }
+        const t = f.t - TO_SECONDS;
+        if (t < BACK_HOLD) { coin(ctx, kind, 0, f.x1 + Math.sin(t * 40) * 3 * u, f.y1, small, 0, 1); continue; }
+        const k = clamp01((t - BACK_HOLD) / BACK_HOP), e = easeInOutSine(k);
+        coin(ctx, kind, 0, lerp(f.x1, pX[f.place] ?? f.x0, e), lerp(f.y1, pY[f.place] ?? f.y0, e) - Math.sin(k * Math.PI) * 110 * u, lerp(small, 1, e), k * Math.PI * 2, 1);
+        continue;
+      }
+      if (f.mode === SWAPPED) {
+        // The swapped coin hops from the stand onto its place, its dots still glowing inside.
+        const k = clamp01(f.t / f.dur), e = easeInOutSine(k), from = standCoinD(2) / coinD[kind]!;
+        const x = lerp(f.x0, f.x1, e), y = lerp(f.y0, f.y1, e) - Math.sin(k * Math.PI) * 120 * u, sc = lerp(from, 1, e);
+        coin(ctx, kind, 0, x, y, sc, 0, 1); coinDots(ctx, kind, x, y, 1, sc);
         continue;
       }
       // SEND and REJECT: fly to the slot top, show the coin's dots, then slip in (edge-on) or hop home.
@@ -895,40 +1315,78 @@ export function createRideFareScene(services: AppServices): RideFareScene {
       }
     }
   }
+  /** Step 7: the swap stand with its dotted circles, the coins resting on it, and the swap itself. */
+  function renderStand(ctx: CanvasRenderingContext2D): void {
+    const hop = standHop < 0.3 ? Math.sin(standHop / 0.3 * Math.PI) * 6 * u : 0;
+    drawSprite(ctx, sprites, STAND, standX + standW / 2, standY + standH / 2 - hop, standH);
+    note(STAND, standW, 582);
+    const merging = mergeT >= 0 && mergeT < MERGE_AT, mode = merging ? standKind : standMode(), n = standNeed(mode), d = standCoinD(n);
+    if (mergeT >= MERGE_AT) {
+      // The new coin, with its dots glowing inside, pops in the middle of the stand.
+      const k = clamp01((mergeT - MERGE_AT) / 0.25), sc = (standCoinD(2) / coinD[standKind]!) * (1 + Math.sin(k * Math.PI) * 0.3);
+      const cx = standX + standW / 2, cy = standY + standH * STAND_TABLE - standCoinD(2) * 0.55 - hop;
+      if (glowCanvas) { const g = standCoinD(2) * 1.8; ctx.drawImage(glowCanvas, cx - g / 2, cy - g / 2, g, g); }
+      coin(ctx, standKind, 0, cx, cy, sc, 0, 1); coinDots(ctx, standKind, cx, cy, 1, sc);
+      return;
+    }
+    if (!merging && !standOpen()) return;
+    const ring = n === 5 ? ringStand : ringStand2, slide = merging ? easeInOutSine(clamp01((mergeT - MERGE_SLIDE_AT) / (MERGE_AT - MERGE_SLIDE_AT))) : 0;
+    for (let i = 0; i < n; i++) {
+      standSlot(i, n); const x = pos.x, y = pos.y - hop;
+      if (i >= standCount) { if (ring && !merging) { const g = ring.width / artRatio; ctx.drawImage(ring, x - g / 2, y - g / 2, g, g); } continue; }
+      // Merging, the coins slide together to the middle.
+      const cx = lerp(x, standX + standW / 2, slide), sc = d / coinD[standKind]!;
+      coin(ctx, standKind, 0, cx, y, sc, 0, 1); coinDots(ctx, standKind, cx, y, 1, sc);
+    }
+  }
+  /** Step 8: a warm glow at the animal's paws while change is owed, and the pennies handed back so far. */
+  function renderPaws(ctx: CanvasRenderingContext2D): void {
+    const back = changeOwed - changeLeft, cx = pawsCX(), cy = pawsCY(), hop = pawsHop < 0.3 ? Math.sin(pawsHop / 0.3 * Math.PI) * 8 * u : 0;
+    if (animalPaid && changeReserved < changeOwed && glowCanvas) {
+      const g = (pawsX1 - pawsX0) * 1.2 * (0.92 + Math.sin(time * 4) * 0.08); ctx.globalAlpha = 0.75;
+      ctx.drawImage(glowCanvas, cx - g / 2, cy - g / 2, g, g); ctx.globalAlpha = 1;
+    }
+    const sc = 0.5, d = coinD[PENNY]! * sc;
+    for (let i = 0; i < back; i++) coin(ctx, PENNY, 0, cx + (i - (back - 1) / 2) * d * 0.55, cy + d * 0.35 - hop - i * 2 * u, sc, 0, 1);
+  }
   function handTip(): void {
     const tx = pX[hand.place] ?? W / 2, ty = pY[hand.place] ?? H;
     if (hand.mode === HAND_TAP) { pos.x = tx + coinD[PENNY]! * 0.1; pos.y = ty + coinD[PENNY]! * 0.1 - Math.abs(Math.sin(hand.t * 3.2)) * 22 * u; return; }
-    const t = hand.t, sx = slotX(), sy = slotY() - coinD[hand.kind % 10]! * 0.35;
-    if (t < 0.6) { const e = easeOutCubic(t / 0.6); pos.x = lerp(tx + 60 * u, tx, e); pos.y = lerp(H + 40, ty, e); }
-    else if (t < 0.9) { pos.x = tx; pos.y = ty; }
-    else if (t < 1.9) { const e = easeInOutSine((t - 0.9) / 1.0); pos.x = lerp(tx, sx, e); pos.y = lerp(ty, sy, e) - Math.sin(e * Math.PI) * 90 * u; }
+    targetPoint(hand.target, hand.kind);
+    const sx = pos.x, sy = pos.y, t = hand.t, pressAt = handPressAt(), carryAt = handCarryAt(), dropAt = handDropAt();
+    if (t < pressAt) {
+      if (hand.cycle > 0) { const e = easeInOutSine(t / pressAt); pos.x = lerp(sx, tx, e); pos.y = lerp(sy, ty, e); }
+      else { const e = easeOutCubic(t / pressAt); pos.x = lerp(tx + 60 * u, tx, e); pos.y = lerp(H + 40, ty, e); }
+    } else if (t < carryAt) { pos.x = tx; pos.y = ty; }
+    else if (t < dropAt) { const e = easeInOutSine((t - carryAt) / (dropAt - carryAt)); pos.x = lerp(tx, sx, e); pos.y = lerp(ty, sy, e) - Math.sin(e * Math.PI) * 90 * u; }
     else { pos.x = sx; pos.y = sy; }
   }
   function renderHand(ctx: CanvasRenderingContext2D): void {
-    if (!hand.mode) return;
+    if (!hand.mode || (hand.mode === HAND_TAP && hand.place < 0)) return;
     handTip();
     const img = sprites.get(HAND); if (!img) return;
-    const hs = Math.round(150 * u), hw = hs * img.naturalWidth / img.naturalHeight, t = hand.t, kind = hand.kind % 10;
+    const hs = Math.round(150 * u), hw = hs * img.naturalWidth / img.naturalHeight, t = hand.t, kind = hand.kind;
+    const pressAt = handPressAt(), carryAt = handCarryAt(), dropAt = handDropAt(), last = hand.reps <= 1;
     let alpha = hand.mode === HAND_HINT ? 0.85 : 1;
-    if (hand.mode !== HAND_TAP && t > 1.9) alpha *= 1 - clamp01((t - 1.9) / 0.5);
-    if (hand.mode !== HAND_TAP && t < 0.6) alpha *= clamp01(t / 0.3);
-    const carrying = hand.mode !== HAND_TAP && t >= 0.9 && t < 1.9;
-    if (carrying || (hand.mode === HAND_HINT && t >= 1.9)) {
+    if (hand.mode !== HAND_TAP && t > dropAt && last) alpha *= 1 - clamp01((t - dropAt) / HAND_FADE);
+    if (hand.mode !== HAND_TAP && hand.cycle === 0 && t < pressAt) alpha *= clamp01(t / 0.3);
+    const carrying = hand.mode !== HAND_TAP && t >= carryAt && t < dropAt && (hand.mode === HAND_HINT || hand.taken);
+    if (carrying || (hand.mode === HAND_HINT && t >= dropAt)) {
       const ghost = hand.mode === HAND_HINT, a = ghost ? alpha : 1;
       if (ghost && glowCanvas) { const g = glowSize; ctx.globalAlpha = a * (0.85 + Math.sin(time * 7) * 0.15); ctx.drawImage(glowCanvas, pos.x - g / 2, pos.y - g / 2, g, g); }
       ctx.globalAlpha = ghost ? a * 0.6 : 1; coin(ctx, kind, 0, pos.x, pos.y, 1, 0, 1); ctx.globalAlpha = 1;
     }
     ctx.globalAlpha = alpha;
-    const press = (t >= 0.6 && t < 0.9 && hand.mode !== HAND_TAP) || (hand.mode === HAND_TAP && Math.abs(Math.sin(hand.t * 3.2)) < 0.15) ? 0.9 : 1;
+    const press = (t >= pressAt && t < carryAt && hand.mode !== HAND_TAP) || (hand.mode === HAND_TAP && Math.abs(Math.sin(hand.t * 3.2)) < 0.15) ? 0.9 : 1;
     // The art's fingertip is at its top left corner: put it on the target.
     drawSprite(ctx, sprites, HAND, pos.x + hw * 0.42, pos.y + hs * 0.44, hs, 0, press, press);
     note(HAND, hs, img.naturalHeight);
     ctx.globalAlpha = 1;
   }
   function renderAnimals(ctx: CanvasRenderingContext2D): void {
-    // The queue: the round's riders after the one at the gate (the next one walks up during the drift).
-    const walk = riderPhase === 'paid' && seqT >= SEQ_DRIFT_AT ? easeInOutSine(clamp01((seqT - SEQ_DRIFT_AT) / SEQ_DRIFT)) : 0;
-    const first = introStage === 1 ? 0 : riderIndex + 1;
+    // The queue: the round's riders after the one at the gate (the next one walks up while the balloon lifts off).
+    const walk = riderPhase === 'paid' && seqT >= SEQ_HOP_AT ? easeInOutSine(clamp01((seqT - SEQ_HOP_AT) / (SEQ_SECONDS - SEQ_HOP_AT))) : 0;
+    const first = introStage === 1 ? 0 : riderIndex + 1, gx = gateAt();
     const hopQ = queueHop < 0.4 ? Math.sin(queueHop / 0.4 * Math.PI) * 18 * u : 0;
     for (let i = Math.min(ridersTotal - 1, first + 3); i >= first; i--) {
       const k = i - first;
@@ -936,26 +1394,33 @@ export function createRideFareScene(services: AppServices): RideFareScene {
       let sc = queueSpot(k); const x0 = pos.x, y0 = pos.y;
       if (walk > 0) { const s1 = queueSpot(k - 1); pos.x = lerp(x0, pos.x, walk); pos.y = lerp(y0, pos.y, walk); sc = lerp(sc, s1, walk); }
       else { pos.x = x0; pos.y = y0; }
-      // The queue thins where it would crowd the gate.
-      if (k >= 0 && walk === 0 && pos.x - animalH * 0.3 * sc < gateX + animalH * 0.34) continue;
+      // The queue thins where it would crowd the gate or stand behind the swap stand.
+      if (k >= 0 && walk === 0 && pos.x - animalH * 0.3 * sc < gx + animalH * 0.34) continue;
+      if (swapOn() && pos.x + animalH * 0.3 * sc > standX) continue;
       animal(ctx, a, 0, pos.x, pos.y - hopQ * (k % 2 ? 0.7 : 1), animalH, sc);
     }
-    // The rider at the gate, hopping into the basket once the fare is paid.
+    // The rider at the gate (drawn after the balloon when the swap stand pushed it in front of the basket).
+    if (gx === gateX) renderGate(ctx);
+  }
+  /** The rider at the gate, until it hops into the basket once the fare is paid. */
+  function renderGate(ctx: CanvasRenderingContext2D): void {
     if (riderPhase === 'paid' && seqT >= SEQ_HOP_AT) return;
-    const hopG = gateHop < 0.42 ? Math.sin(gateHop / 0.42 * Math.PI) * 20 * u : 0;
+    const gx = gateAt(), hopG = gateHop < 0.42 ? Math.sin(gateHop / 0.42 * Math.PI) * 20 * u : 0;
     const breathe = Math.sin(time * 2.1) * 0.012;
-    const pose = riderPhase === 'paid' || gateHop < 0.6 ? 1 : 0;
-    animal(ctx, riderAnimal, pose, gateX, feetY - hopG, animalH, 1, 0, 1 - breathe);
+    // Step 8: the animal holds out its paws (waving pose) while it pays and waits for its change.
+    const pose = riderPhase === 'paid' || gateHop < 0.6 || pawsOn() ? 1 : 0;
+    animal(ctx, riderAnimal, pose, gx, feetY - hopG, animalH, 1, 0, 1 - breathe);
+    if (pawsOn()) renderPaws(ctx);
   }
   /** The play balloon: basket, envelope, fare box, and the rider climbing in. */
   function renderBalloon(ctx: CanvasRenderingContext2D): void {
     const cx = basketL + BW / 2, top = basketTop() + liftY;
     if (top + BH > -20) balloon(ctx, cx, top, 1, 0, 0, false);
-    // The rider climbs in, then rides away in the small balloon; the balloon lands back empty.
-    if (riderPhase === 'paid' && seqT >= SEQ_HOP_AT && seqT < SEQ_DRIFT_AT) {
+    // The rider climbs in and rides up with the balloon.
+    if (riderPhase === 'paid' && seqT >= SEQ_HOP_AT) {
       const k = clamp01((seqT - SEQ_HOP_AT) / SEQ_HOP), e = easeInOutSine(k);
       const clipY = top + BH * RIM_CLIP, inX = cx + BW * 0.3, inFeet = clipY + animalH * 0.5;
-      const x = lerp(gateX, inX, e), feet = lerp(feetY, inFeet, e) - Math.sin(k * Math.PI) * animalH * 0.75;
+      const x = lerp(gateAt(), inX, e), feet = lerp(feetY, inFeet, e) - Math.sin(k * Math.PI) * animalH * 0.75;
       if (k < 0.5) animal(ctx, riderAnimal, 1, x, feet, animalH, 1);
       else {
         ctx.save(); ctx.beginPath(); ctx.rect(0, -H, W, clipY + H); ctx.clip();
@@ -965,13 +1430,29 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     }
     renderBox(ctx);
   }
+  /** Keyboard play with two targets: a ring round the target the held coin will drop on, and the coin above it. */
+  function renderKeyCarry(ctx: CanvasRenderingContext2D): void {
+    let x0 = zoneX0, y0 = zoneY0, x1 = zoneX1, y1 = zoneY1;
+    if (keyTarget === T_STAND) { x0 = sZoneX0; y0 = sZoneY0; x1 = sZoneX1; y1 = sZoneY1; }
+    else if (keyTarget === T_PAWS) { x0 = pawsX0; y0 = pawsY0; x1 = pawsX1; y1 = pawsY1; }
+    ctx.beginPath(); ctx.roundRect(x0 + 4, y0 + 4, x1 - x0 - 8, y1 - y0 - 8, 18 * u);
+    ctx.lineWidth = 9 * u; ctx.strokeStyle = OUTLINE; ctx.stroke(); ctx.lineWidth = 5 * u; ctx.strokeStyle = HIGHLIGHT; ctx.stroke();
+    targetPoint(keyTarget, carry.kind);
+    coin(ctx, carry.kind, 0, pos.x, pos.y - coinD[carry.kind]! * 0.5 - Math.abs(Math.sin(time * 3)) * 10 * u, 1.05, 0, 1);
+  }
   function renderPlay(ctx: CanvasRenderingContext2D): void {
-    if (driftOn) balloon(ctx, driftX, driftY, DRIFT_K, riderAnimal, 1, true);
+    if (driftT < DRIFT_SECONDS) {
+      ctx.globalAlpha = 1 - clamp01((driftT - DRIFT_SECONDS + 0.5) / 0.5);
+      balloon(ctx, driftX, driftY, DRIFT_K, driftAnimal, 1, true);
+      ctx.globalAlpha = 1;
+    }
+    if (swapOn()) renderStand(ctx);
     renderAnimals(ctx);
     renderBalloon(ctx);
+    if (gateAt() !== gateX) renderGate(ctx);
     renderTray(ctx);
     renderFlights(ctx);
-    if (carry.active) coin(ctx, carry.kind, 0, input.pointer.x, input.pointer.y, 1.12, 0, 1);
+    if (carry.active) { if (carry.keyed) renderKeyCarry(ctx); else coin(ctx, carry.kind, 0, input.pointer.x, input.pointer.y, 1.12, 0, 1); }
     particles.render(ctx);
     renderHand(ctx);
   }
@@ -1068,6 +1549,19 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     return -1;
   }
   const onBox = (x: number, y: number): boolean => x >= zoneX0 && x <= zoneX1 && y >= zoneY0 && y <= zoneY1;
+  const onStand = (x: number, y: number): boolean => x >= sZoneX0 && x <= sZoneX1 && y >= sZoneY0 && y <= sZoneY1;
+  const onPaws = (x: number, y: number): boolean => x >= pZoneX0 && x <= pZoneX1 && y >= pZoneY0 && y <= pZoneY1;
+  /** The drop target under a point: the swap stand (step 7), the paws (step 8), the fare box, or -1. */
+  const targetAt = (x: number, y: number): number => (swapOn() && onStand(x, y) ? T_STAND : pawsOn() && onPaws(x, y) ? T_PAWS : onBox(x, y) ? T_BOX : -1);
+  /**
+   * Where a single press (tier 0) or the keyboard's first choice sends a coin: the paws while change is owed (step 8);
+   * at step 7 the fare box when it takes this coin, else the swap stand when it does; otherwise the fare box.
+   */
+  function defaultTarget(kind: number): number {
+    if (pawsOn()) return T_PAWS;
+    if (swapOn() && !fitsNow(kind) && standTakes(kind)) return T_STAND;
+    return T_BOX;
+  }
   const onCorner = (x: number, y: number): boolean => Math.hypot(x - homeX, y - cornerY) <= cornerRadius || Math.hypot(x - soundX, y - cornerY) <= cornerRadius;
   const onTray = (x: number, y: number): boolean => y >= trayY && y <= trayY + trayH && x >= trayX && x <= trayX + trayW;
   /** Presses while the balloon is away or a coin pours: the animals hop, the pressed coin hops. */
@@ -1081,9 +1575,15 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     play('pop', 'B', 2, 0.5); playVoice(audio, COIN_NAMES[carry.kind]!);
     return true;
   }
+  /** Put a coin in the hand back on its place (it slides home). */
+  function returnCarry(x: number, y: number): void {
+    carry.active = false; carry.keyed = false;
+    launch(RETURN, carry.kind, 1, carry.place, x, y, pX[carry.place]!, pY[carry.place]!, RETURN_SECONDS);
+  }
   function release(x: number, y: number): void {
-    carry.active = false;
-    if (onBox(x, y)) { hits++; dropCoin(carry.kind, carry.place, x, y, carry.deliberate, false); return; }
+    carry.active = false; carry.keyed = false;
+    const target = targetAt(x, y);
+    if (target >= 0) { hits++; dropTo(target, carry.kind, carry.place, x, y, carry.deliberate, false); return; }
     if (!onTray(x, y)) { misses++; play('whoosh', 'D', 0, 0.55); }
     launch(RETURN, carry.kind, 1, carry.place, x, y, pX[carry.place]!, pY[carry.place]!, RETURN_SECONDS);
   }
@@ -1097,10 +1597,16 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     if (p >= 0) {
       if (busy() || !available(p)) { invite(p); return; }
       if (!pick(p)) return;
-      carry.active = true; carry.sticky = false; carry.downAt = now; carry.downX = x; carry.downY = y; carry.deliberate = gap >= DELIBERATE_MS; focus = p;
+      carry.active = true; carry.sticky = false; carry.keyed = false; carry.downAt = now; carry.downX = x; carry.downY = y; carry.deliberate = gap >= DELIBERATE_MS; focus = p;
       return;
     }
-    if (onBox(x, y)) { boxHop = 0; if (focus < nPlaces) pHop[focus] = 0; play('pop', 'A', 4, 0.3); return; }
+    const target = targetAt(x, y);
+    if (target >= 0) {
+      // A press on a target with no coin: it hops, and so does the highlighted coin.
+      if (target === T_STAND) standHop = 0; else if (target === T_PAWS) pawsHop = 0; else boxHop = 0;
+      if (focus < nPlaces) pHop[focus] = 0;
+      play('pop', 'A', 4, 0.3); return;
+    }
     if (!onCorner(x, y)) { misses++; gateHop = 0; }
   }
   function pointerUp(x: number, y: number): void {
@@ -1108,9 +1614,9 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     const now = performance.now(), quick = now - carry.downAt < 300 && Math.hypot(x - carry.downX, y - carry.downY) < 24;
     if (quick) {
       if (TIERS[tier].oneTap) {
-        // Tier 0: one press sends the coin into the slot. Not a motor attempt; still a deliberate coin choice.
+        // Tier 0: one press sends the coin where the step asks next. Not a motor attempt; still a deliberate coin choice.
         carry.active = false;
-        dropCoin(carry.kind, carry.place, pX[carry.place]!, pY[carry.place]!, carry.deliberate, false);
+        dropTo(defaultTarget(carry.kind), carry.kind, carry.place, pX[carry.place]!, pY[carry.place]!, carry.deliberate, false);
         return;
       }
       carry.sticky = true; return; // Click then target: the coin follows the pointer until the next press.
@@ -1121,27 +1627,62 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     idleT = 0; interruptHand();
     if (riderPhase !== 'pay' || introStage === 1) { invite(-1); return; }
     const left = code === 'ArrowLeft' || code === 'ArrowUp', right = code === 'ArrowRight' || code === 'ArrowDown';
-    if (left || right) { if (!carry.active) moveFocus(left ? -1 : 1); return; }
+    const two = swapOn() || pawsOn();
+    if (left || right) {
+      // Holding a coin with two targets, the arrows choose the target; otherwise they move between coins.
+      if (carry.active && carry.keyed) { keyTarget = keyTarget === T_BOX ? (swapOn() ? T_STAND : T_PAWS) : T_BOX; return; }
+      if (!carry.active) moveFocus(left ? -1 : 1);
+      return;
+    }
     const now = performance.now();
     if (now < keyAfter) return;
     keyAfter = now + KEY_GAP_MS;
-    if (carry.active) { carry.active = false; launch(RETURN, carry.kind, 1, carry.place, input.pointer.x, input.pointer.y, pX[carry.place]!, pY[carry.place]!, RETURN_SECONDS); }
-    ensureFocus();
+    if (carry.active && carry.keyed) {
+      targetPoint(keyTarget, carry.kind);
+      carry.active = false; carry.keyed = false;
+      dropTo(keyTarget, carry.kind, carry.place, pos.x, pos.y - coinD[carry.kind]! * 0.5, false, true);
+      return;
+    }
+    if (carry.active) returnCarry(input.pointer.x, input.pointer.y);
+    keepFocus();
     if (busy() || !available(focus)) { invite(focus); return; }
     if (!pick(focus)) return;
-    dropCoin(carry.kind, carry.place, pX[carry.place]!, pY[carry.place]!, false, true);
+    if (two) {
+      // Two targets: the first key lifts the coin over the target the step asks for next; arrows choose, the next key drops.
+      carry.active = true; carry.keyed = true; carry.sticky = true; keyTarget = defaultTarget(carry.kind);
+      return;
+    }
+    dropTo(T_BOX, carry.kind, carry.place, pX[carry.place]!, pY[carry.place]!, false, true);
   }
 
   // ---------------------------------------------------------------- stats
+  const rect = (x0: number, y0: number, x1: number, y1: number): Rect => ({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
   const coinInfo = (): CoinInfo[] => {
     const out: CoinInfo[] = [];
     if (!playable()) return out;
     for (let p = 0; p < nPlaces; p++) {
       if (pCount[p]! <= 0) continue;
       const r = rows === 1 ? 0 : pY[p]! > trayY + rowH ? 1 : 0, top = trayY + r * (rowH + placeGap);
-      out.push({ kind: COIN_NAMES[pKind[p]!]!, face: 'heads', x: pX[p]!, y: pY[p]!, d: coinD[pKind[p]!]!, place: p, count: pCount[p]!, hit: { x: pX[p]! - placeW / 2, y: top, w: placeW, h: rowH } });
+      out.push({ kind: COIN_NAMES[pKind[p]!]!, face: 'heads', x: pX[p]!, y: pY[p]!, d: coinD[pKind[p]!]!, place: p, count: pCount[p]!, dots: pDots[p] === 1, hit: { x: pX[p]! - placeW / 2, y: top, w: placeW, h: rowH } });
     }
-    for (const f of flights) if (f.active) out.push({ kind: COIN_NAMES[f.kind]!, face: 'heads', x: f.x1, y: f.y1, d: coinD[f.kind]!, place: f.place, count: f.n, hit: null });
+    for (const f of flights) if (f.active && f.mode !== LEAVE) out.push({ kind: COIN_NAMES[f.kind]!, face: 'heads', x: f.x1, y: f.y1, d: coinD[f.kind]!, place: f.place, count: f.n, dots: f.mode === SWAPPED, hit: null });
+    return out;
+  };
+  const cupGroups = (): CupGroup[] => {
+    const out: CupGroup[] = [];
+    if (usesPlate() || nCups <= 0) return out;
+    // Ten cups to a group: the box's grid and the panel's grid, or one row of ten (step 6: rows 0-4 in the box, 5-9 in the panel).
+    for (let start = 0, g = 0; start < nCups; start += 10, g++) {
+      const end = Math.min(nCups, start + 10);
+      let litN = 0, change = 0;
+      for (let i = start; i < end; i++) {
+        if (i < lit) litN++;
+        if (plan.animalPays && i >= fare && i < lit && (!animalPaid || i - fare < changeLeft)) change++;
+      }
+      // Step 8: change cups exist only once the dime has lit them.
+      const total = plan.animalPays ? Math.max(0, Math.min(end, Math.max(fare, lit)) - start) : end - start;
+      out.push({ where: (cupMode === CUPS_GRID ? start >= 10 : start >= 50) ? 'panel' : 'box', row: cupMode === CUPS_ROWS ? g % 5 : 0, total, lit: litN, change });
+    }
     return out;
   };
   const stats: RideFareStats = {
@@ -1150,19 +1691,35 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     get rider() { return riderIndex; }, get riders() { return ridersTotal; }, get hits() { return hits; }, get misses() { return misses; }, get bounces() { return bounces; },
     get stars() { return stars; }, get stickerId() { return pending?.chosen ?? ''; }, get choiceIds() { return pending?.choices ?? []; }, get hand() { return hand.mode; },
     get carrying() { return carry.active; }, get focus() { return focus; }, get counted() { return roundCounted.slice(); }, get learn() { return data.learn.slice(); },
-    get cups() { return { total: usesPlate() ? 0 : fare, lit }; },
+    get fare() { return fare; },
+    get cups() { return { total: usesPlate() ? 0 : fare, lit: Math.min(lit, fare) }; },
+    get cupGroups() { return cupGroups(); },
+    get cupDiameter() { return { grid: cupR * 2, rows: smallR * 2 }; },
+    get numeral() { return numeralOn && playable() ? { fare, counter: plan.step === 6 ? lit : 0, rect: rect(numX, numY + liftY, numX + numW, numY + numH + liftY) } : null; },
+    get stand() {
+      if (!swapOn() || !playable()) return null;
+      return { drawn: rect(standX, standY, standX + standW, standY + standH), zone: rect(sZoneX0, sZoneY0, sZoneX1, sZoneY1), kind: standKind >= 0 ? COIN_NAMES[standKind]! : '', count: standCount, need: standNeed(standMode()) };
+    },
+    get paws() {
+      if (!plan.animalPays || !playable()) return null;
+      return { rect: rect(pawsX0, pawsY0, pawsX1, pawsY1), zone: rect(pZoneX0, pZoneY0, pZoneX1, pZoneY1), owed: changeOwed, left: animalPaid ? changeLeft : changeOwed, paid: animalPaid };
+    },
+    get demos() { return data.demos; },
+    get keyTarget() { return carry.active && carry.keyed ? (keyTarget === T_STAND ? 'stand' : keyTarget === T_PAWS ? 'paws' : 'farebox') : ''; },
     get plate() { return usesPlate() ? Array.from({ length: plateN }, (_, k) => ({ kind: COIN_NAMES[plateKind[k]!]!, lit: plateState[k] === 2 })) : []; },
     get coins() { return coinInfo(); },
     get targets() {
       const out: TargetInfo[] = [];
       if (playable()) out.push({ kind: 'farebox', x: zoneX0, y: zoneY0, w: zoneX1 - zoneX0, h: zoneY1 - zoneY0, drawn: { x: boxX, y: boxY + liftY, w: boxW, h: boxH } });
+      if (playable() && swapOn()) out.push({ kind: 'stand', ...rect(sZoneX0, sZoneY0, sZoneX1, sZoneY1), drawn: rect(standX, standY, standX + standW, standY + standH) });
+      if (playable() && plan.animalPays) out.push({ kind: 'paws', ...rect(pZoneX0, pZoneY0, pZoneX1, pZoneY1), drawn: rect(pawsX0, pawsY0, pawsX1, pawsY1) });
       if (phase === 'choice' && pending) for (let i = 0; i < pending.choices.length; i++) out.push({ kind: `sticker:${pending.choices[i]}`, x: controlX(i, true) - choiceSize / 2, y: choiceY - choiceSize / 2, w: choiceSize, h: choiceSize });
       if (phase === 'rest') for (let i = 0; i < 2; i++) out.push({ kind: i === 0 ? 'again' : 'home', x: controlX(i, false) - controlsRadius, y: controlsY - controlsRadius, w: controlsRadius * 2, h: controlsRadius * 2 });
       out.push({ kind: 'corner-home', x: homeX - cornerRadius, y: cornerY - cornerRadius, w: cornerRadius * 2, h: cornerRadius * 2 });
       out.push({ kind: 'corner-sound', x: soundX - cornerRadius, y: cornerY - cornerRadius, w: cornerRadius * 2, h: cornerRadius * 2 });
       return out;
     },
-    get coinSizes() { return { penny: coinD[PENNY]!, nickel: coinD[NICKEL]!, dime: coinD[2]! }; },
+    get coinSizes() { return { penny: coinD[PENNY]!, nickel: coinD[NICKEL]!, dime: coinD[DIME]! }; },
     get workMean() { let sum = 0; for (let i = 0; i < workCount; i++) sum += work[i]!; return workCount ? sum / workCount : 0; },
     get workMax() { let max = 0; for (let i = 0; i < workCount; i++) max = Math.max(max, work[i]!); return max; },
     scales() { return Object.fromEntries(drawnScale); },
@@ -1173,11 +1730,10 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     if (!services.debug.enabled || debugApplied) return;
     debugApplied = true;
     const params = new URLSearchParams(location.search), step = Number(params.get('step')), rounds = Number(params.get('rounds'));
-    if (params.has('step') && Number.isSafeInteger(step) && step >= 1 && step <= TOP_STEP) { data.step = Math.min(BUILT_STEP, step); data.learn.length = 0; data.stepRounds = 0; }
+    if (params.has('step') && Number.isSafeInteger(step) && step >= 1 && step <= TOP_STEP) { data.step = step; data.learn.length = 0; data.stepRounds = 0; }
     if (params.has('rounds') && Number.isSafeInteger(rounds) && rounds >= 0) { data.rounds = rounds; data.pending = null; }
     else if (params.has('step') && data.rounds === 0) data.rounds = 1;
   }
-
   return {
     stats,
     enter() {
@@ -1198,7 +1754,7 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     },
     pause() {
       stopMusic(audio); stopIdle();
-      if (carry.active) { carry.active = false; launch(RETURN, carry.kind, 1, carry.place, input.pointer.x, input.pointer.y, pX[carry.place]!, pY[carry.place]!, RETURN_SECONDS); }
+      if (carry.active) returnCarry(input.pointer.x, input.pointer.y);
       services.save.flush();
     },
     resume() {

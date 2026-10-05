@@ -1,4 +1,4 @@
-/** Ride Fare dev page: ?debug&tier=0..2&step=1..4&rounds=N&seed=N (rounds=0 replays the introduction). */
+/** Ride Fare dev page: ?debug&tier=0..2&step=1..8&rounds=N&seed=N (rounds=0 replays the introduction). */
 import { bootApp } from '../app/boot';
 import { createRideFareScene, loadRideFareArt, type RideFareStats } from '../games/ride-fare/scene';
 
