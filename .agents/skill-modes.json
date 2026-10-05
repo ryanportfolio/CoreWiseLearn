@@ -40,6 +40,7 @@
     "writing": "native",
     "writing-plans": "native",
     "servers": "native",
-    "wrapup": "native"
+    "wrapup": "native",
+    "deep-plan": "native"
   }
 }

@@ -10,6 +10,7 @@ import { dinoPicnic } from '../games/dino-picnic';
 import { letterTrain } from '../games/letter-train';
 import { webPlayground } from '../games/web-playground';
 import { shapeWorkshop } from '../games/shape-workshop';
+import { piggyParade } from '../games/piggy-parade';
 import { rideFare } from '../games/ride-fare';
 
 /** Everything a game may need from the hub, handed in when its scene is created. */
@@ -46,6 +47,7 @@ const games: GameDefinition[] = [
   letterTrain,
   webPlayground,
   shapeWorkshop,
+  piggyParade,
   rideFare,
   // Add games here in hub order. See docs/adding-a-game.md.
 ];

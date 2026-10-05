@@ -8,7 +8,7 @@ import type { AppServices } from '../../app/services';
 import { allGames } from '../../engine/registry';
 import { accentFor, avatarPath, avatarSpriteName } from '../../app/avatar';
 import { createKeyboardNavigation } from '../../ui/navigation';
-import { createButton, dispatchDown, dispatchUp, type Button } from '../../ui/button';
+import { createButton, dispatchDown, dispatchUp, MIN_HIT, type Button } from '../../ui/button';
 import { chunkyCircle, chunkyPanel, drawSprite, groundShadow, OUTLINE, roundedRect } from '../../ui/draw';
 import { starPath } from '../../ui/celebrate';
 import { approach, arriveAlpha, arriveScale, springStep } from '../../ui/tween';
@@ -56,6 +56,19 @@ const TILE_ZETA = 0.55;
 const TOP_GAP = 12;
 /** Smallest avatar and sound button radius, buttonRadius's floor: over 96 px across. */
 const MIN_RADIUS = 52;
+/** Space between neighbouring tiles, as a fraction of the tile side. */
+const TILE_GAP = 0.14;
+/** Mascot size limits, px, and the number of steps the tile layout may shrink it in between. */
+const MASCOT_MIN = 150;
+const MASCOT_MAX = 340;
+const MASCOT_STEPS = 8;
+/**
+ * Where the mascot's art can appear, as fractions of its size from its feet (mascotX,
+ * mascotGround). The idle, wave and point art spans 0.10 to 0.90 of its square across and
+ * 0.17 to 0.83 down; this adds the feet offsets, the 5 percent bob, the wave's tilt and the
+ * pop-in overshoot. Tiles keep out of this box.
+ */
+const MASCOT_BOX = { left: -0.45, right: 0.47, top: -0.73, bottom: 0.03 } as const;
 
 /**
  * The game the hub last launched, until the hub is left some other way. Every
@@ -124,6 +137,8 @@ export interface HubLayout {
   targets: LayoutTarget[];
   /** Id of the control holding keyboard focus (`tile:<game id>` for a tile). */
   focus?: () => string | undefined;
+  /** Box the mascot's art can reach, which tiles keep out of. */
+  mascot?: LayoutTarget;
 }
 
 function fallbackMeadow(ctx: CanvasRenderingContext2D, w: number, h: number): void {
@@ -257,6 +272,122 @@ export function createHubScene(services: AppServices): Scene {
     };
   }
 
+  function setMascot(size: number): void {
+    mascotSize = size;
+    mascotX = margin + size * 0.4;
+    mascotGround = height - margin;
+  }
+
+  /** Lay tiles out in `rows` rows of the same width, the last row centred or, with `alignLast`, flush right. */
+  function placeGrid(rows: number, size: number, cx: number, top: number, alignLast: boolean): void {
+    const n = tiles.length;
+    const cols = Math.ceil(n / rows);
+    const gap = size * TILE_GAP;
+    const gridW = cols * size + (cols - 1) * gap;
+    for (let i = 0; i < n; i++) {
+      const t = tiles[i];
+      if (!t) continue;
+      const row = Math.floor(i / cols);
+      const col = i - row * cols;
+      const inRow = Math.min(cols, n - row * cols);
+      const rowW = inRow * size + (inRow - 1) * gap;
+      const rowLeft = alignLast ? cx + gridW / 2 - rowW : cx - rowW / 2;
+      t.size = size;
+      t.x = rowLeft + col * (size + gap) + size / 2;
+      t.y = top + row * (size + gap) + size / 2;
+    }
+  }
+
+  function overlaps(t: Tile, x0: number, y0: number, x1: number, y1: number): boolean {
+    const half = t.size / 2;
+    return t.x + half > x0 && t.x - half < x1 && t.y + half > y0 && t.y - half < y1;
+  }
+
+  /** Every tile is on screen and clear of the top buttons' press areas and the mascot's art. */
+  function tilesFit(): boolean {
+    const s = mascotSize;
+    for (const t of tiles) {
+      const half = t.size / 2;
+      if (t.x - half < 0 || t.y - half < 0 || t.x + half > width || t.y + half > height) return false;
+      if (overlaps(t, mascotX + MASCOT_BOX.left * s, mascotGround + MASCOT_BOX.top * s, mascotX + MASCOT_BOX.right * s, mascotGround + MASCOT_BOX.bottom * s)) return false;
+      for (const b of buttons) {
+        const r = Math.max(b.radius, MIN_HIT);
+        if (overlaps(t, b.x - r, b.y - r, b.x + r, b.y + r)) return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Try one grid at one tile size: placement 0 centres it above the mascot; 1 and 2 use the
+   * height down to the bottom margin (centred, or from the top) with the last row flush right
+   * and the grid nudged right, so the mascot can stand beside a short last row.
+   */
+  function tryGrid(rows: number, size: number, top: number, placement: number): boolean {
+    const n = tiles.length;
+    const cols = Math.ceil(n / rows);
+    const gap = size * TILE_GAP;
+    const gridW = cols * size + (cols - 1) * gap;
+    const gridH = rows * size + (rows - 1) * gap;
+    const bottom = height - margin;
+    if (gridW > width - 2 * margin) return false;
+    let cx = width / 2;
+    if (placement === 0) {
+      const above = Math.min(bottom, mascotGround + MASCOT_BOX.top * mascotSize - gap);
+      if (gridH > above - top) return false;
+      placeGrid(rows, size, cx, top + (above - top - gridH) / 2, false);
+      return tilesFit();
+    }
+    if (gridH > bottom - top) return false;
+    const lastW = (n - (rows - 1) * cols) * (size + gap) - gap;
+    const clearX = mascotX + MASCOT_BOX.right * mascotSize + gap;
+    cx += Math.max(0, Math.min(clearX - (cx + gridW / 2 - lastW), width - margin - (cx + gridW / 2)));
+    placeGrid(rows, size, cx, placement === 1 ? top + (bottom - top - gridH) / 2 : top, true);
+    return tilesFit();
+  }
+
+  /**
+   * Fallback when the usual layout does not fit (narrow or short windows, or many tiles):
+   * for each mascot size from full down to MASCOT_MIN, find the largest tiles over every row
+   * count (fewer rows win a tie), then keep the biggest mascot whose tiles are within 8 percent
+   * of the largest found. Runs on resize only.
+   */
+  function placeTiles(top: number, fullMascot: number): void {
+    const n = tiles.length;
+    const found: { mascot: number; size: number; rows: number; placement: number }[] = [];
+    let bestSize = 0;
+    for (let k = 0; k <= MASCOT_STEPS; k++) {
+      const mascot = fullMascot - ((fullMascot - MASCOT_MIN) * k) / MASCOT_STEPS;
+      setMascot(mascot);
+      let size = 0;
+      let rows = 1;
+      let placement = 0;
+      for (let r = 1; r <= n; r++) {
+        const cols = Math.ceil(n / r);
+        if (Math.ceil(n / cols) !== r) continue;
+        // From the largest size the space allows, down in 2 percent steps to 96 px.
+        let s = Math.min((height - margin - top) / (r + (r - 1) * TILE_GAP), (width - 2 * margin) / (cols + (cols - 1) * TILE_GAP), height * 0.36);
+        for (; s >= 96 && s > size; s *= 0.98) {
+          let p = 0;
+          while (p < 3 && !tryGrid(r, s, top, p)) p++;
+          if (p < 3) { size = s; rows = r; placement = p; break; }
+        }
+      }
+      found.push({ mascot, size, rows, placement });
+      bestSize = Math.max(bestSize, size);
+    }
+    const pick = found.find((f) => f.size >= 96 && f.size >= bestSize * 0.92);
+    if (pick) {
+      setMascot(pick.mascot);
+      tryGrid(pick.rows, pick.size, top, pick.placement);
+      return;
+    }
+    // Nothing fits (a window far smaller than 390x600): as many 96 px columns as fit across.
+    setMascot(MASCOT_MIN);
+    const cols = Math.max(1, Math.floor((width - 2 * margin + 96 * TILE_GAP) / (96 * (1 + TILE_GAP))));
+    placeGrid(Math.ceil(n / cols), 96, width / 2, top, false);
+  }
+
   function layout(): void {
     const w = width;
     const h = height;
@@ -300,47 +431,32 @@ export function createHubScene(services: AppServices): Scene {
     badgeX = stickerButton.x + br * 0.72;
     badgeY = stickerButton.y - br * 0.72;
 
-    // Mascot art fills about 65 percent of its square with the feet near 83 percent down.
-    mascotSize = Math.max(150, Math.min(340, h * 0.36));
-    mascotX = margin + mascotSize * 0.4;
-    mascotGround = h - margin;
-
     // Tile band between the top buttons and the mascot.
     let bandTop = margin + ar * 2 + h * 0.05 + (w < 1000 ? 50 : 0);
     if (twoRows) bandTop = Math.max(bandTop, stickerButton.y + br + margin);
+    const n = tiles.length;
+    const fullMascot = Math.max(MASCOT_MIN, Math.min(MASCOT_MAX, h * 0.36));
+    setMascot(fullMascot);
+
+    // First the usual layout: one row up to four tiles, two rows above that, in a band that
+    // ends at 76 percent of the height. It stays whenever its tiles are at least 96 px, on
+    // screen and clear of the buttons and the mascot (every window from 800x600 up with up to
+    // seven tiles). Otherwise placeTiles searches rows, sizes and mascot sizes for what fits.
     const bandBottom = h * 0.76;
     const bandH = Math.max(100, bandBottom - bandTop);
     const bandW = w - margin * 4;
-    const n = tiles.length;
-    let size: number;
     if (n === 1) {
-      size = Math.min(bandH, w * 0.42);
-      const t = tiles[0];
-      if (t) {
-        t.size = Math.max(96, size);
-        t.x = w / 2;
-        t.y = bandTop + bandH / 2;
-      }
+      const size = Math.min(bandH, w * 0.42);
+      placeGrid(1, size, w / 2, bandTop + (bandH - size) / 2, false);
+      if (size < 96 || !tilesFit()) placeTiles(bandTop, fullMascot);
     } else {
       const rows = n > 4 ? 2 : 1;
       const cols = Math.ceil(n / rows);
-      const gapFrac = 0.14;
-      size = Math.min((bandH / rows) / (1 + (rows > 1 ? gapFrac : 0)), bandW / (cols + (cols - 1) * gapFrac));
-      size = Math.max(96, Math.min(size, h * 0.36));
-      const gap = size * gapFrac;
-      const totalH = rows * size + (rows - 1) * gap;
-      const top = bandTop + (bandH - totalH) / 2;
-      for (let i = 0; i < n; i++) {
-        const t = tiles[i];
-        if (!t) continue;
-        const row = rows === 1 ? 0 : i < cols ? 0 : 1;
-        const inRow = rows === 1 ? n : row === 0 ? cols : n - cols;
-        const col = row === 0 ? i : i - cols;
-        const rowW = inRow * size + (inRow - 1) * gap;
-        t.size = size;
-        t.x = (w - rowW) / 2 + col * (size + gap) + size / 2;
-        t.y = top + row * (size + gap) + size / 2;
-      }
+      let size = Math.min((bandH / rows) / (1 + (rows > 1 ? TILE_GAP : 0)), bandW / (cols + (cols - 1) * TILE_GAP));
+      size = Math.min(size, h * 0.36);
+      const totalH = rows * size + (rows - 1) * size * TILE_GAP;
+      placeGrid(rows, size, w / 2, bandTop + (bandH - totalH) / 2, false);
+      if (size < 96 || !tilesFit()) placeTiles(bandTop, fullMascot);
     }
 
     tiles.forEach((t, i) => { const b = tileButtons[i]!; b.x = t.x; b.y = t.y; b.radius = t.size / 2; });
@@ -354,6 +470,8 @@ export function createHubScene(services: AppServices): Scene {
         circleTarget('sound', soundButton),
         ...tiles.map((t, i) => ({ id: `tile:${t.id ?? `placeholder-${i}`}`, x: t.x - t.size / 2, y: t.y - t.size / 2, w: t.size, h: t.size })),
       ];
+      const ms = mascotSize;
+      layoutInfo.mascot = { id: 'mascot', x: mascotX + MASCOT_BOX.left * ms, y: mascotGround + MASCOT_BOX.top * ms, w: (MASCOT_BOX.right - MASCOT_BOX.left) * ms, h: (MASCOT_BOX.bottom - MASCOT_BOX.top) * ms };
     }
     bgDirty = true;
   }
