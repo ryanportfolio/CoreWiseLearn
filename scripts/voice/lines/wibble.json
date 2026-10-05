@@ -64,6 +64,7 @@
     { "file": "game-web-playground", "text": "Web Playground!" },
     { "file": "game-shape-workshop", "text": "Shape Workshop!" },
     { "file": "game-piggy-parade", "text": "Piggy Parade!" },
-    { "file": "game-ride-fare", "text": "Ride Fare!", "accept": ["ride fair"] }
+    { "file": "game-ride-fare", "text": "Ride Fare!", "accept": ["ride fair"] },
+    { "file": "game-frog-pond", "text": "Frog Pond!" }
   ]
 }

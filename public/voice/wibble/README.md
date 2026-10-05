@@ -12,7 +12,7 @@ The game finds the clips at build time by reading this folder, so there is no cl
 | `back-1.mp3` to `back-6.mp3` | "That were fun!", "Champion!", "Ooh, I liked that one!", "What shall we do next?", "Ooh, look at all these games!", "I wonder what's in there..." | Hub: returning from a game, about one time in three. |
 | `tickle-1.mp3` to `tickle-10.mp3` | "Ooh, that tickles!", "Hee hee!", "Wibble wobble!", "Boing!" and six more | Hub and name entry: the child pokes Wibble. One at random, never the same line twice in a row, and none while Wibble is already talking. |
 | `sleepy-1.mp3`, `sleepy-2.mp3` | "Ooh, I'm right sleepy...", "Shall we have a little rest?" | The break nudge, when Wibble yawns. |
-| `game-bubble-pop.mp3`, `game-dino-picnic.mp3`, `game-letter-train.mp3`, `game-web-playground.mp3`, `game-shape-workshop.mp3`, `game-piggy-parade.mp3`, `game-ride-fare.mp3` | The game's name: "Bubble Bay!", "Dino Picnic!" ... "Ride Fare!" | Hub: a game tile is focused or hovered for 0.4 s, so a child who cannot read hears what it is. |
+| `game-bubble-pop.mp3`, `game-dino-picnic.mp3`, `game-letter-train.mp3`, `game-web-playground.mp3`, `game-shape-workshop.mp3`, `game-piggy-parade.mp3`, `game-ride-fare.mp3`, `game-frog-pond.mp3` | The game's name: "Bubble Bay!", "Dino Picnic!" ... "Frog Pond!" | Hub: a game tile is focused or hovered for 0.4 s, so a child who cannot read hears what it is. |
 
 Clips play on one voice channel: a new clip stops the one playing, so voices never stack. They stay silent while the speaker is muted. Commentary (the hello, back and sleepy lines) is held to at most one line a minute and never plays during active play; pokes are the child's own choice and are not counted.
 
