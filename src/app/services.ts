@@ -37,7 +37,7 @@ export interface AppServices {
   session: SessionTimer;
   loop: GameLoop;
   nav: Nav;
-  /** Site base for asset URLs, e.g. "/CoreWiseLearn/". Always ends with a slash. */
+  /** Site base for asset URLs, e.g. "/". Always ends with a slash. */
   base: string;
   /** Convenience: `${base}art/<path>` */
   art(path: string): string;

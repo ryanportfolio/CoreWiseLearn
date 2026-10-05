@@ -9,7 +9,7 @@ are made in the code.
 ## Opening it
 
 1. In the project folder, start the dev server: `npm run dev`
-2. Open http://localhost:5173/CoreWiseLearn/dev/sound-lab.html (if the dev
+2. Open http://localhost:5173/dev/sound-lab.html (if the dev
    server picked another port, use the port it prints).
 3. Click anything on the page once. Browsers keep sound off until the first
    click.

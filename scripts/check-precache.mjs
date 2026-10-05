@@ -17,11 +17,11 @@ if (!entries.length) throw new Error('No generated precache entries found; inspe
 const missing = [];
 for (const path of await files(join(root, 'public'))) {
   const name = relative(join(root, 'public'), path).replaceAll('\\', '/');
-  if (!entries.includes(name) && !entries.includes(`/CoreWiseLearn/${name}`)) missing.push(name);
+  if (!entries.includes(name) && !entries.includes(`/${name}`)) missing.push(name);
 }
 let bytes = 0;
 for (const entry of new Set(entries)) {
-  const local = entry.replace(/^\/CoreWiseLearn\//, '');
+  const local = entry.replace(/^\//, '');
   const path = resolve(root, 'dist', local);
   if (!path.startsWith(resolve(root, 'dist') + (process.platform === 'win32' ? '\\' : '/'))) throw new Error('Unexpected precache path');
   bytes += (await stat(path)).size;

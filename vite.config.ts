@@ -2,8 +2,8 @@ import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import { readdirSync } from 'node:fs';
 
-// Served from GitHub Pages at https://<owner>.github.io/CoreWiseLearn/
-const BASE = '/CoreWiseLearn/';
+// Served from the site root by Vercel at https://corewise.fun/
+const BASE = '/';
 
 export default defineConfig({
   base: BASE,

@@ -12,7 +12,7 @@ Fix for parallel browser work: each agent opens its own `BrowserContext` through
 async (page) => {
   const ctx = await page.context().browser().newContext();
   const p = await ctx.newPage();
-  await p.goto('http://localhost:5182/CoreWiseLearn/dev/hub.html?seed');
+  await p.goto('http://localhost:5182/dev/hub.html?seed');
   // ... checks on p ...
   await ctx.close();
 }

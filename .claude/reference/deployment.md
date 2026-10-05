@@ -4,22 +4,17 @@
 
 ## Status
 
-Local only for now (owner decision, 2026-10-02). Nothing is published. The hub is run from `npm run dev` or `npm run preview` on the development machine, and tested on the children's laptop by hand when the owner chooses.
+Live at https://corewise.fun (owner decision, 2026-10-05; earlier the site was local only and GitHub Pages was the planned host).
 
-## Target when it goes live
+- Host: Vercel project `corewiselearn` (account `aoh1578`), connected to `github.com/ryanportfolio/CoreWiseLearn`. A push to `main` deploys to production; every other branch and PR gets a preview URL. Check deployments with `vercel ls` and `vercel inspect <url>`; roll back with `vercel rollback`.
+- Domain: `corewise.fun`, registered at Namecheap with Namecheap's DNS. `www.corewise.fun` redirects to the apex. The records Vercel needs are listed on each domain's card in the Vercel project (Settings > Domains) and by `vercel domains inspect corewise.fun`.
+- Build: Vercel detects Vite, runs `npm run build` (which also runs `scripts/check-precache.mjs`, so a missing precache entry fails the deploy) and serves `dist/`, a fully static bundle (HTML, JS, CSS, `public/` copied as is, service worker and web manifest from `vite-plugin-pwa`).
+- Base path: Vite `base` is `/`; every asset URL goes through `services.base` or `services.art()` so the base never appears in game code.
+- Privacy: Vercel Web Analytics and Speed Insights stay off. The site makes no requests beyond its own files.
 
-- Host: GitHub Pages, project site at `https://ryanportfolio.github.io/CoreWiseLearn/`.
-- Build: `npm run build` writes `dist/`, a fully static bundle (HTML, JS, CSS, `public/` copied as is, service worker and web manifest from `vite-plugin-pwa`).
-- Base path: Vite `base` is `/CoreWiseLearn/`; every asset URL goes through `services.base` or `services.art()` so the base never appears in game code.
-- Workflow: `.github/workflows/deploy.yml` builds and publishes `dist/`. It is set to manual trigger only (`workflow_dispatch`) so pushes to `main` do not fail while Pages is off.
+After a deploy that changes the service worker, a page already open keeps the old build until the child reaches the hub (see `pitfalls.md`); a hard reload or a fresh browser profile shows the new one at once.
 
-## Turning it on
-
-1. Enable Pages with the Actions source once: `gh api -X POST repos/ryanportfolio/CoreWiseLearn/pages -f build_type=workflow` (or Settings > Pages > Source: GitHub Actions).
-2. In `deploy.yml`, restore the `push: branches: [main]` trigger, or run the workflow by hand from the Actions tab.
-3. After the first deploy, open the site, confirm the service worker installs, then reload with the network off to confirm offline play.
-
-No database, no secrets, no server. `config.json` ships at the site root and is read fresh on every load, so editing the served copy changes the settings on the next page load. That needs no rebuild only where the built `dist/` folder is served as is (a copy on the children's laptop, or a local preview): edit `dist/config.json` there. On GitHub Pages the deploy workflow runs `npm run build` and publishes `dist/`, so change `public/config.json` in the repo and run the workflow again. The precached copy is the offline fallback (see `architecture.md`). Art under `public/art/` and icons under `public/icons/` ship as static files.
+No database, no secrets, no server. `config.json` ships at the site root and is read fresh on every load, so editing the served copy changes the settings on the next page load. That needs no rebuild only where the built `dist/` folder is served as is (a copy on the children's laptop, or a local preview): edit `dist/config.json` there. On Vercel the served copy comes from the build, so change `public/config.json` in the repo and merge. The precached copy is the offline fallback (see `architecture.md`). Art under `public/art/` and icons under `public/icons/` ship as static files.
 
 Two kinds of art ship today:
 

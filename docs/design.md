@@ -38,7 +38,7 @@ Any pull request that crosses one of these is wrong, whatever else it improves.
 - Each profile owns its progress, collections, creations, and future world. Stable IDs survive renaming; unnamed avatar profiles are saved. Profiles never merge or disappear automatically.
 - Stars in Bubble Bay reflect attainable round accomplishments, never past records: finish, five pops, ten pops. The introductory eight-pop round earns three stars. Combos change feedback only. These counts are initial playtest settings.
 - Browser and operating-system reduced-motion preferences are ignored by explicit owner direction. Full normal animation remains, including brief reward reveals and a still rest screen.
-- Local only until the owner says otherwise. GitHub Pages is the eventual host.
+- Hosted on Vercel at https://corewise.fun, a static build served from the site root.
 
 ## Pull request checklist
 
