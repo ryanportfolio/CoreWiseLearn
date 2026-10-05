@@ -30,6 +30,10 @@ A shared style bible with per-game media. The three recommendations that change 
 
 Canvas 2D on a weak GPU, loop and pooling, assets, Web Audio, PWA delivery and input hardening. The three recommendations that change the most: fix four defects in the existing scaffold (a 0.25 s loop clamp that allows 15 catch-up steps, a DPR cap of 1 instead of 1.5, an auto-updating service worker that can reload mid-round, and a save migration that can wipe the sticker book). Cap the canvas at about 1.5 M backing pixels and step down an invisible resolution scale when frames run long, since fill load grows with DPR squared. Measure performance on the children's laptop in Chrome and Edge, plugged in and on battery, rather than trusting CPU throttling on a fast machine.
 
+### [07. Money for ages 4 to 6](07-money.md)
+
+Which money skills are realistic for 4 to 6 year olds, the pitfalls of teaching money, and six candidate games. The core at 4 is telling coins apart; values arrive around 7, so value enters at 5 as a stretch shown with visible dots and becomes the main content at 6. No US standard asks for coin values before first grade. Pictures of coins are legal to use; colour pictures of paper money are restricted, so the games use coins only. Recommended pair: Piggy Parade (what coins look like) and Ride Fare (what coins are worth), neither with a shop.
+
 ## Where the sections disagree
 
 The sections were written in parallel and give different values in a few places. Editorial calls, carried into the prompt amendments:
