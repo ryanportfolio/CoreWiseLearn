@@ -22,7 +22,7 @@ import { createSoundButton, soundArt, syncSoundIcon } from '../../scenes/hub/sha
 import { defaultData, GAME_ID, sanitizeRideData, TOP_STEP, type PendingRound, type RideData } from './data';
 import {
   applyLearning, applyMotor, arrangeTray, COIN_MM, COIN_NAMES, COIN_VALUE, DIME, DIME_MM, introRider, MIN_DIME_PX, NICKEL,
-  PENNY, planRider, recordRider, riderStep, ROUND_STARS, swapRider, TIERS, type RiderPlan,
+  PENNY, planRider, recordRider, riderStep, ROUND_STARS, swapRider, TIERS, type RiderPlan, type TierParams,
 } from './rules';
 import { playVoice, preloadVoice } from './voice';
 
@@ -67,10 +67,17 @@ const TRAY_CAP = 200;
 const BASKET_W = 470, BASKET_LEFT = 64, ENVELOPE_W = 540, ANIMAL_H = 260;
 /** Largest layout unit: at 1920x1080 every piece draws at most at its own pixel size. */
 const U_MAX = 1.405;
+/** The balloon's fit: 5 percent steps to 0.6 (8 steps) before the coins shrink, then to 0.25 at most. */
+const FIT_STEPS = 8, FIT_LAST_STEPS = 15;
+/** The smallest layout unit the tray's spacing shrinks to when the balloon needs room (the smallest window's). */
+const TRAY_U_MIN = 0.45;
 /** Scale of the small balloon that drifts across the sky, and of the celebration balloon (of the play balloon). */
 const DRIFT_K = 0.3;
 /** Queue spots on the path, in launch-field.webp pixels (nearest first). */
 const PATH = [[1180, 880], [1330, 838], [1480, 790], [1620, 740]] as const;
+/** Idle preparation: a step runs anyway once it has waited this long for an idle period with 4 ms to spare. */
+const IDLE_WAIT_MS = 500;
+const IDLE_OPTIONS: IdleRequestOptions = { timeout: IDLE_WAIT_MS };
 const MAX_PLACES = 8, MAX_CUPS = 100, POOL = 24, PARTICLES = 160;
 
 const CELEBRATION_SECONDS = 4.6, STAR_START = 0.5;
@@ -145,6 +152,8 @@ export interface RideFareStats {
   readonly cupGroups: readonly CupGroup[];
   /** Step 6 and 8: the numeral shown beside the cups (fare and, at step 6, the climbing count), or null. */
   readonly numeral: { fare: number; counter: number; rect: Rect } | null;
+  /** Steps 5 and 6: the second panel above the box while the fare needs it, or null. */
+  readonly panel: Rect | null;
   /** Step 7: the swap stand (drawn rectangle, press zone, coins resting on it). */
   readonly stand: { drawn: Rect; zone: Rect; kind: string; count: number; need: number } | null;
   /** Step 8: the animal's paws target (rectangle and zone with the snap distance) and the change owed and still to hand back. */
@@ -332,7 +341,7 @@ export function createRideFareScene(services: AppServices): RideFareScene {
   let pending: PendingRound | null = null;
   let menuSelected = -1, inputAfter = 0, keyAfter = 0, focusAt = 0;
   let workHead = 0, workCount = 0, updateMs = 0;
-  let fanfareStarted = false, fanfareAsked = false, idleHandle = 0;
+  let fanfareStarted = false, fanfareAsked = false, idleHandle = 0, idleWaitFrom = -1;
   const warmNames: string[] = [], warmSizes: number[] = [], warmDone = new Set<string>();
   let warmIndex = 0, madeName = '', madeSize = 0, sizeKey = '';
   // Layout in logical (CSS) px.
@@ -391,24 +400,21 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     homeX = cornerRadius + 12; soundX = W - cornerRadius - 12; cornerY = cornerRadius + 12;
     soundButton.x = soundX; soundButton.y = cornerY; soundButton.radius = cornerRadius;
     const tp = TIERS[tier];
-    // Coins at true ratios; the dime never below 96 CSS px.
-    const dime = Math.max(MIN_DIME_PX, tp.dime * u);
-    for (let k = 0; k < 3; k++) coinD[k] = Math.round(dime * COIN_MM[k]! / DIME_MM);
-    // The tray: one row of places along the bottom, two rows where fewer than three places fit in one.
-    const edge = Math.max(6, 20 * u);
-    placeGap = Math.max(8, 16 * u); placeW = Math.max(96, Math.round(coinD[NICKEL]! + 16 * u));
-    rowH = Math.round(coinD[NICKEL]! + 36 * u);
-    trayW = Math.round(W - 2 * edge); trayX = Math.round(edge);
-    const capIn = rowH * 0.42;
-    const perRow = Math.max(1, Math.floor((trayW - 2 * capIn + placeGap) / (placeW + placeGap)));
-    rows = perRow >= Math.min(3, tp.places) ? 1 : 2;
-    maxPlaces = Math.min(MAX_PLACES, tp.places, perRow * rows);
-    trayH = rows * rowH + (rows - 1) * placeGap;
-    trayY = Math.round(H - Math.max(6, 12 * u) - trayH);
-    // Basket, fare box and gate animal: shrink together in 5 percent steps until everything fits on screen.
-    for (fitS = 1; fitS >= 0.6; fitS -= 0.05) { placeBalloon(tp.box, tp.snap); if (fits()) break; }
-    if (fitS < 0.6) { fitS = 0.6; placeBalloon(tp.box, tp.snap); }
+    // Basket, fare box and gate animal shrink together in 5 percent steps (to 0.6) until everything fits above the
+    // tray. Where they cannot (a large uiScale), the coins and the tray's spacing shrink in 10 percent steps toward the
+    // dime's 96 px floor and the smallest window's spacing, and the balloon tries again; only then does it go below 0.6.
+    const trayMin = Math.min(1, TRAY_U_MIN / u);
+    let fitted = false;
+    for (let cs = 1; ; cs = Math.max(trayMin, cs * 0.9)) {
+      sizeTray(tp, cs);
+      fitted = fitBalloon(tp, 0, FIT_STEPS);
+      if (fitted || cs <= trayMin) break;
+    }
+    // Where even that fails, the balloon stays at its smallest step.
+    if (!fitted) fitBalloon(tp, FIT_STEPS + 1, FIT_LAST_STEPS);
     placeExtras(tp.snap * u, tp.paws);
+    // A resize can leave fewer places than the tray uses: coins of one kind then stack.
+    if (nPlaces > maxPlaces) repack();
     if (nPlaces) placeCoins();
     if (nCups) placeCups();
     // Celebration, choice and rest.
@@ -441,7 +447,7 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     const trayKey = `${trayW}x${trayH}@${artRatio}`, trayImg = sprites.get(TRAY);
     if (trayImg && trayKey !== bakedTray) { bakedTray = trayKey; trayCanvas = bakeTray(trayImg, trayW, trayH, artRatio); }
     planWarm();
-    const key = `${W}x${H}@${artRatio}/${tier}/${fitS}`;
+    const key = `${W}x${H}@${artRatio}/${tier}/${fitS}/${coinD[NICKEL]}`;
     if (key !== sizeKey) { sizeKey = key; releaseArt(); drawnScale.clear(); }
     if (trayImg) {
       // The tray's caps scale by its height; each middle copy also stretches along the grain, never past its own pixels.
@@ -453,6 +459,56 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     const img = sprites.get(BG);
     bgScale = img ? Math.max(W / img.naturalWidth, H / img.naturalHeight) : 1;
     if (img) { bgX = (W - img.naturalWidth * bgScale) / 2; bgY = (H - img.naturalHeight * bgScale) / 2; }
+  }
+  /**
+   * Coins at true ratios (the dime never below 96 CSS px) and the tray along the bottom, at `cs` times their full
+   * size: one row of places, or as many rows as three places need where fewer fit in one.
+   */
+  function sizeTray(tp: TierParams, cs: number): void {
+    const cu = u * cs;
+    const dime = Math.max(MIN_DIME_PX, tp.dime * cu);
+    for (let k = 0; k < 3; k++) coinD[k] = Math.round(dime * COIN_MM[k]! / DIME_MM);
+    const edge = Math.max(6, 20 * cu);
+    placeGap = Math.max(8, 16 * cu); placeW = Math.max(96, Math.round(coinD[NICKEL]! + 16 * cu));
+    rowH = Math.round(coinD[NICKEL]! + 36 * cu);
+    trayW = Math.round(W - 2 * edge); trayX = Math.round(edge);
+    const capIn = rowH * 0.42;
+    const perRow = Math.max(1, Math.floor((trayW - 2 * capIn + placeGap) / (placeW + placeGap)));
+    // Three places hold any rider's coins (one place per kind, or a kind and the swap's empty places).
+    rows = Math.ceil(Math.min(3, tp.places) / perRow);
+    maxPlaces = Math.min(MAX_PLACES, tp.places, perRow * rows);
+    trayH = rows * rowH + (rows - 1) * placeGap;
+    trayY = Math.round(H - Math.max(6, 12 * cu) - trayH);
+  }
+  /** Shrink the balloon in 5 percent steps, from step `first` to step `last` (0 is full size), until it fits. */
+  function fitBalloon(tp: TierParams, first: number, last: number): boolean {
+    for (let i = first; i <= last; i++) { fitS = Math.round((1 - i * 0.05) * 100) / 100; placeBalloon(tp.box, tp.snap); if (fits()) return true; }
+    return false;
+  }
+  /**
+   * Fewer places than the tray uses (after a resize): the last place of the kind with the most places joins the
+   * first place of that kind, until the tray fits. A kind never loses its last place. Held coins, coins in flight,
+   * the helper hand and the highlight follow their place to its new index.
+   */
+  function repack(): void {
+    while (nPlaces > maxPlaces) {
+      let from = -1, most = 1;
+      for (let p = nPlaces - 1; p >= 0; p--) {
+        let n = 0; for (let q = 0; q < nPlaces; q++) if (pKind[q] === pKind[p]) n++;
+        if (n > most) { most = n; from = p; }
+      }
+      if (from < 0) return;
+      let into = 0; while (pKind[into] !== pKind[from] || into === from) into++;
+      pCount[into] = pCount[into]! + pCount[from]!; pUnlimited[into] = pUnlimited[into]! || pUnlimited[from]!;
+      pDots[into] = pDots[into]! | pDots[from]!; pExtra[into] = pExtra[into]! | pExtra[from]!; pHop[into] = Math.min(pHop[into]!, pHop[from]!);
+      pKind.splice(from, 1); pCount.splice(from, 1); pUnlimited.splice(from, 1);
+      pDots.copyWithin(from, from + 1); pExtra.copyWithin(from, from + 1); pHop.copyWithin(from, from + 1);
+      nPlaces--;
+      const to = into > from ? into - 1 : into;
+      const fix = (q: number): number => (q === from ? to : q > from ? q - 1 : q);
+      carry.place = fix(carry.place); hand.place = fix(hand.place); focus = fix(focus);
+      for (const f of flights) if (f.active && f.mode !== LEAVE) f.place = fix(f.place);
+    }
   }
   function placeBalloon(boxUnits: number, snapUnits: number): void {
     const s = u * fitS;
@@ -525,15 +581,17 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     Math.round(Math.min(standW * (STAND_X1 - STAND_X0) / n * 0.9, standH * (STAND_TABLE - STAND_AWNING) / 1.2, coinD[NICKEL]!));
   /** The swap stand (step 7) on the meadow at the right, and the animal's paws (step 8), each with its press zone. */
   function placeExtras(snap: number, paws: readonly [number, number]): void {
-    standW = Math.round(STAND_W * u); standH = Math.round(standW * 700 / 582);
+    // A large uiScale shrinks the stand to the meadow between the corner buttons and the tray.
+    standW = Math.round(Math.min(STAND_W * u, (trayY + 10 * u - (cornerY + cornerRadius * 0.5)) * 582 / 700)); standH = Math.round(standW * 700 / 582);
     standX = Math.round(W - Math.max(6, 20 * u) - standW);
     standY = Math.round(trayY + 10 * u - standH);
     standY = Math.max(standY, Math.round(cornerY + cornerRadius * 0.5));
-    sZoneX0 = standX + standW * 0.04 - snap; sZoneX1 = standX + standW * 0.96 + snap;
+    sZoneX0 = standX + standW * 0.04 - snap; sZoneX1 = Math.min(W, standX + standW * 0.96 + snap);
     sZoneY0 = Math.max(cornerY + cornerRadius + 4, standY + standH * STAND_ZONE_Y0 - snap); sZoneY1 = Math.min(trayY - 2, standY + standH * STAND_ZONE_Y1 + snap);
     const pw = Math.max(96, paws[0] * u), ph = Math.max(96, paws[1] * u), cy = feetY - animalH * 0.42;
-    // Centred on the animal, kept inside the window (a narrow window's gate animal stands near the right edge).
-    pawsX0 = Math.min(gateX - pw / 2, W - 2 - pw); pawsX1 = pawsX0 + pw; pawsY0 = cy - ph / 2; pawsY1 = Math.min(trayY - 4, cy + ph / 2);
+    // Centred on the animal, kept inside the window (a narrow window's gate animal stands near the right edge) and
+    // clear of the fare box's press zone (a small uiScale in a narrow window puts the animal close to the box).
+    pawsX0 = Math.min(Math.max(gateX - pw / 2, zoneX1 + 2), W - 2 - pw); pawsX1 = pawsX0 + pw; pawsY0 = cy - ph / 2; pawsY1 = Math.min(trayY - 4, cy + ph / 2);
     if (pawsY1 - pawsY0 < 96) pawsY0 = pawsY1 - 96;
     pZoneX0 = Math.max(zoneX1 + 2, pawsX0 - snap); pZoneX1 = Math.min(W, pawsX1 + snap);
     pZoneY0 = Math.max(cornerY + cornerRadius + 4, pawsY0 - snap); pZoneY1 = Math.min(trayY - 2, pawsY1 + snap);
@@ -576,11 +634,13 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     bgCanvas = sprites.scaled(BG, bgScale);
     note(BG, bgScale, 1);
   }
+  /** Top of the tray row place p sits in. */
+  const placeTop = (p: number): number => trayY + Math.floor((pY[p]! - trayY) / (rowH + placeGap)) * (rowH + placeGap);
   /** Place centres for the current tray contents. */
   function placeCoins(): void {
     const perRow = Math.ceil(nPlaces / rows);
     for (let i = 0; i < nPlaces; i++) {
-      const r = rows === 1 ? 0 : Math.floor(i / perRow), j = rows === 1 ? i : i % perRow, m = rows === 1 ? nPlaces : r === 0 ? perRow : nPlaces - perRow;
+      const r = Math.floor(i / perRow), j = i % perRow, m = Math.min(perRow, nPlaces - r * perRow);
       pX[i] = trayX + trayW / 2 + (j - (m - 1) / 2) * (placeW + placeGap);
       pY[i] = trayY + rowH / 2 + r * (rowH + placeGap) + rowH * 0.02;
     }
@@ -972,19 +1032,29 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     add(BASKET, BH * DRIFT_K); add(ENVELOPE, EH * DRIFT_K);
     add(BUTTON_PLAY, controlsRadius * 1.3); add(BUTTON_HOME, controlsRadius * 1.3);
   }
+  /**
+   * Idle periods with at least 4 ms left: the fanfare a step at a time, then one planned sprite canvas each. A
+   * callback that timed out, or a wait of IDLE_WAIT_MS over many short idle periods, runs one step anyway, so a busy
+   * machine still finishes the preparation before the round's end needs it.
+   */
   function prepareIdle(deadline: IdleDeadline): void {
     idleHandle = 0;
+    const overdue = deadline.didTimeout || (idleWaitFrom >= 0 && performance.now() - idleWaitFrom >= IDLE_WAIT_MS);
     if (!fanfareAsked && fanfareStarted) {
-      while (deadline.timeRemaining() >= 4) if (prepareSfxStep(audio, 'fanfare', FANFARE)) { fanfareAsked = true; break; }
+      while (overdue || deadline.timeRemaining() >= 4) {
+        idleWaitFrom = -1;
+        if (prepareSfxStep(audio, 'fanfare', FANFARE)) { fanfareAsked = true; break; }
+        if (overdue) break;
+      }
       return;
     }
-    if (madeName || deadline.timeRemaining() < 4) return;
+    if (madeName || (!overdue && deadline.timeRemaining() < 4)) return;
     for (; warmIndex < warmNames.length; warmIndex++) {
       const name = warmNames[warmIndex]!, size = warmSizes[warmIndex]!, key = `${name}@${size}`;
       if (warmDone.has(key)) continue;
       const img = sprites.get(name); if (!img) continue;
       sprites.scaled(name, size / (Math.max(img.naturalWidth, img.naturalHeight) || 1));
-      madeName = name; madeSize = size; warmIndex++;
+      madeName = name; madeSize = size; warmIndex++; idleWaitFrom = -1;
       return;
     }
   }
@@ -993,9 +1063,15 @@ export function createRideFareScene(services: AppServices): RideFareScene {
   }
   function askIdle(): void {
     if (idleHandle) return;
-    if ((fanfareStarted && !fanfareAsked) || (playable() && time >= 0.5 && warmIndex < warmNames.length)) idleHandle = requestIdleCallback(prepareIdle, { timeout: 500 });
+    if ((fanfareStarted && !fanfareAsked) || (playable() && time >= 0.5 && warmIndex < warmNames.length)) {
+      const now = performance.now();
+      if (idleWaitFrom < 0) idleWaitFrom = now;
+      // The callback's own timeout is what is left of the wait, so it fires by IDLE_WAIT_MS after the wait began.
+      IDLE_OPTIONS.timeout = Math.max(1, IDLE_WAIT_MS - (now - idleWaitFrom));
+      idleHandle = requestIdleCallback(prepareIdle, IDLE_OPTIONS);
+    }
   }
-  function stopIdle(): void { if (idleHandle) cancelIdleCallback(idleHandle); idleHandle = 0; }
+  function stopIdle(): void { if (idleHandle) cancelIdleCallback(idleHandle); idleHandle = 0; idleWaitFrom = -1; }
   /** The celebration balloon's scale: the whole balloon (envelope and basket) in about four fifths of the height. */
   const celebK = (): number => Math.min(0.75, (H * 0.8) / (EH * MOUTH + BH * (1 - ENVELOPE_AT)));
 
@@ -1601,7 +1677,7 @@ export function createRideFareScene(services: AppServices): RideFareScene {
   // ---------------------------------------------------------------- input
   function placeAt(x: number, y: number): number {
     for (let p = 0; p < nPlaces; p++) {
-      const r = rows === 1 ? 0 : pY[p]! > trayY + rowH ? 1 : 0, top = trayY + r * (rowH + placeGap);
+      const top = placeTop(p);
       if (Math.abs(x - pX[p]!) <= placeW / 2 && y >= top && y <= top + rowH) return p;
     }
     return -1;
@@ -1638,11 +1714,16 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     carry.active = false; carry.keyed = false;
     launch(RETURN, carry.kind, 1, carry.place, x, y, pX[carry.place]!, pY[carry.place]!, RETURN_SECONDS);
   }
+  /**
+   * Let go of the carried coin at (x, y). A coin lifted with a key stays a key carry wherever the pointer drops it:
+   * never a motor attempt and never learning evidence.
+   */
   function release(x: number, y: number): void {
+    const keyed = carry.keyed;
     carry.active = false; carry.keyed = false;
     const target = targetAt(x, y);
-    if (target >= 0) { hits++; dropTo(target, carry.kind, carry.place, x, y, carry.deliberate, false); return; }
-    if (!onTray(x, y)) { misses++; play('whoosh', 'D', 0, 0.55); }
+    if (target >= 0) { if (!keyed) hits++; dropTo(target, carry.kind, carry.place, x, y, !keyed && carry.deliberate, keyed); return; }
+    if (!onTray(x, y)) { if (!keyed) misses++; play('whoosh', 'D', 0, 0.55); }
     launch(RETURN, carry.kind, 1, carry.place, x, y, pX[carry.place]!, pY[carry.place]!, RETURN_SECONDS);
   }
   function pointerDown(x: number, y: number): void {
@@ -1707,7 +1788,8 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     if (!pick(focus)) return;
     if (two) {
       // Two targets: the first key lifts the coin over the target the step asks for next; arrows choose, the next key drops.
-      carry.active = true; carry.keyed = true; carry.sticky = true; keyTarget = defaultTarget(carry.kind);
+      carry.active = true; carry.keyed = true; carry.sticky = true; carry.deliberate = false; keyTarget = defaultTarget(carry.kind);
+      riderKeyed = true;
       return;
     }
     dropTo(T_BOX, carry.kind, carry.place, pX[carry.place]!, pY[carry.place]!, false, true);
@@ -1720,7 +1802,7 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     if (!playable()) return out;
     for (let p = 0; p < nPlaces; p++) {
       if (pCount[p]! <= 0) continue;
-      const r = rows === 1 ? 0 : pY[p]! > trayY + rowH ? 1 : 0, top = trayY + r * (rowH + placeGap);
+      const top = placeTop(p);
       out.push({ kind: COIN_NAMES[pKind[p]!]!, face: 'heads', x: pX[p]!, y: pY[p]!, d: coinD[pKind[p]!]!, place: p, count: pCount[p]!, dots: pDots[p] === 1, hit: { x: pX[p]! - placeW / 2, y: top, w: placeW, h: rowH } });
     }
     for (const f of flights) if (f.active && f.mode !== LEAVE) out.push({ kind: COIN_NAMES[f.kind]!, face: 'heads', x: f.x1, y: f.y1, d: coinD[f.kind]!, place: f.place, count: f.n, dots: f.mode === SWAPPED, hit: null });
@@ -1755,6 +1837,7 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     get cupGroups() { return cupGroups(); },
     get cupDiameter() { return { grid: cupR * 2, rows: smallR * 2 }; },
     get numeral() { return numeralOn && playable() ? { fare, counter: plan.step === 6 ? lit : 0, rect: rect(numX, numY + liftY, numX + numW, numY + numH + liftY) } : null; },
+    get panel() { return panelOn && playable() ? rect(panelX, panelY + liftY, panelX + panelW, panelY + panelH + liftY) : null; },
     get stand() {
       if (!swapOn() || !playable()) return null;
       return { drawn: rect(standX, standY, standX + standW, standY + standH), zone: rect(sZoneX0, sZoneY0, sZoneX1, sZoneY1), kind: standKind >= 0 ? COIN_NAMES[standKind]! : '', count: standCount, need: standNeed(standMode()) };
