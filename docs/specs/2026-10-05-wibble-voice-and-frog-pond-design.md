@@ -36,7 +36,7 @@ For each line the script:
 2. Transcribes the result with `google/gemini-3.8-flash` and compares it with the line, ignoring case and punctuation and treating digits and number words as equal ("1" matches "one"). A line may list other accepted transcripts (a letter name may come back as "B" or "bee"). A mismatch is rendered again, up to three times; a line that still fails is reported and not written.
 3. Trims silence from both ends, leaving 30 ms, normalises loudness to about -16 LUFS, and encodes a mono MP3 with ffmpeg (a dev tool already on the owner's machine; no npm dependency is added). MP3 because every existing game's loader accepts it and Shape Workshop accepts only MP3.
 4. Writes the file into `public/voice/<folder>/`, updates that folder's clip list where the game uses one (`clips.json`, or `VOICE_CLIPS` in `src/games/letter-train/clips.ts`), and records a hash of the role, notes and text in `scripts/voice/lock.json`, so the next run renders only lines that changed.
-5. Writes a listening page under `D:\screenshots\CoreWiseLearn\voice-review\` with every new clip, for the owner to approve before commit.
+5. Writes a listening page under `D:\screenshots\CoreWiseLearn\voice-review\` with every new clip, for the owner to approve before merge.
 
 The API key comes from `OPENROUTER_API_KEY` in the environment and is never written to a file.
 

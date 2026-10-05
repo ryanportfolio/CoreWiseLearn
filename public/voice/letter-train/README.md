@@ -1,6 +1,6 @@
 # Letter Train voice clips
 
-Optional spoken letter names for Letter Train. None ship yet.
+Spoken letter names for Letter Train. All 26 ship as MP3 (`a.mp3` to `z.mp3`), in the village postman's voice: Gemini's Achird with a Yorkshire accent, rendered by `scripts/voice/generate.mjs` from `scripts/voice/lines/letter-train.json`. Edit the lines there and run the generator rather than replacing files by hand. The generator also rewrites `VOICE_CLIPS`.
 
 When a letter block clicks into its car, the game plays the clip for that letter if the file is here, and plays nothing if it is not.
 
