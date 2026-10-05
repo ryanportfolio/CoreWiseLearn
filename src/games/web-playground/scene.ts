@@ -4,14 +4,14 @@ import { STICKERS, stickerSpriteName } from '../../app/stickers';
 import { ensureDisplayFont } from '../../app/font';
 import type { Tier } from '../../engine/difficulty';
 import { createParticleSystem, type ParticleSpawn } from '../../engine/particles';
-import type { Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
+import type { CursorHover, Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
 import { playSfx, prepareSfxStep, setSfxVariants } from '../../audio/sfx';
 import { startMusic, stopMusic } from '../../audio/music';
 import { chunkyCircle, drawSprite, OUTLINE } from '../../ui/draw';
 import { drawCounter, drawStarRow, starPath, STAR_GAP_SECONDS, STAR_HIT_SECONDS } from '../../ui/celebrate';
 import { drawEnterFade } from '../../ui/motion';
 import { BOOK_GLIDE, BOOK_ICON, BOOK_ICON_PATH, createStickerOffers, leaveAlpha, leaveDrop, onBook, PICK_FLY, PICK_LIFT, PICK_SECONDS, placeBook } from '../../ui/sticker-offer';
-import { clamp01, easeInCubic, easeInOutSine, easeOutBack, easeOutCubic, lerp } from '../../ui/tween';
+import { approach, clamp01, easeInCubic, easeInOutSine, easeOutBack, easeOutCubic, lerp } from '../../ui/tween';
 import { bakeBackground, coverRect, createSoundButton, soundArt, syncSoundIcon, type Rect } from '../../scenes/hub/shared';
 import { bakeBall, bakePoint, bakeSign, PAD, RIMS } from './bake';
 import { cancelClips, playClip, prepareClips } from './voice';
@@ -182,6 +182,9 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
   const playing = (): boolean => phase === 'catch' || phase === 'connect';
   const hitRadius = (r: number): number => Math.max(48 * services.config.uiScale, r * tierP.hitScale);
   const pointValue = (i: number): number => (mode === 'numbers' ? i + 1 : i);
+  // Mouse hover: what a click at the pointer would act on (set by hoverKind), and each target's eased lift (0..1).
+  let hovBall: Ball | undefined, hovPoint = -1, hovHome = false, homeLift = 0;
+  const ballLift = new Float32Array(MAX_BALLS), pointLift = new Float32Array(MAX_POINTS);
 
   function layout(width: number, height: number): void {
     W = width; H = height;
@@ -878,8 +881,10 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
       if (!b.active || b.delay > 0 || !b.canvas) continue;
       const size = b.canvas.width / dpr(), wig = b.wiggle > 0 ? Math.sin(b.wiggle * 40) * 0.18 * (b.wiggle / 0.45) : 0;
       const pointed = b === wanted && b.enter >= 1 && hint;
-      const shrink = b.pulled ? lerp(1, 0.55, clamp01((stepT - 0.15) / 0.3)) : pointed ? hintBounce() : 1;
+      const lift = ballLift[b.slot]!, grow = lift > 0.01 ? 1 + 0.08 * lift : 1;
+      const shrink = (b.pulled ? lerp(1, 0.55, clamp01((stepT - 0.15) / 0.3)) : pointed ? hintBounce() : 1) * grow;
       if (pointed) halo(ctx, b.x, b.y, ballD / 2);
+      if (grow !== 1) hoverRing(ctx, b.x, b.y, ballD / 2 * grow, lift);
       if (wig || shrink !== 1) {
         ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(wig); ctx.scale(shrink, shrink);
         ctx.drawImage(b.canvas, -size / 2, -size / 2, size, size); ctx.restore();
@@ -1003,9 +1008,11 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
       const x = pts[i * 2]!, y = pts[i * 2 + 1]!, size = c.width / dpr();
       const since = pointJoined[i]! >= 0 ? time - pointJoined[i]! : -1;
       const pointed = phase === 'connect' && i === nextPoint && closeT === 0 && hint;
-      const pop = since >= 0 && since < 0.3 ? 1 + Math.sin(since / 0.3 * Math.PI) * 0.22 : pointed ? hintBounce() : 1;
+      const lift = pointLift[i]!, grow = lift > 0.01 ? 1 + 0.08 * lift : 1;
+      const pop = (since >= 0 && since < 0.3 ? 1 + Math.sin(since / 0.3 * Math.PI) * 0.22 : pointed ? hintBounce() : 1) * grow;
       const wig = pointWiggle[i]! > 0 ? Math.sin(pointWiggle[i]! * 40) * 0.2 : 0;
       if (pointed) halo(ctx, x, y, pointD / 2);
+      if (grow !== 1) hoverRing(ctx, x, y, (since >= 0 ? pointD * 0.5 + 9 * u : pointD / 2) * grow, lift);
       if (since >= 0) { chunkyCircle(ctx, x, y, (pointD * 0.5 + 9 * u) * pop, i % 2 ? '#2f6fe4' : '#e8413b', OUTLINE, 4); }
       if (pop !== 1 || wig) { ctx.save(); ctx.translate(x, y); ctx.rotate(wig); ctx.scale(pop, pop); ctx.drawImage(c, -size / 2, -size / 2, size, size); ctx.restore(); }
       else ctx.drawImage(c, x - size / 2, y - size / 2, size, size);
@@ -1016,8 +1023,10 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     }
   }
   function drawCorners(ctx: CanvasRenderingContext2D): void {
-    chunkyCircle(ctx, homeX, cornerY, cornerRadius, '#a3c9c5', OUTLINE, 4);
-    drawSprite(ctx, sprites, BUTTON_HOME, homeX, cornerY, Math.round(cornerRadius * 1.3));
+    const grow = homeLift > 0.01 ? 1 + 0.08 * homeLift : 1;
+    if (grow !== 1) hoverRing(ctx, homeX, cornerY, cornerRadius * grow, homeLift);
+    chunkyCircle(ctx, homeX, cornerY, cornerRadius * grow, '#a3c9c5', OUTLINE, 4);
+    drawSprite(ctx, sprites, BUTTON_HOME, homeX, cornerY, Math.round(cornerRadius * 1.3 * grow));
     soundButton.render(ctx, sprites);
     if (cornerFocus >= 0) focusRing(ctx, cornerFocus === 0 ? homeX : soundX, cornerY, cornerRadius);
   }
@@ -1132,6 +1141,45 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
       else { pointWiggle[best] = 0.3; hopT = 0; }
     }
   }
+  /**
+   * What a press at (x, y) would act on right now, with the same tests and guards as handleInput and pointerPlay; sets
+   * hovBall, hovPoint and hovHome. The sound button reports its own hover, so it gives null here. Allocates nothing.
+   */
+  function hoverKind(x: number, y: number): CursorHover {
+    hovBall = undefined; hovPoint = -1; hovHome = false;
+    if (soundButton.visible && soundButton.contains(x, y)) return null;
+    if (Math.hypot(x - homeX, y - cornerY) <= cornerRadius) { hovHome = true; return 'press'; }
+    if (phase === 'celebration') return celebrationSkippable() ? 'press' : null;
+    if (performance.now() < inputAfter) return null;
+    if (phase === 'catch') {
+      // A ball counts once it has landed, and only while the hero is asking (as in pointerPlay).
+      if (step !== 'ask') return null;
+      let dist = Infinity;
+      for (let i = 0; i < MAX_BALLS; i++) {
+        const b = balls[i]!;
+        if (!b.active || b.pulled || b.delay > 0 || b.enter < 1) continue;
+        const d = Math.hypot(x - b.x, y - b.y);
+        if (d <= hitRadius(ballD / 2) && d < dist) { hovBall = b; dist = d; }
+      }
+      return hovBall ? 'press' : null;
+    }
+    if (phase === 'connect') {
+      if (closeT > 0 || threadT < 0.6) return null;
+      let dist = Infinity;
+      for (let i = 0; i < nPoints; i++) {
+        const d = Math.hypot(x - pts[i * 2]!, y - pts[i * 2 + 1]!);
+        if (d <= hitRadius(pointD / 2) && d < dist) { hovPoint = i; dist = d; }
+      }
+      return hovPoint >= 0 ? 'press' : null;
+    }
+    if (phase === 'choice' || phase === 'rest') return hoverMenu(x, y) >= 0 ? 'press' : null;
+    return null;
+  }
+  /** Soft cream ring round a hovered target, faded in by its lift. */
+  function hoverRing(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, k: number): void {
+    ctx.globalAlpha = 0.6 * k; ctx.beginPath(); ctx.arc(x, y, r + 6, 0, Math.PI * 2);
+    ctx.strokeStyle = '#fff8b2'; ctx.lineWidth = 6; ctx.stroke(); ctx.globalAlpha = 1;
+  }
   function keyPlay(key: string): void {
     keyboardUsed = true;
     if (phase === 'catch') {
@@ -1229,6 +1277,11 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
       lastDt = dt; time += dt; sceneT += dt; phaseT += dt; poseT += dt; hopT += dt; friendHopT += dt;
       if (flightT < 1) flightT = Math.min(1, flightT + dt / 0.45);
       syncSoundIcon(soundButton, services); soundButton.update(dt, input.pointer.x, input.pointer.y);
+      if (input.pointer.inside && input.pointer.type === 'mouse') hoverKind(input.pointer.x, input.pointer.y);
+      else { hovBall = undefined; hovPoint = -1; hovHome = false; }
+      for (let i = 0; i < MAX_BALLS; i++) ballLift[i] = approach(ballLift[i]!, hovBall === balls[i] ? 1 : 0, 14, dt);
+      for (let i = 0; i < MAX_POINTS; i++) pointLift[i] = approach(pointLift[i]!, hovPoint === i ? 1 : 0, 14, dt);
+      homeLift = approach(homeLift, hovHome ? 1 : 0, 14, dt);
       for (let i = 0; i < MAX_POINTS; i++) pointWiggle[i] = Math.max(0, pointWiggle[i]! - dt);
       for (const p of puffs) if (p.active) { p.t += dt; if (p.t >= 0.4) p.active = false; }
       for (const p of pows) if (p.active) { p.t += dt; if (p.t >= 0.45) p.active = false; }
@@ -1289,6 +1342,7 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
       drawCorners(ctx); drawEnterFade(ctx, W, H, sceneT);
       work[workHead] = updateMs + performance.now() - started; workHead = (workHead + 1) % work.length; workCount = Math.min(work.length, workCount + 1); updateMs = 0;
     },
+    hoverAt(x: number, y: number): CursorHover { return hoverKind(x, y); },
     handleInput(event: SceneInputEvent) {
       if (event.type === 'pointerup' || event.type === 'keyup') { soundButton.pointerUp(soundX, cornerY); return; }
       const now = performance.now(), menu = phase === 'choice' || phase === 'rest';

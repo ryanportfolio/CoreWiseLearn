@@ -14,6 +14,7 @@ import { createSaveStore } from '../engine/save';
 import { registerSaveValidators } from '../engine/registry';
 import { createSpriteStore } from '../engine/sprites';
 import { createSessionTimer } from '../engine/session';
+import { createCursor, type Cursor } from '../engine/cursor';
 import type { AppServices, Nav } from './services';
 
 await ensureDisplayFont();
@@ -39,6 +40,7 @@ export function bootApp(options: BootOptions = {}): AppServices {
   const input = createInput(element);
   const audio = createAudio(config.masterTrimDb);
   const scenes = createSceneManager(input);
+  const cursor = createCursor(element, input, scenes, config.uiScale);
   // Every game's save check must be in place before the stored save is read.
   registerSaveValidators();
   const save = createSaveStore();
@@ -62,8 +64,9 @@ export function bootApp(options: BootOptions = {}): AppServices {
   let overlayAt = 0;
   let overlay = '';
   const loop = createLoop({
-    frame: (seconds) => { if (save.active) session.tick(seconds); },
+    frame: (seconds) => { if (save.active) session.tick(seconds); cursor.frame(seconds); },
     update: (dt) => {
+      cursor.beginStep();
       scenes.update(dt);
       input.endFrame();
     },
@@ -83,6 +86,7 @@ export function bootApp(options: BootOptions = {}): AppServices {
         ctx.fillText(overlay, 8, 12);
         ctx.restore();
       }
+      cursor.render(canvas.ctx);
     },
     afterFrame: (interval, work) => canvas.observeFrame(interval, work),
   }, { timeScale: debug.timeScale });
@@ -91,10 +95,12 @@ export function bootApp(options: BootOptions = {}): AppServices {
   canvas.onResize((w, h) => {
     sprites.setPixelRatio(canvas.dpr);
     scenes.resize(w, h);
+    cursor.resize(w, h, canvas.dpr);
   });
   // The canvas sized itself before this listener existed; seed the manager so
   // the first pushed scene receives resize() with real dimensions.
   scenes.resize(canvas.width, canvas.height);
+  cursor.resize(canvas.width, canvas.height, canvas.dpr);
   let firstGesture = true;
   const onGesture = (event: Event): void => {
     void audio.unlock();
@@ -147,7 +153,7 @@ export function bootApp(options: BootOptions = {}): AppServices {
     profile: () => save.active,
   };
 
-  window.__corewise = { loop, canvas, input, audio, scenes, save, session, config };
+  window.__corewise = { loop, canvas, input, audio, scenes, save, session, config, cursor };
   return services;
 }
 
@@ -163,6 +169,7 @@ declare global {
       save?: AppServices['save'];
       session?: AppServices['session'];
       config?: AppServices['config'];
+      cursor?: Cursor;
     };
   }
 }

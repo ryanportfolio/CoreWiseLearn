@@ -723,6 +723,12 @@ export function createHubScene(services: AppServices): Scene {
       layout();
       refreshProfile();
     },
+    // Tiles are not drawn as Buttons, so they report here; the top-row Buttons report themselves.
+    // The tile's lift, glow ring and wobble on hover already run in update and renderTile.
+    hoverAt(x: number, y: number) {
+      if (cooldown > 0) return null;
+      return tileAt(x, y) ? 'press' : null;
+    },
   };
   if (import.meta.env.DEV) {
     layoutInfo.focus = () => {

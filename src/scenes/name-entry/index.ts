@@ -8,6 +8,7 @@ import { createButton, dispatchDown, dispatchUp, type Button } from '../../ui/bu
 import { createKeyboardNavigation, drawPageArrow } from '../../ui/navigation';
 import { chunkyPanel, drawCover, drawSprite, OUTLINE } from '../../ui/draw';
 import { drawEnterFade } from '../../ui/motion';
+import { approach } from '../../ui/tween';
 import { drawMascotAt } from '../../ui/mascot';
 import { playSfx, type SfxName } from '../../audio/sfx';
 import { startMusic, stopMusic } from '../../audio/music';
@@ -121,6 +122,10 @@ export function createNameEntryScene(services: AppServices, options: { renamePro
   let background: HTMLCanvasElement | undefined;
   let backgroundsReady = false;
   const flashes = new Float32Array(26);
+  /** Key a press in the key block's gaps would type, while a mouse rests there; -1 for none. */
+  let gapKey = -1;
+  /** Fade of the ring drawn on gapKey, 0 to 1. */
+  let gapGlow = 0;
   const counts: Record<string, number> = {};
   const particles = createParticleSystem(150);
   /** Key letters, rebuilt by layoutKeys only when the key size changes them. */
@@ -397,6 +402,19 @@ export function createNameEntryScene(services: AppServices, options: { renamePro
       if (pendingNote >= 0 && time - pendingAt >= 0.03 && time - lastSound >= 0.125) { sfx('key', pendingNote); lastSound = time; pendingNote = -1; }
       for (const b of buttons) b.update(dt, input.pointer.inside ? input.pointer.x : -9999, input.pointer.inside ? input.pointer.y : -9999);
       syncSoundIcon(sound, services); particles.update(dt);
+      // Keys light up by themselves when the pointer is on them; in the gaps between keys a press
+      // still types the nearest key, so that key gets a soft ring while a mouse rests there.
+      let near = -1;
+      if (!leaving && time >= 0.4 && input.pointer.inside && input.pointer.type === 'mouse') {
+        // A Button under the pointer takes the press first (dispatchDown), so then no ring.
+        let onButton = false;
+        for (const b of buttons) if (b.hovered) { onButton = true; break; }
+        const k = onButton ? undefined : keyNear(input.pointer.x, input.pointer.y);
+        if (k) near = keys.indexOf(k);
+      }
+      if (near >= 0) gapKey = near;
+      gapGlow = approach(gapGlow, near >= 0 ? 1 : 0, 10, dt);
+      if (gapGlow <= 0) gapKey = -1;
       if (leaving) {
         leaveTime += dt;
         if (tuneIndex < name.length && leaveTime > 0.15 + tuneIndex * 0.14) { sfx('key', ALPHABET.indexOf(name[tuneIndex]!)); tuneIndex++; }
@@ -422,6 +440,15 @@ export function createNameEntryScene(services: AppServices, options: { renamePro
         for (let i = 0; i < name.length; i++) { ctx.beginPath(); ctx.arc(available - 66 + i * 6, nameY + 33, 2.2, 0, Math.PI * 2); ctx.fillStyle = OUTLINE; ctx.fill(); }
       }
       for (const b of buttons) b.render(ctx, sprites);
+      if (gapKey >= 0 && gapGlow > 0) {
+        const b = keys[gapKey]!;
+        if (b.visible && !b.hovered) {
+          ctx.globalAlpha = 0.4 * gapGlow;
+          ctx.beginPath(); ctx.arc(b.x, b.y, b.radius + 9, 0, Math.PI * 2);
+          ctx.lineWidth = 12; ctx.strokeStyle = '#fff8b2'; ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+      }
       for (let i = 0; i < keys.length; i++) {
         const b = keys[i]!; if (!b.visible) continue;
         if (flashes[i]! > 0) { ctx.beginPath(); ctx.arc(b.x, b.y, b.radius - 5, 0, Math.PI * 2); ctx.lineWidth = Math.max(7, b.radius * 0.1); ctx.strokeStyle = '#fff'; ctx.stroke(); }
@@ -460,6 +487,12 @@ export function createNameEntryScene(services: AppServices, options: { renamePro
         if (keyboard.key(key)) { active(); return; }
         sparkle(/^\d$/.test(key) ? Number(key) : 5);
       }
+    },
+    // Every control here is a Button and reports itself. The one press target that is not a
+    // Button is the gaps of the key block, where pointerdown types the nearest key.
+    hoverAt(x, y) {
+      if (leaving || time < 0.4) return null;
+      return keyNear(x, y) ? 'press' : null;
     },
   };
   if (import.meta.env.DEV) {

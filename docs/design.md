@@ -40,6 +40,17 @@ Any pull request that crosses one of these is wrong, whatever else it improves.
 - Browser and operating-system reduced-motion preferences are ignored by explicit owner direction. Full normal animation remains, including brief reward reveals and a still rest screen.
 - Hosted on Vercel at https://corewise.fun, a static build served from the site root.
 
+## Cursor
+
+Owner (2026-10-05): a big custom cursor across the whole hub that animates on a click, and an effect when the pointer is over something clickable. `src/engine/cursor.ts` draws it on the main canvas after every scene, so it sits on top of games, overlays, celebrations and the break nudge. CSS `cursor: none` hides the system cursor over the canvas.
+
+- Size: about 56 CSS px tall at 1366x768, scaled like the corner buttons (`min(width / 1366, height / 768)` clamped to 0.75 to 1.5, times `uiScale`). The hotspot is the arrow's tip, the pointing finger's tip, or the middle of the open and closed hands.
+- Looks: an arrow over nothing, a pointing hand over something to press, an open hand over something to pick up, a closed hand while a piece is carried. All four share the hub's warm yellow fill, a dark outline and a white rim, so they read on light and dark scenes. Each look is baked once per size onto a CPU canvas.
+- Motion: a slow sway and breath while idle; a springy grow of about 15 percent with a short dip when the look changes (about 100 ms); on any mouse button, a squash at the hotspot and a ring ripple that springs back within about 150 ms. Over something clickable the ripple is larger and throws six small dots; over nothing it is smaller. Nothing flashes.
+- Under `prefers-reduced-motion` the cursor drops the sway and the ripple (round brief, 2026-10-05). This is the one place the hub follows that preference, against the general decision above to ignore it; open to the owner.
+- Touch and pen input draw no cursor. Keyboard play leaves it where the mouse last was.
+- Hover: buttons made with `src/ui/button.ts` report their own hover and draw a soft halo and a short wiggle. Every other clickable thing is reported by the scene's `hoverAt(x, y)` (see `docs/adding-a-game.md`), and the scene draws its own soft hover cue on that object.
+
 ## Pull request checklist
 
 - [ ] Navigation needs no reading; learning text has a demonstration or spoken support.

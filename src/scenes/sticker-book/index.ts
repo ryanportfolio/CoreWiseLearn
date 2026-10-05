@@ -7,7 +7,7 @@
  * shown as seen.
  */
 
-import type { Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
+import type { CursorHover, Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
 import type { AppServices, RewardsBag } from '../../app/services';
 import { STICKERS, stickerSpriteName, type StickerDef } from '../../app/stickers';
 import { createButton, dispatchDown, dispatchUp, type Button } from '../../ui/button';
@@ -489,6 +489,15 @@ export function createStickerBookScene(services: AppServices, options: StickerBo
     resume() { time = 0; startMusic(audio, 'sticker-book'); },
     exit() { stopMusic(audio); },
     resize(w, h) { width = w; height = h; layout(); warmStickerBook(services, stickers); },
+    hoverAt(x: number, y: number): CursorHover {
+      // Same order and guards as pointerdown: controls first (they report their own hover), then a held sticker,
+      // then an earned sticker on this page, which a press picks up. Slots not earned are disabled buttons.
+      if (leaving || time < 0.4) return null;
+      for (let i = 0; i < controls.length; i++) { const b = controls[i]!; if (b.enabled && b.visible && b.contains(x, y)) return null; }
+      if (selected) return 'carry';
+      for (let i = 0; i < slotHitOrder.length; i++) { const b = slotHitOrder[i]!; if (b.enabled && b.visible && b.contains(x, y)) return 'grab'; }
+      return null;
+    },
     update(dt) {
       time += dt;
       for (const b of activeButtons) b.update(dt, input.pointer.inside ? input.pointer.x : -9999, input.pointer.inside ? input.pointer.y : -9999);

@@ -3,14 +3,14 @@ import { rewards, sanitizeBubbleData, type AppServices } from '../../app/service
 import { STICKERS, stickerSpriteName } from '../../app/stickers';
 import type { Tier } from '../../engine/difficulty';
 import { createParticleSystem, type ParticleSpawn } from '../../engine/particles';
-import type { Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
+import type { CursorHover, Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
 import { playSfx, prepareSfxStep, type SfxOptions } from '../../audio/sfx';
 import { startMusic, stopMusic } from '../../audio/music';
 import { chunkyCircle, chunkyPanel, drawSprite, OUTLINE } from '../../ui/draw';
 import { drawCounter, starPath } from '../../ui/celebrate';
 import { drawEnterFade } from '../../ui/motion';
 import { BOOK_GLIDE, BOOK_ICON_PATH, createStickerOffers, leaveAlpha, leaveDrop, onBook, PICK_FLY, PICK_LIFT, PICK_SECONDS, placeBook } from '../../ui/sticker-offer';
-import { clamp01, easeOutCubic, lerp } from '../../ui/tween';
+import { approach, clamp01, easeOutCubic, lerp } from '../../ui/tween';
 import { createSoundButton, soundArt, syncSoundIcon } from '../../scenes/hub/shared';
 import { OCEAN_THEME, spriteName, type BubbleTheme } from './theme';
 
@@ -152,7 +152,7 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
   let workHead = 0, workCount = 0, updateMs = 0;
   let jarX = 0, jarY = 0, jarW = 0, jarH = 0, trayY = 0, trayWidth = 0, starY = 0, starSize = 0, shellSize = 0, shellY = 0, restSize = 0, restY = 0;
   let controlsY = 0, controlsRadius = 60, choiceRadius = 96, flank = false, flankOffset = 0, groupD = 0;
-  let cornerRadius = 48, cornerY = 60, homeX = 60, soundX = 1306, cornerFocus = -1;
+  let cornerRadius = 48, cornerY = 60, homeX = 60, soundX = 1306, cornerFocus = -1, homeHover = 0;
   // Sprite sizes the end of the round draws (name, longest side; an empty name is a counter glyph size). During play
   // an idle period between frames makes one cached canvas, and the next frame draws it once under the backdrop, so the
   // first celebration of a session never decodes, scales or uploads art on its own frames.
@@ -475,13 +475,18 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
     highlighted = undefined;
     for (const b of bubbles) if (available(b) && (!highlighted || b.y < highlighted.y)) highlighted = b;
   }
-  function pointerPop(x: number, y: number): void {
+  /** The bubble a press at x, y pops: the nearest one in reach. */
+  function bubbleAt(x: number, y: number): Bubble | undefined {
     let target: Bubble | undefined, distance = Infinity;
     for (const b of bubbles) {
       if (!available(b)) continue;
       const d = Math.hypot(x - b.x, y - b.y);
       if (d <= Math.max(hitRadius(b), b.r * 1.5) && d < distance) { target = b; distance = d; }
     }
+    return target;
+  }
+  function pointerPop(x: number, y: number): void {
+    const target = bubbleAt(x, y);
     if (target) pop(target);
   }
   function sweep(x0: number, y0: number, x1: number, y1: number): void {
@@ -793,8 +798,15 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
     closeFinishedRound(); services.save.flush(); services.nav.toHub();
   }
   function drawCorners(ctx: CanvasRenderingContext2D): void {
-    chunkyCircle(ctx, homeX, cornerY, cornerRadius, '#a3c9c5', OUTLINE, 4);
-    drawSprite(ctx, sprites, homeName, homeX, cornerY, Math.round(cornerRadius * 1.3));
+    // The corner Home lifts a little and gains a soft cream halo while the mouse is over it.
+    const homeR = cornerRadius * (1 + 0.08 * homeHover);
+    if (homeHover > 0.01) {
+      ctx.globalAlpha = 0.4 * homeHover;
+      ctx.beginPath(); ctx.arc(homeX, cornerY, homeR + 9, 0, Math.PI * 2); ctx.lineWidth = 12; ctx.strokeStyle = '#fff8b2'; ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    chunkyCircle(ctx, homeX, cornerY, homeR, '#a3c9c5', OUTLINE, 4);
+    drawSprite(ctx, sprites, homeName, homeX, cornerY, Math.round(cornerRadius * 1.3), 0, homeR / cornerRadius, homeR / cornerRadius);
     soundButton.render(ctx, sprites);
     if (cornerFocus >= 0) focusRing(ctx, cornerFocus === 0 ? homeX : soundX, cornerY, cornerRadius);
   }
@@ -856,6 +868,8 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
     update(dt) {
       const started = performance.now(); time += dt; sceneT += dt;
       syncSoundIcon(soundButton, services); soundButton.update(dt, input.pointer.x, input.pointer.y);
+      const mouse = input.pointer.inside && input.pointer.type === 'mouse';
+      homeHover = approach(homeHover, mouse && Math.hypot(input.pointer.x - homeX, input.pointer.y - cornerY) <= cornerRadius ? 1 : 0, 14, dt);
       if (playable()) updatePlay(dt); else updateResult(dt);
       particles.update(dt); for (const f of flights) if (f.active) { f.t += dt; if (f.t >= 0.55) f.active = false; }
       updateMs += performance.now() - started;
@@ -869,6 +883,15 @@ export function createBubblePopScene(services: AppServices, options: BubblePopOp
       if (playable()) { renderBubbles(ctx); renderHud(ctx); renderFlights(ctx); particles.render(ctx); } else renderResult(ctx);
       drawCorners(ctx); drawEnterFade(ctx, W, H, sceneT);
       work[workHead] = updateMs + performance.now() - started; workHead = (workHead + 1) % work.length; workCount = Math.min(work.length, workCount + 1); updateMs = 0;
+    },
+    hoverAt(x: number, y: number): CursorHover {
+      // Same order and gates as handleInput's pointerdown. The sound button reports its own hover.
+      if (Math.hypot(x - homeX, y - cornerY) <= cornerRadius) return 'press';
+      if (phase === 'celebration') return celebrationSkippable() ? 'press' : null;
+      if (performance.now() < inputAfter) return null;
+      if (playable()) return bubbleAt(x, y) ? 'press' : null;
+      if (phase === 'choice' || phase === 'rest') return hoverMenu(x, y) >= 0 ? 'press' : null;
+      return null;
     },
     handleInput(event: SceneInputEvent) {
       if (event.type === 'pointerup' || event.type === 'keyup') { soundButton.pointerUp(soundX, cornerY); return; }
