@@ -28,7 +28,7 @@ Caveman covers chat replies only. Anything written to a file or for another read
 
 ## CRITICAL: Verification
 
-This machine can verify everything that matters: `npm run typecheck` and `npm run build` are meaningful, and the owner can open any dev server you start (`npm run dev -- --port <n>`, per-scene pages under `/CoreWiseLearn/dev/`). There is no CI yet; the authoritative signal is a clean typecheck and build plus a headed-browser check of the behaviour you changed, with frame times read from `window.__corewise.loop.stats`. Screenshots go under `D:\screenshots\CoreWiseLearn\`. The children's laptop is the final judge for feel and performance; the owner tests there by hand.
+This machine can verify everything that matters: `npm run typecheck` and `npm run build` are meaningful, and the owner can open any dev server you start (`npm run dev -- --port <n>`, per-scene pages under `/dev/`). There is no CI yet; the authoritative signal is a clean typecheck and build plus a headed-browser check of the behaviour you changed, with frame times read from `window.__corewise.loop.stats`. Screenshots go under `D:\screenshots\CoreWiseLearn\`. The children's laptop is the final judge for feel and performance; the owner tests there by hand.
 
 - Inspect logs / run scripts / read code yourself before claiming anything works.
 - Never claim visual/UI verification you didn't actually perform.
@@ -65,7 +65,7 @@ This machine can verify everything that matters: `npm run typecheck` and `npm ru
 
 ## Environment & deploy target
 
-Static site, no server, no database, no secrets. Local only for now: the owner runs it from `npm run dev` or `npm run preview` and copies it to the children's laptop by hand. GitHub Pages is the eventual host; `.github/workflows/deploy.yml` is manual-trigger only and Pages is not enabled (steps in `.claude/reference/deployment.md`). Runtime dependencies are zero and stay zero without the owner's OK; dev dependencies may be added when a task needs them, named in the handover. Save data lives in the browser's localStorage with a versioned schema; a schema change ships with a migration in `src/engine/save.ts`, never a reset. Enabling Pages and merging to `main` always need the owner's go-ahead.
+Static site, no server, no database, no secrets. Hosted on Vercel at https://corewise.fun, served from the site root: every merge to `main` deploys to production and every PR gets a preview link (details in `.claude/reference/deployment.md`). Vercel Web Analytics and Speed Insights stay off. Runtime dependencies are zero and stay zero without the owner's OK; dev dependencies may be added when a task needs them, named in the handover. Save data lives in the browser's localStorage with a versioned schema; a schema change ships with a migration in `src/engine/save.ts`, never a reset. Merging to `main` publishes to the live site, so it always needs the owner's go-ahead.
 
 ## Project reference library
 

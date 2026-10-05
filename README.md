@@ -11,7 +11,7 @@ npm ci
 npm run dev -- --port 5180
 ```
 
-Open `http://localhost:5180/CoreWiseLearn/`. For an offline production check, run `npm run typecheck`, `npm run build`, then `npm run preview`. Visit once online before disconnecting. A pending app update waits for the hub: an update found anywhere else (during a round, on name entry, in the sticker book) applies once the child is back on the hub, which saves and reloads. On a first visit, before any service worker controls the page, the hub reloads once the new worker is active; if it does not activate within 4 s, the update waits for the next launch. The hub's own update reloads (the first-visit reload, and the fallback when the new version has not taken over after 4 s) happen at most once a minute per tab; when that limit stops one, the hub stays playable.
+Open `http://localhost:5180/`. For an offline production check, run `npm run typecheck`, `npm run build`, then `npm run preview`. Visit once online before disconnecting. A pending app update waits for the hub: an update found anywhere else (during a round, on name entry, in the sticker book) applies once the child is back on the hub, which saves and reloads. On a first visit, before any service worker controls the page, the hub reloads once the new worker is active; if it does not activate within 4 s, the update waits for the next launch. The hub's own update reloads (the first-visit reload, and the fallback when the new version has not taken over after 4 s) happen at most once a minute per tab; when that limit stops one, the hub stays playable.
 
 ## Adult configuration
 
@@ -30,4 +30,4 @@ Check Windows display scaling and measure targets on the actual laptop. If repea
 
 See [the design](docs/design.md), [v1.1 implementation](docs/plans/v1.1-implementation.md), [verification evidence and limits](docs/v1.1-verification.md), [shared style](docs/style-bible.md), [future worlds](docs/design/future-worlds.md), and [adding a game](docs/adding-a-game.md).
 
-GitHub Pages remains manual and disabled until the owner chooses to publish. This continuation does not merge or deploy.
+The site is live at https://corewise.fun, hosted on Vercel. Every merge to `main` deploys it; see `.claude/reference/deployment.md`.
