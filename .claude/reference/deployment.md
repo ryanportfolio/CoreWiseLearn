@@ -6,8 +6,8 @@
 
 Live at https://corewise.fun (owner decision, 2026-10-05; earlier the site was local only and GitHub Pages was the planned host).
 
-- Host: Vercel project `corewiselearn` (account `aoh1578`), connected to `github.com/ryanportfolio/CoreWiseLearn`. A push to `main` deploys to production; every other branch and PR gets a preview URL. Check deployments with `vercel ls` and `vercel inspect <url>`; roll back with `vercel rollback`.
-- Domain: `corewise.fun`, registered at Namecheap with Namecheap's DNS. `www.corewise.fun` redirects to the apex. The records Vercel needs are listed on each domain's card in the Vercel project (Settings > Domains) and by `vercel domains inspect corewise.fun`.
+- Host: Vercel project `corewiselearn` in team `sardonicasts-projects` (user `aoh1578`), connected to `github.com/ryanportfolio/CoreWiseLearn`. A push to `main` deploys to production; every other branch and PR gets a preview URL. Check deployments with `vercel ls` and `vercel inspect <url>`; roll back with `vercel rollback`.
+- Domain: `corewise.fun`, registered at Namecheap with Namecheap's DNS. `www.corewise.fun` redirects to the apex (308, set on the project's domain). Records at Namecheap (Advanced DNS), as Vercel recommended on 2026-10-05: A `@` `216.198.79.1`, A `@` `64.29.17.1`, CNAME `www` `908b16c239fe0301.vercel-dns-017.com.`. `vercel domains verify corewise.fun` (and `www.corewise.fun`) shows the current recommendation and whether DNS matches.
 - Build: Vercel detects Vite, runs `npm run build` (which also runs `scripts/check-precache.mjs`, so a missing precache entry fails the deploy) and serves `dist/`, a fully static bundle (HTML, JS, CSS, `public/` copied as is, service worker and web manifest from `vite-plugin-pwa`).
 - Base path: Vite `base` is `/`; every asset URL goes through `services.base` or `services.art()` so the base never appears in game code.
 - Privacy: Vercel Web Analytics and Speed Insights stay off. The site makes no requests beyond its own files.
