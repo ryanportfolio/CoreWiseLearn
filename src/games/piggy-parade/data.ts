@@ -3,7 +3,7 @@ import { STICKERS } from '../../app/stickers';
 import type { Tier } from '../../engine/difficulty';
 
 export const GAME_ID = 'piggy-parade';
-/** Highest learning step the progression can reach (steps above the built ones play the last built step). */
+/** Highest learning step the progression can reach. */
 export const MAX_STEP = 8;
 
 export interface PendingRound {
@@ -27,10 +27,14 @@ export interface PiggyData extends Record<string, unknown> {
   stepRounds: number;
   /** Recent deliberate drops at the current step, 1 = the right piggy. */
   learn: number[];
+  /** First-time demonstrations already shown, one bit per value step: 1 = step 6, 2 = step 7, 4 = step 8. */
+  demos: number;
+  /** The step-8 line-up has played to its end once, so from now on any input skips it. */
+  lineupSeen: boolean;
   pending: PendingRound | null;
 }
 
-export const defaultData = (): PiggyData => ({ tier: 0, qualifyingRounds: 0, rounds: 0, step: 1, stepRounds: 0, learn: [], pending: null });
+export const defaultData = (): PiggyData => ({ tier: 0, qualifyingRounds: 0, rounds: 0, step: 1, stepRounds: 0, learn: [], demos: 0, lineupSeen: false, pending: null });
 
 const count = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0;
 const range = (v: unknown, max: number): v is number => count(v) && v <= max;
@@ -42,7 +46,7 @@ export function sanitizePiggyData(bag: Record<string, unknown>, protect: () => v
   const d = defaultData();
   const checks: Record<string, (v: unknown) => boolean> = {
     tier: v => range(v, 2), qualifyingRounds: count, rounds: count, step: v => range(v, MAX_STEP) && v >= 1,
-    stepRounds: count, learn: v => bits(v, 8),
+    stepRounds: count, learn: v => bits(v, 8), demos: v => range(v, 7), lineupSeen: v => typeof v === 'boolean',
   };
   for (const [key, valid] of Object.entries(checks)) {
     if (!(key in bag)) { bag[key] = d[key]; continue; }

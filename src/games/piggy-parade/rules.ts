@@ -29,18 +29,30 @@ export const TIERS: readonly [TierParams, TierParams, TierParams] = [
   { tray: 6, coins: 10, size: 0.9, snap: 0.1 },
 ];
 
-/** The coins and badges of one learning step. */
-export interface StepContent { readonly kinds: readonly number[]; readonly tails: boolean }
+/** Each coin's value in cents, in COIN_NAMES order (penny, nickel, dime, quarter is also value order). */
+export const VALUE = [1, 5, 10, 25] as const;
+
+/**
+ * The coins and badges of one learning step. `stairs`: piggies stand on the steps in value order with value dots;
+ * `labels`: 1¢ 5¢ 10¢ 25¢ beside the dots; `lineup`: the round opens with the size-then-value line-up.
+ */
+export interface StepContent {
+  readonly kinds: readonly number[]; readonly tails: boolean;
+  readonly stairs: boolean; readonly labels: boolean; readonly lineup: boolean;
+}
+const ALL = [PENNY, NICKEL, DIME, QUARTER] as const;
+const plain = (kinds: readonly number[], tails = false): StepContent => ({ kinds, tails, stairs: false, labels: false, lineup: false });
 const STEPS: readonly StepContent[] = [
-  { kinds: [PENNY, QUARTER], tails: false },
-  { kinds: [PENNY, DIME], tails: false },
-  { kinds: [PENNY, NICKEL, DIME], tails: false },
-  { kinds: [PENNY, NICKEL, DIME, QUARTER], tails: false },
-  { kinds: [PENNY, NICKEL, DIME, QUARTER], tails: true },
+  plain([PENNY, QUARTER]),
+  plain([PENNY, DIME]),
+  plain([PENNY, NICKEL, DIME]),
+  plain(ALL),
+  plain(ALL, true),
+  { kinds: ALL, tails: false, stairs: true, labels: false, lineup: false },
+  { kinds: ALL, tails: false, stairs: true, labels: true, lineup: false },
+  { kinds: ALL, tails: false, stairs: true, labels: true, lineup: true },
 ];
-/** Steps with their own content so far; a higher step plays the last of these until its content is built. */
-export const BUILT_STEPS = STEPS.length;
-export const stepContent = (step: number): StepContent => STEPS[Math.max(1, Math.min(BUILT_STEPS, step)) - 1]!;
+export const stepContent = (step: number): StepContent => STEPS[Math.max(1, Math.min(STEPS.length, step)) - 1]!;
 /** The introduction round: penny and quarter, four coins, the easiest motor tier. */
 export const INTRO: StepContent = STEPS[0]!;
 export const INTRO_COINS = 4;

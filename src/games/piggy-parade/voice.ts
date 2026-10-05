@@ -5,7 +5,7 @@
  */
 import type { Audio } from '../../engine/audio';
 
-/** Coin names, and number-1/5/10/25 for the value steps that come later. */
+/** Coin names, and number-1/5/10/25 for the value dots of steps 6 to 8. */
 export type VoiceClip = 'penny' | 'nickel' | 'dime' | 'quarter' | `number-${number}`;
 
 // Build-time list of the files that exist. The keys are enough: nothing is imported at runtime.
