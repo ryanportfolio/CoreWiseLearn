@@ -351,7 +351,7 @@ export function createRideFareScene(services: AppServices): RideFareScene {
   let boxX = 0, boxY = 0, boxW = 0, boxH = 0, zoneX0 = 0, zoneY0 = 0, zoneX1 = 0, zoneY1 = 0;
   let gateX = 0, feetY = 0, cupR = 0, smallR = 0;
   /** Step 6: rows of ten in the box's window (5, or 6 on narrow windows); the panel holds the rest. */
-  let boxRows = 5, rowsLaid = false;
+  let boxRows = 5, rowsLaid = false, swapLaid = false;
   /** The second panel (above the box), the numeral plate (right of the box), the swap stand and the animal's paws. */
   let panelX = 0, panelY = 0, panelW = 0, panelH = 0, numX = 0, numY = 0, numW = 0, numH = 0, numPx = 0;
   let standX = 0, standY = 0, standW = 0, standH = 0, sZoneX0 = 0, sZoneY0 = 0, sZoneX1 = 0, sZoneY1 = 0;
@@ -590,9 +590,10 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     standY = Math.max(standY, Math.round(cornerY + cornerRadius * 0.5));
     sZoneX0 = standX + standW * 0.04 - snap; sZoneX1 = Math.min(W, standX + standW * 0.96 + snap);
     sZoneY0 = Math.max(cornerY + cornerRadius + 4, standY + standH * STAND_ZONE_Y0 - snap); sZoneY1 = Math.min(trayY - 2, standY + standH * STAND_ZONE_Y1 + snap);
-    // A narrow window brings the stand's zone over the fare box's: they meet halfway, the box keeping its whole
-    // drawn width and the stand at least 96 px.
-    if (sZoneX0 < zoneX1 && sZoneY0 < zoneY1 && zoneY0 < sZoneY1) {
+    // A narrow window brings the stand's zone over the fare box's: while the stand is out they meet halfway, the box
+    // keeping its whole drawn width and the stand at least 96 px. startRider lays out again when the stand comes or goes.
+    swapLaid = swapOn();
+    if (swapLaid && sZoneX0 < zoneX1 && sZoneY0 < zoneY1 && zoneY0 < sZoneY1) {
       const meet = Math.min(Math.max((zoneX1 + sZoneX0) / 2, boxX + boxW), sZoneX1 - 98);
       zoneX1 = Math.max(boxX + boxW, meet); sZoneX0 = Math.max(sZoneX0, meet + 2);
     }
@@ -670,8 +671,9 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     const step = riderStep(data.step, i);
     // The first swap a profile sees is the simplest one (five pennies make the nickel the plate asks for).
     plan = intro && introStage === 2 && i === 0 ? introRider() : step === 7 && demoDue(7) ? swapRider(0) : planRider(step, random, lastFare);
-    // A narrow window grows the box for step-6 rows only: lay out again when this rider changes whether rows show.
-    if (!intro && (plan.step === 6) !== rowsLaid) layout(W, H);
+    // A narrow window grows the box for step-6 rows only, and splits the box's zone with the stand's only while the
+    // stand is out: lay out again when this rider changes either.
+    if (!intro && ((plan.step === 6) !== rowsLaid || swapOn() !== swapLaid)) layout(W, H);
     fare = plan.fare; lit = 0; reserved = 0; pourLeft = 0; pourTimer = 0; paidN.fill(0);
     plateN = plan.plate.length;
     for (let k = 0; k < 3; k++) { plateKind[k] = plan.plate[k] ?? 0; plateState[k] = 0; platePulse[k] = 9; }
