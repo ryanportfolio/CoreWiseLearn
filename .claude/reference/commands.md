@@ -8,9 +8,11 @@ All commands run from the repo root with npm (Node 20.19 or newer, or 22.12 or n
 |---|---|
 | `npm install` | Install development dependencies including sharp for offline art preparation. There are no runtime dependencies. |
 | `npm run dev` | Vite dev server with hot reload at `http://localhost:5173/`. The service worker is not active in dev. |
-| `npm run dev -- --port 5181` | Same, on a chosen port, so several agents can run a server at once. |
+| `npx vite --port 5181 --strictPort` | Same, on a chosen port, so several agents can run a server at once. Use this form in the PowerShell terminal, where `npm run dev -- --port 5181` loses the port (see `pitfalls.md`). |
 | `npm run typecheck` | `tsc --noEmit` against `tsconfig.json` (strict). Run before every commit. |
-| `npm run build` | Production build into `dist/`, then check complete public-asset precaching and total byte reporting. |
+| `npm run build` | Check that every game has its voice (`scripts/check-voice.mjs`), build into `dist/`, then check complete public-asset precaching and total byte reporting. |
+| `npm run check:voice` | Only the voice check: every registered game has Wibble's `game-<id>` line and its own lines file (or an entry in `scripts/voice/exempt.json`), and every line has its MP3. |
+| `node scripts/voice/generate.mjs scripts/voice/lines/<file>.json` | Render voice clips (needs `OPENROUTER_API_KEY` and ffmpeg). `--dry-run`, `--only a,b`, `--force`. See `voice-and-art.md`. |
 | `npm run check:precache` | Check an already-built production bundle. |
 | `node scripts/prepare-art.mjs input.png output.webp` | Resize art into a separate WebP file (quality 92, alpha quality 100). A `.png` output writes PNG, with `--palette` for 256 colors. |
 | `npm run preview` | Serve `dist/` at `http://localhost:4173/`. Use this, not `dev`, to check offline behaviour and installability. |

@@ -65,6 +65,8 @@
     { "file": "game-shape-workshop", "text": "Shape Workshop!" },
     { "file": "game-piggy-parade", "text": "Piggy Parade!" },
     { "file": "game-ride-fare", "text": "Ride Fare!", "accept": ["ride fair"] },
-    { "file": "game-frog-pond", "text": "Frog Pond!" }
+    { "file": "game-frog-pond", "text": "Frog Pond!" },
+    { "file": "game-coin-vault", "text": "Coin Vault!" },
+    { "file": "game-market-stall", "text": "Market Stall!" }
   ]
 }

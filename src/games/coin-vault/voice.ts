@@ -1,7 +1,8 @@
 /**
- * Optional spoken clips for Coin Vault. A clip plays only when its file is in
- * public/voice/coin-vault/ at build time; a missing clip is skipped silently
- * and causes no request. No clips ship yet (see that folder's README).
+ * Spoken clips for Coin Vault, in the narrator voice, rendered from
+ * scripts/voice/lines/coin-vault.json (see that folder's README). A clip plays
+ * only when its file is in public/voice/coin-vault/ at build time; a missing
+ * clip is skipped silently and causes no request.
  */
 import type { Audio } from '../../engine/audio';
 
@@ -35,10 +36,33 @@ export function preloadVoice(audio: Audio, base: string): void {
   audio.onUnlock(() => { for (const name of AVAILABLE.keys()) load(audio, base, name); });
 }
 
-/** Play a clip if its file exists and has decoded; otherwise do nothing. */
+/** The clip playing now (one channel: voices never stack) and when it ends, in the audio clock's seconds. */
+let speaking: AudioBufferSourceNode | undefined, speechEnds = 0;
+
+/** Play a clip if its file exists and has decoded; otherwise do nothing. A new clip stops the one playing. */
 export function playVoice(audio: Audio, name: VoiceClip): void {
   const buffer = buffers.get(name);
-  if (buffer && !audio.muted) audio.playBuffer(buffer, 1);
+  if (!buffer || audio.muted || !audio.context) return;
+  if (speaking) { try { speaking.stop(); } catch { /* already ended */ } }
+  speaking = audio.playBuffer(buffer, 1);
+  speechEnds = speaking ? audio.context.currentTime + buffer.duration : 0;
+}
+
+/** Stop the clip playing, if any. The scene calls this on pause and exit, so speech never runs on into the hub. */
+export function stopVoice(): void {
+  if (speaking) { try { speaking.stop(); } catch { /* already ended */ } }
+  speaking = undefined; speechEnds = 0;
+}
+
+/** Seconds until the clips already playing have finished (0 when none is). */
+export function voiceRemaining(audio: Audio): number {
+  return audio.context && !audio.muted ? Math.max(0, speechEnds - audio.context.currentTime) : 0;
+}
+
+/** How long `playVoice(audio, name)` would speak now: the clip's length, or 0 when it would stay silent. */
+export function voiceSeconds(audio: Audio, name: VoiceClip): number {
+  const buffer = buffers.get(name);
+  return buffer && !audio.muted ? buffer.duration : 0;
 }
 
 export const voiceClipCount = (): number => AVAILABLE.size;
