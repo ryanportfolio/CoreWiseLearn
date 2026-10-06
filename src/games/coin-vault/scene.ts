@@ -28,7 +28,7 @@ import {
   applyLearning, applyMotor, BILL1, BILL20, BILL_VALUE, CENTS, COIN_MM, COIN_NAMES, COIN_VALUE, DIME, DIME_MM, DISH_ORDER, DOLLARS, fewestTakes, introTask,
   lockTakes, MIN_DIME_PX, NICKEL, PENNY, PIECE_NAMES, planTask, QUARTER, recordTask, ROUND_STARS, roundTasks, taskStep, TIERS, type TaskPlan, type TierParams,
 } from './rules';
-import { playVoice, preloadVoice, type VoiceClip } from './voice';
+import { playVoice, preloadVoice, stopVoice, voiceRemaining, voiceSeconds, type VoiceClip } from './voice';
 
 export { GAME_ID };
 const ART = 'coin-vault/';
@@ -105,8 +105,8 @@ const TO_DISH = 0.3, RETURN_SECONDS = 0.4, ARRIVE_SECONDS = 0.45, ARRIVE_STAGGER
 const BACK_HOLD = 0.3, BACK_HOP = 0.5;
 /** The visitor rises (and the door opens) this long; the visitor fills its lock one coin this often. */
 const RISE = 0.45, FIRST_GAP = 0.22;
-/** Count-on: each dish with its cups pulses this long. */
-const COUNT_ON = 0.35;
+/** Count-on: each dish with its cups pulses this long, or until its spoken total ends plus this gap. */
+const COUNT_ON = 0.35, COUNT_ON_GAP = 0.12;
 /** Tags slide up, a wrong tag tilts then sinks and fades. */
 const TAG_RISE = 0.35, TAG_TILT = 0.3, TAG_FADE = 0.4;
 /** The finished-task sequence: tag to the door, coins roll in, door shuts, visitor waves and sinks, the board clears. */
@@ -394,7 +394,7 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
   let plan: TaskPlan = introTask(), lastTotal = 0;
   /** Cups: lit in the task's open area, still to pour, the pour clock, and where the open area starts (lock 2: row 6). */
   let lit = 0, pourLeft = 0, pourTimer = 0, pourKind = 0, cupBase = 0, firstLit = 0, firstPour = 0;
-  let countOnT = -1, countOnAt = -1, countOnReplay = false, tagsT = 0, tagFocus = 0, picked = -1, doneTag = 0, doneForm = 0, doneLocks = false, rollEnd = 0;
+  let countOnT = -1, countOnNext = 0, countOnAt = -1, countOnReplay = false, tagsT = 0, tagFocus = 0, picked = -1, doneTag = 0, doneForm = 0, doneLocks = false, rollEnd = 0;
   let visitor = 0, visRise = 0, visSink = 0, doorK = 1, doorFrom = 1, doorTo = 1, doorT = 9, firstLeft = 0, firstT = 0;
   let taskBounces = 0, taskAssisted = false, taskDeliberate = true, taskBounced = false, taskDrops = 0, tagResult = -1, wrongPicks = 0, firstPickDone = false;
   let lastPressAt = -9999, lastArrowAt = -9999, arrowMoved = false, purseHop = 9, visHop = 9, matHop = 9;
@@ -1216,15 +1216,18 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
         if (cup >= 0 && cup < CUPS) cupKind[cup] = g;
       }
     }
-    countOnT = 0; countOnReplay = replay; countOnAt = -1;
+    // The first group waits for a coin or bill name still being said (the last one dropped), so the total never talks over it.
+    countOnT = 0; countOnNext = voiceRemaining(audio); countOnReplay = replay; countOnAt = -1;
     if (!replay) { taskPhase = 'counton'; tagFocus = 0; }
   }
-  /** Which group the count-on is at (an index into groupOrder), or -1 when done. */
-  function countOnGroup(t: number): number { const n = Math.floor(t / COUNT_ON); return n < nGroups ? n : -1; }
   function updateCountOn(dt: number): void {
     if (countOnT < 0) return;
-    countOnT += dt; const before = countOnAt, now = countOnGroup(countOnT); countOnAt = now;
-    if (now !== before && now >= 0) {
+    countOnT += dt;
+    if (countOnT < countOnNext) return;
+    // The next group (an index into groupOrder). Each group holds COUNT_ON, or until its spoken total has finished,
+    // so the numbers never talk over each other.
+    const now = countOnAt + 1 < nGroups ? countOnAt + 1 : -1; countOnAt = now;
+    if (now >= 0) {
       const g = groupOrder[now]!;
       if (g < BILL1) dishPulse[g] = 0; else if (g < BOARD_GROUP) billPulse[g - BILL1] = 0;
       // The board's $1 holds the first hundred: it pulses with whichever group reaches into them.
@@ -1232,8 +1235,13 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
       play('pop', 'C', now * 2, 0.7);
       for (let i = 0; i < CUPS; i++) if (cupLit[i] && cupKind[i] === g) cupPulse[i] = 0;
       const total = groupStart[now]! + groupLen[now]!;
-      if (total <= 100 && (total <= 20 || total === 25 || total % 10 === 0)) playVoice(audio, NUMBER_CLIPS[total]!);
-    } else if (now < 0) {
+      let hold = COUNT_ON;
+      if (total <= 100 && (total <= 20 || total === 25 || total % 10 === 0)) {
+        playVoice(audio, NUMBER_CLIPS[total]!);
+        hold = Math.max(COUNT_ON, voiceSeconds(audio, NUMBER_CLIPS[total]!) + COUNT_ON_GAP);
+      }
+      countOnNext = countOnT + hold;
+    } else {
       countOnT = -1;
       if (!countOnReplay) {
         taskPhase = plan.kind === 'symbol' ? 'symbol' : 'tags'; tagsT = 0; idleT = 0; tagFocus = 0; blockFocus = 0; play('pop', 'B', 4, 0.5);
@@ -2792,7 +2800,7 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
       if (services.debug.enabled) (window as unknown as { __coinVault?: CoinVaultStats }).__coinVault = stats;
     },
     pause() {
-      stopMusic(audio); stopIdle();
+      stopMusic(audio); stopIdle(); stopVoice();
       if (carry.active) returnCarry(input.pointer.x, input.pointer.y);
       services.save.flush();
     },
@@ -2801,7 +2809,7 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
       startMusic(audio, 'coin-vault');
     },
     exit() {
-      stopMusic(audio); stopIdle(); offers.cancel(); closeFinishedRound(); services.save.flush();
+      stopMusic(audio); stopIdle(); stopVoice(); offers.cancel(); closeFinishedRound(); services.save.flush();
       releaseArt(); sprites.clearScaled(BG); bgCanvas = undefined; sizeKey = ''; madeName = ''; bakedMat = ''; matCanvas = undefined;
     },
     resize: layout,
