@@ -136,8 +136,9 @@ export interface VoicePlayer {
   /**
    * Play clips one after another. Each starts `spacing` seconds after the one
    * before, or once that one has finished plus `gap`, whichever is later.
-   * Missing clips are skipped; a clip not yet decoded is skipped but keeps its
-   * beat. Any play(), sequence() or stop() cancels it. Returns false, and
+   * Missing clips are skipped. Every clip not yet decoded starts loading at
+   * once; one still not decoded at its turn is skipped but keeps its beat.
+   * Any play(), sequence() or stop() cancels it. Returns false, and
    * plays nothing, when the sound is off, audio is locked or no clip exists.
    */
   sequence(folder: VoiceFolder, clips: readonly string[], spacing: number, gap: number): boolean;
@@ -418,6 +419,8 @@ function createVoicePlayer(audio: Audio): VoicePlayer {
       seqClips = clips.slice();
       seqSpacing = spacing;
       seqGap = gap;
+      // Clips still waiting in the preload line would miss their turn behind it, so they all start loading now.
+      for (const name of seqClips) load(f, name);
       seqStep(0);
       return true;
     },
