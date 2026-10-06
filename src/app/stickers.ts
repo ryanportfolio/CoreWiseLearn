@@ -70,6 +70,8 @@ export const STICKERS: readonly StickerDef[] = [
   { id: 'frog-pond-ladybird', path: 'frog-pond/bug-ladybird.webp', game: 'frog-pond' },
   { id: 'frog-pond-bee', path: 'frog-pond/bug-bee.webp', game: 'frog-pond' },
   { id: 'frog-pond-dragonfly', path: 'frog-pond/bug-dragonfly.webp', game: 'frog-pond' },
+  { id: 'frog-pond-starfish', path: 'frog-pond/cw-starfish.webp', game: 'frog-pond' },
+  { id: 'frog-pond-seahorse', path: 'frog-pond/cw-seahorse.webp', game: 'frog-pond' },
 ];
 
 export function stickerById(id: string): StickerDef | undefined {

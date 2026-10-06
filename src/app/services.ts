@@ -122,6 +122,22 @@ export function registerSaveValidator(gameId: string, validator: SaveBagValidato
   saveValidators.set(gameId, validator);
 }
 
+const earnedLists = new Map<string, readonly (readonly string[])[]>();
+
+/**
+ * Register lists in a game's bag that only grow with things the child earned, each named by its path of keys
+ * (`['pot', 'made']` is `bag.pot.made`). When two tabs playing as the same child both add to one, the save store
+ * keeps both tabs' additions. bootApp registers these for every registry game with `earnedLists`.
+ */
+export function registerEarnedLists(gameId: string, paths: readonly (readonly string[])[]): void {
+  earnedLists.set(gameId, paths);
+}
+
+/** Every registered game's earned lists. */
+export function savedEarnedLists(): ReadonlyMap<string, readonly (readonly string[])[]> {
+  return earnedLists;
+}
+
 /** Run each registered game's validator, then the rewards check. Bags with no validator are left as they are. */
 export function sanitizeSavedGames(games: Record<string, Record<string, unknown>>, protect: () => void): void {
   for (const [gameId, validate] of saveValidators) {

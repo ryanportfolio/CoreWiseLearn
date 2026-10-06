@@ -1,5 +1,5 @@
 import { AVATARS, ACCENTS, avatarFor, accentFor } from '../app/avatar';
-import { REWARDS_GAME_ID, sanitizeSavedGames } from '../app/services';
+import { REWARDS_GAME_ID, sanitizeSavedGames, savedEarnedLists } from '../app/services';
 
 export const SCHEMA_VERSION = 2;
 export const STORAGE_KEY = 'cwl.v1.save';
@@ -250,6 +250,24 @@ export function createSaveStore(options: SaveOptions = {}): SaveStore {
       if (round === undefined) delete bag.pending; else bag.pending = structuredClone(round);
     }
   }
+  const at = (value: unknown, path: readonly string[]): unknown => path.reduce<unknown>((v, k) => (record(v) ? v[k] : undefined), value);
+  /**
+   * A game's earned lists (registerEarnedLists) only grow: the stored list plus this tab's additions since its last
+   * write, each item once. Runs after the field merge, which would keep only one tab's list.
+   */
+  function mergeEarned(before: Profile | undefined, local: Profile, remote: Profile | undefined, merged: Profile): void {
+    for (const [gameId, paths] of savedEarnedLists()) {
+      for (const path of paths) {
+        const mine = at(local.games[gameId], path), theirs = at(remote?.games[gameId], path);
+        const parent = at(merged.games[gameId], path.slice(0, -1));
+        if (!path.length || !Array.isArray(mine) || !Array.isArray(theirs) || !record(parent)) continue;
+        if (equal(at(before?.games[gameId], path), mine)) continue;
+        const result: unknown[] = structuredClone(theirs);
+        for (const item of mine) if (!result.includes(item)) result.push(item);
+        parent[path[path.length - 1]!] = result;
+      }
+    }
+  }
   function refreshObject(target: Record<string, unknown>, source: Record<string, unknown>): void {
     for (const field of Object.keys(target)) if (!(field in source)) delete target[field];
     for (const [field, value] of Object.entries(source)) {
@@ -313,6 +331,7 @@ export function createSaveStore(options: SaveOptions = {}): SaveStore {
         const persisted = persistedView(before, profile, remote);
         const next = mergeChanges(persisted, profile, remote) as Profile;
         mergeRounds(persisted, profile, remote, next);
+        mergeEarned(persisted, profile, remote, next);
         const localRewards = profile.games[REWARDS_GAME_ID];
         const remoteRewards = remote?.games[REWARDS_GAME_ID];
         const beforeRewards = persisted?.games[REWARDS_GAME_ID] ?? {};
