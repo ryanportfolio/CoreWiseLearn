@@ -8,14 +8,14 @@
 import { rewards, type AppServices } from '../../app/services';
 import { STICKERS, stickerSpriteName } from '../../app/stickers';
 import type { Tier } from '../../engine/difficulty';
-import type { Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
+import type { CursorHover, Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
 import { playSfx, prepareSfxStep, type SfxName, type SfxOptions, type SfxVariant } from '../../audio/sfx';
 import { startMusic, stopMusic } from '../../audio/music';
 import { chunkyCircle, DISPLAY_FONT, drawSprite, OUTLINE } from '../../ui/draw';
 import { drawStarRow, STAR_GAP_SECONDS, STAR_HIT_SECONDS } from '../../ui/celebrate';
 import { drawEnterFade } from '../../ui/motion';
 import { BOOK_GLIDE, BOOK_ICON_PATH, createStickerOffers, leaveAlpha, leaveDrop, onBook, PICK_FLY, PICK_LIFT, PICK_SECONDS, placeBook } from '../../ui/sticker-offer';
-import { clamp01, easeInCubic, easeInOutSine, easeOutBack, easeOutCubic, lerp } from '../../ui/tween';
+import { approach, clamp01, easeInCubic, easeInOutSine, easeOutBack, easeOutCubic, lerp } from '../../ui/tween';
 import { bakeShadow, createFx } from './fx';
 import { createSoundButton, soundArt, syncSoundIcon } from '../../scenes/hub/shared';
 import { CUSTOMER_COUNT, defaultData, GAME_ID, GOODS_COUNT, sanitizeStallData, TOP_STEP, type PendingRound, type StallData } from './data';
@@ -129,7 +129,7 @@ const HAND_PRESS_AT = 0.5, HAND_CARRY_AT = 0.7, HAND_DROP_AT = 1.4, HAND_FADE = 
 /** The introduction's goal: three pennies hop into the otter's paw this far apart. */
 const GOAL_START = 0.5, GOAL_GAP = 0.5;
 const FANFARE: SfxOptions = { variant: 'D' };
-const INK = '#1d3461', RED = '#c8452a', HIGHLIGHT = '#fff6a3', CREAM = '#fbf3de';
+const INK = '#1d3461', RED = '#c8452a', HIGHLIGHT = '#fff6a3', CREAM = '#fbf3de', HOVER = '#fff8b2';
 
 type Phase = 'play' | 'closing' | 'celebration' | 'choice' | 'sticker' | 'rest';
 /** A customer's moments, in order (DECIDE and CHANGE wait for the child). */
@@ -361,6 +361,9 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
   // ---- till
   const tillKind = new Int8Array(4), wellX = new Float32Array(4), wellY = new Float32Array(4), wellHop = new Float32Array(4).fill(9);
   let tillN = 0, tillUp = 0;
+  /** Mouse hover, eased 0 to 1: each till well (a piece to pick up), the item and purse (decisions), the paw under a carried piece, the corner Home. */
+  const wellHover = new Float32Array(4);
+  let itemHover = 0, purseHover = 0, pawHover = 0, homeHover = 0;
   // ---- evidence and motor attempts
   let assisted = false, deliberate = true, actions = 0, bounced = false, bouncesHere = 0, decidedRight = false;
   let lastPressAt = -9999, lastArrowAt = -9999, lastActionAt = -9999;
@@ -1894,6 +1897,9 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
       if (plan.dollars) { drawSprite(ctx, sprites, SLOT, x, y, wellW); note(SLOT, wellW, SLOT_PX[0]); }
       else { drawSprite(ctx, sprites, WELL, x, y, wellW); note(WELL, wellW, WELL_PX); }
       if (showFocus && i === focus) focusMark(ctx, x, y, wellW / 2, wellH / 2);
+      // Mouse hover: a soft cream ring round the well and a slight swell on the piece a press would pick up.
+      const hv = wellHover[i]!;
+      if (hv > 0.01) softRing(ctx, x - wellW / 2, y - wellH / 2, wellW, wellH, hv);
       const hop = wellHop[i]! < 0.3 ? Math.sin(wellHop[i]! / 0.3 * Math.PI) * 10 * u : 0;
       // An endless stack: rims of the pieces below show offset down and right.
       for (let k = 3; k >= 1; k--) {
@@ -1901,8 +1907,20 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
         else coin(ctx, kind, 1, x + k * 3 * u, y + k * 4 * u - hop, 1);
       }
       // The piece the child is carrying (by click or drag) has left the top of its stack.
-      if (!(carry.active && carry.well === i)) piece(ctx, kind, x, y - hop, 1);
+      if (!(carry.active && carry.well === i)) piece(ctx, kind, x, y - hop - hv * 4 * u, 1 + hv * 0.06);
     }
+  }
+  /** A soft cream rounded outline just outside box (x, y, w, h), at `k` of its full strength (mouse hover). */
+  function softRing(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, k: number): void {
+    const p = 6 * u;
+    ctx.globalAlpha = 0.55 * k; ctx.beginPath(); ctx.roundRect(x - p, y - p, w + 2 * p, h + 2 * p, 18 * u);
+    ctx.lineWidth = 6 * u; ctx.strokeStyle = HOVER; ctx.stroke(); ctx.globalAlpha = 1;
+  }
+  /** Mouse hover on the decision targets (item, purse) and on the paw under a carried piece. */
+  function renderHoverCues(ctx: CanvasRenderingContext2D): void {
+    if (itemHover > 0.01) softRing(ctx, L.itemZone.x, L.itemZone.y, L.itemZone.w, L.itemZone.h, itemHover);
+    if (purseHover > 0.01) softRing(ctx, L.purseZone.x, L.purseZone.y, L.purseZone.w, L.purseZone.h, purseHover);
+    if (pawHover > 0.01) softRing(ctx, L.pawZone.x, L.pawZone.y, L.pawZone.w, L.pawZone.h, pawHover);
   }
   /** A warm ring and a bobbing arrow on the keyboard's highlighted target. */
   function focusMark(ctx: CanvasRenderingContext2D, x: number, y: number, hw: number, hh: number): void {
@@ -2113,14 +2131,19 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     const tb = L.ctill, rise = easeOutBack(clamp01(t / 0.35), 1.3), tdy = (1 - rise + away) * (H - tb.y + 20);
     if (ctrayCanvas) ctx.drawImage(ctrayCanvas, tb.x, tb.y + tdy, tb.w, tb.h);
     note(TRAY, trayK(tb.h), 1);
-    // The tray holds what the round took: a coin of each kind and a bill of each kind the customers paid with.
-    let n = 0; for (let k = 0; k < 4; k++) n += ((takenCoins >> k) & 1) + ((takenBills >> k) & 1);
+    // The tray holds what the round took: a coin of each kind and a bill of each kind the customers paid with, in one
+    // row. Each piece gets its own slot as wide as the piece plus a gap, so no piece overlaps another; the row shrinks
+    // as a whole (coins and bills by the same factor) when it is wider than the tray's inside.
+    let n = 0, coinsW = 0, billsN = 0;
+    for (let k = 0; k < 4; k++) { if ((takenCoins >> k) & 1) { n++; coinsW += coinD[k]!; } if ((takenBills >> k) & 1) { n++; billsN++; } }
     if (n > 0) {
-      const slot = tb.w * 0.84 / n, cy = tb.y + tb.h * 0.5 + tdy;
-      const cs = Math.min(1, (tb.h * 0.6) / coinD[QUARTER]!, slot * 1.1 / coinD[QUARTER]!), bs = Math.min(1, (tb.h * 0.62) / billH, slot * 1.5 / billW);
-      let j = 0;
-      for (let k = 0; k < 4; k++) if ((takenCoins >> k) & 1) coin(ctx, k, 1, tb.x + tb.w * 0.08 + slot * (j++ + 0.5), cy, cs);
-      for (let k = 0; k < 4; k++) if ((takenBills >> k) & 1) bill(ctx, k, tb.x + tb.w * 0.08 + slot * (j++ + 0.5), cy, bs);
+      const cy = tb.y + tb.h * 0.5 + tdy, gap = Math.max(4, 8 * u);
+      const cs0 = Math.min(1, (tb.h * 0.6) / coinD[QUARTER]!), bs0 = Math.min(1, (tb.h * 0.62) / billH);
+      const row = coinsW * cs0 + billsN * billW * bs0, fit = Math.min(1, (tb.w * 0.88 - gap * (n - 1)) / row);
+      const cs = cs0 * fit, bs = bs0 * fit;
+      let x = tb.x + (tb.w - (row * fit + gap * (n - 1))) / 2;
+      for (let k = 0; k < 4; k++) if ((takenCoins >> k) & 1) { const w = coinD[k]! * cs; coin(ctx, k, 1, x + w / 2, cy, cs); x += w + gap; }
+      for (let k = 0; k < 4; k++) if ((takenBills >> k) & 1) { const w = billW * bs; bill(ctx, k, x + w / 2, cy, bs); x += w + gap; }
     }
     const sh = L.slate.y + L.slate.h + 20, sdy = -(1 - easeOutBack(clamp01(t / CLOSE_OPEN), 1.1)) * sh - away * sh;
     if (slateCanvas) { ctx.drawImage(slateCanvas, L.slate.x, L.slate.y + sdy, L.slate.w, L.slate.h); note(BOARD, closeKS, 1); }
@@ -2160,6 +2183,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     renderTill(ctx);
     renderPaw(ctx);
     renderDecisionFocus(ctx);
+    renderHoverCues(ctx);
     renderFlights(ctx);
     renderCarry(ctx);
     particles.render(ctx);
@@ -2243,8 +2267,14 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     }
   }
   function drawCorners(ctx: CanvasRenderingContext2D): void {
-    chunkyCircle(ctx, homeX, cornerY, cornerRadius, '#e9b13b', OUTLINE, 4);
-    drawSprite(ctx, sprites, BUTTON_HOME, homeX, cornerY, Math.round(cornerRadius * 1.3));
+    // Mouse hover: a slight swell and a soft cream ring; the icon keeps its baked size and scales by transform.
+    const hs = 1 + homeHover * 0.08, hr = cornerRadius * hs;
+    if (homeHover > 0.01) {
+      ctx.globalAlpha = 0.45 * homeHover; ctx.beginPath(); ctx.arc(homeX, cornerY, hr + 7, 0, Math.PI * 2);
+      ctx.lineWidth = 6; ctx.strokeStyle = HOVER; ctx.stroke(); ctx.globalAlpha = 1;
+    }
+    chunkyCircle(ctx, homeX, cornerY, hr, '#e9b13b', OUTLINE, 4);
+    drawSprite(ctx, sprites, BUTTON_HOME, homeX, cornerY, Math.round(cornerRadius * 1.3), 0, hs, hs);
     soundButton.render(ctx, sprites);
     if (cornerFocus >= 0) focusRing(ctx, cornerFocus === 0 ? homeX : soundX, cornerY, cornerRadius);
   }
@@ -2314,6 +2344,40 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     // the pointer with no button held until the next click puts it down. A drag with the button held drops on release.
     if (Math.hypot(x - carry.downX, y - carry.downY) < 24) { carry.sticky = true; return; }
     release(x, y);
+  }
+  /** Decision targets and till wells take a press now (the same gates as pointerDown). */
+  const decideLive = (): boolean => moment === DECIDE && !busy();
+  const changeLive = (): boolean => moment === CHANGE && !(intro && introStage === 1);
+  /** What a press at x, y would do now, with the same gates as handleInput's pointerdown and pointerDown. */
+  function hoverAt(x: number, y: number): CursorHover {
+    if (soundButton.contains(x, y)) return null;
+    if (Math.hypot(x - homeX, y - cornerY) <= cornerRadius) return 'press';
+    if (phase === 'closing') return closeT > 0.5 && closeSpeed < 4 ? 'press' : null;
+    if (phase === 'celebration') return celebrationLocked() ? null : 'press';
+    if (playable() && carry.active) return 'carry';
+    if (performance.now() < inputAfter) return null;
+    if (playable()) {
+      // Presses that only make the customer or a well hop act on nothing: the arrow stays.
+      if (decideLive()) return inside(L.itemZone, x, y) || inside(L.purseZone, x, y) ? 'press' : null;
+      if (moment === GLOW) return inside(L.itemZone, x, y) ? 'press' : null;
+      if (changeLive()) return wellAt(x, y) >= 0 && !busy() ? 'grab' : null;
+      return null;
+    }
+    if (phase === 'choice' || phase === 'rest') return hoverMenu(x, y) >= 0 ? 'press' : null;
+    return null;
+  }
+  /** Ease the hover looks toward the mouse: the piece a press would pick up, a decision target, the paw under a carried piece, Home. */
+  function updateHover(dt: number): void {
+    const pt = input.pointer, mouse = pt.inside && pt.type === 'mouse' && !soundButton.contains(pt.x, pt.y);
+    const home = mouse && Math.hypot(pt.x - homeX, pt.y - cornerY) <= cornerRadius;
+    const live = mouse && !home && playable() && performance.now() >= inputAfter;
+    const w = live && !carry.active && changeLive() && !busy() ? wellAt(pt.x, pt.y) : -1;
+    const decide = live && decideLive(), glow = live && moment === GLOW;
+    for (let i = 0; i < 4; i++) wellHover[i] = approach(wellHover[i]!, i === w ? 1 : 0, 14, dt);
+    itemHover = approach(itemHover, (decide || glow) && inside(L.itemZone, pt.x, pt.y) ? 1 : 0, 14, dt);
+    purseHover = approach(purseHover, decide && inside(L.purseZone, pt.x, pt.y) ? 1 : 0, 14, dt);
+    pawHover = approach(pawHover, mouse && !home && playable() && carry.active && onPaw(pt.x, pt.y) ? 1 : 0, 14, dt);
+    homeHover = approach(homeHover, home ? 1 : 0, 14, dt);
   }
   function keyPlay(code: string): void {
     idleT = 0; interruptHand();
@@ -2491,10 +2555,12 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
       trayCanvas = undefined; boardCanvas = undefined; billCanvas.fill(undefined);
     },
     resize: layout,
+    hoverAt,
     update(dt) {
       const started = performance.now(); sceneT += dt;
       syncSoundIcon(soundButton, services); soundButton.update(dt, input.pointer.x, input.pointer.y);
       if (playable()) updatePlay(dt); else if (phase === 'closing') updateClosing(dt); else updateResult(dt);
+      updateHover(dt);
       askIdle(); updateFlights(dt); particles.update(dt);
       updateMs += performance.now() - started;
     },
