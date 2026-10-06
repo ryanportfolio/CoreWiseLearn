@@ -1,21 +1,27 @@
 /**
- * Market Stall's effects in the linocut medium: carved wood chips in the four inks, cream glints and gulls. One pooled
- * set of sprite particles (typed arrays, no allocation once made); every shape is baked once per size on a CPU canvas
+ * Market Stall's effects in the linocut medium: carved wood chips in the four inks (and coin copper and silver), cream
+ * glints and gulls. One pooled set of sprite particles (typed arrays, no allocation once made); every shape is baked once per size on a CPU canvas
  * (pitfalls: bakes on GPU canvases stall the first frame that uses their draw modes), never drawn per frame.
  */
 
-/** The four linocut inks: deep blue, orange-red, mustard, cream paper. */
-export const INKS = ['#1d3461', '#c8452a', '#e9b13b', '#fbf3de'] as const;
-/** Sprite kinds: chips 0 to 11 (ink = kind % 4, shape = kind / 4), then a glint and two gull frames. */
-export const CHIPS = 12, GLINT = 12, GULL = 13;
-const KINDS = 15;
+/**
+ * The four linocut inks (deep blue, orange-red, mustard, cream paper), then the coins' copper and silver, so the chips a
+ * coin throws match the coin (penny copper, the others silver).
+ */
+export const INKS = ['#1d3461', '#c8452a', '#e9b13b', '#fbf3de', '#b8683c', '#c7cbcf'] as const;
+export const INK_COUNT = INKS.length;
+/** `inks` masks for a coin's chips: copper for the penny, silver for the nickel, dime and quarter (each with cream). */
+export const PENNY_INKS = 0b011000, SILVER_INKS = 0b101000;
+/** Sprite kinds: chips 0 to 17 (ink = kind % INK_COUNT, shape = kind / INK_COUNT), then a glint and two gull frames. */
+export const CHIPS = INK_COUNT * 3, GLINT = CHIPS, GULL = CHIPS + 1;
+const KINDS = CHIPS + 3;
 
 function cpu(w: number, h: number): { c: HTMLCanvasElement; g: CanvasRenderingContext2D | null } {
   const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(w)); c.height = Math.max(1, Math.round(h));
   return { c, g: c.getContext('2d', { willReadFrequently: true }) };
 }
 
-/** One chip: a carved shard (three shapes) in one ink, `s` across, with an ink edge on the cream ones. */
+/** One chip: a carved shard (three shapes) in one ink, `s` across, with an ink edge on the light ones. */
 function bakeChip(s: number, ratio: number, ink: number, shape: number): HTMLCanvasElement {
   const { c, g } = cpu(s * ratio, s * ratio); if (!g) return c;
   g.scale(ratio, ratio);
@@ -24,7 +30,7 @@ function bakeChip(s: number, ratio: number, ink: number, shape: number): HTMLCan
   else if (shape === 1) { g.moveTo(s * 0.08, s * 0.6); g.quadraticCurveTo(s * 0.5, s * 0.02, s * 0.94, s * 0.42); g.quadraticCurveTo(s * 0.52, s * 0.3, s * 0.12, s * 0.78); }
   else { g.moveTo(s * 0.18, s * 0.2); g.lineTo(s * 0.86, s * 0.12); g.lineTo(s * 0.74, s * 0.84); g.lineTo(s * 0.12, s * 0.7); }
   g.closePath(); g.fillStyle = INKS[ink]!; g.fill();
-  if (ink === 3 || ink === 2) { g.lineWidth = Math.max(1, s * 0.07); g.strokeStyle = INKS[0]; g.stroke(); }
+  if (ink === 3 || ink === 2 || ink === 5) { g.lineWidth = Math.max(1, s * 0.07); g.strokeStyle = INKS[0]; g.stroke(); }
   g.getImageData(0, 0, 1, 1);
   return c;
 }
@@ -104,16 +110,16 @@ export function createFx(capacity: number, random: () => number): Fx {
       if (u === bakedU && ratio === bakedRatio && sprites[0]) return;
       bakedU = u; bakedRatio = ratio;
       const chip = Math.max(12, Math.round(30 * u)), glint = Math.max(16, Math.round(40 * u)), gull = Math.max(24, Math.round(54 * u));
-      for (let k = 0; k < CHIPS; k++) { sprites[k] = bakeChip(chip, ratio, k % 4, Math.floor(k / 4)); baseW[k] = baseH[k] = chip; }
+      for (let k = 0; k < CHIPS; k++) { sprites[k] = bakeChip(chip, ratio, k % INK_COUNT, Math.floor(k / INK_COUNT)); baseW[k] = baseH[k] = chip; }
       sprites[GLINT] = bakeGlint(glint, ratio); baseW[GLINT] = baseH[GLINT] = glint;
       for (let f = 0; f < 2; f++) { sprites[GULL + f] = bakeGull(gull, ratio, f); baseW[GULL + f] = gull; baseH[GULL + f] = Math.round(gull * 0.6); }
     },
     spawn,
     chips(px, py, n, speed, inks, s = 1) {
       for (let k = 0; k < n; k++) {
-        let ink = Math.floor(random() * 4); for (let t = 0; t < 4 && !(inks & (1 << ink)); t++) ink = (ink + 1) % 4;
+        let ink = Math.floor(random() * INK_COUNT); for (let t = 0; t < INK_COUNT && !(inks & (1 << ink)); t++) ink = (ink + 1) % INK_COUNT;
         const a = -Math.PI / 2 + (random() - 0.5) * Math.PI * 1.3, v = speed * (0.45 + random() * 0.55);
-        spawn(ink + 4 * Math.floor(random() * 3), px, py, Math.cos(a) * v, Math.sin(a) * v, 0.55 + random() * 0.45, s * (0.7 + random() * 0.5), speed * 2.4, (random() - 0.5) * 14);
+        spawn(ink + INK_COUNT * Math.floor(random() * 3), px, py, Math.cos(a) * v, Math.sin(a) * v, 0.55 + random() * 0.45, s * (0.7 + random() * 0.5), speed * 2.4, (random() - 0.5) * 14);
       }
     },
     glints(px, py, n, r) {

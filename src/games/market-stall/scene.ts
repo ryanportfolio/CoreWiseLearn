@@ -16,7 +16,7 @@ import { drawStarRow, STAR_GAP_SECONDS, STAR_HIT_SECONDS } from '../../ui/celebr
 import { drawEnterFade } from '../../ui/motion';
 import { BOOK_GLIDE, BOOK_ICON_PATH, createStickerOffers, leaveAlpha, leaveDrop, onBook, PICK_FLY, PICK_LIFT, PICK_SECONDS, placeBook } from '../../ui/sticker-offer';
 import { approach, clamp01, easeInCubic, easeInOutSine, easeOutBack, easeOutCubic, lerp } from '../../ui/tween';
-import { bakeShadow, createFx } from './fx';
+import { bakeShadow, createFx, INK_COUNT, PENNY_INKS, SILVER_INKS } from './fx';
 import { createSoundButton, soundArt, syncSoundIcon } from '../../scenes/hub/shared';
 import { CUSTOMER_COUNT, defaultData, GAME_ID, GOODS_COUNT, sanitizeStallData, TOP_STEP, type PendingRound, type StallData } from './data';
 import {
@@ -33,6 +33,8 @@ const WELL = `${ART}till-well`, SLOT = `${ART}till-slot`, HAND = `${ART}helper-h
 const BUTTON_PLAY = 'buttons/play-arrow', BUTTON_HOME = 'buttons/home';
 const BILLS = [1, 5, 10, 20].map(v => `${ART}bill-${v}`);
 const COIN_FACES = COIN_NAMES.map(c => [`${ART}coin-${c}-heads`, `${ART}coin-${c}-tails`] as const);
+/** Coin faces are 320x320 (byte copies of Piggy Parade's, so the hub shows one set of coins). */
+const COIN_PX = 320;
 
 /**
  * The six customers, measured from their sprites (round 2): the waiting pose's pixel size, the happy pose's, and the
@@ -460,6 +462,8 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
   const isBill = (kind: number): boolean => plan.dollars || kind === K_DOLLAR;
   const pieceW = (kind: number): number => (isBill(kind) ? billW : coinD[kind]!);
   const pieceH = (kind: number): number => (isBill(kind) ? billH : coinD[kind]!);
+  /** The chip inks a landing piece throws: copper for a penny, silver for the other coins, `billInks` for a bill. */
+  const pieceInks = (kind: number, billInks: number): number => (isBill(kind) ? billInks : kind === PENNY ? PENNY_INKS : SILVER_INKS);
   const two = (): boolean => plan.parts.length === 2;
 
   // ---------------------------------------------------------------- layout
@@ -1162,7 +1166,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     if (mode === F_DROP) {
       dishLanded = Math.max(dishLanded, idx + 1); dishHop[idx] = 0;
       if (isBill(kind)) play('paper-rustle', 'A', 0, 0.5); else play('coin-stack', 'A', idx, 0.5);
-      particles.chips(dishPx[idx]!, dishPy[idx]!, 3, 160 * u, 0b1110, 0.8);
+      particles.chips(dishPx[idx]!, dishPy[idx]!, 3, 160 * u, pieceInks(kind, 0b1110), 0.8);
       return;
     }
     if (mode === F_PAW) {
@@ -1173,7 +1177,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
       custHop = Math.min(custHop, 0.2); pawHop = 0;
       // Landing: the stack takes a squash and settles, a clink that climbs with the stack, carved chips and a glint.
       if (isBill(kind)) play('paper-rustle', 'A', 0, 0.6); else play('coin-stack', 'A', pawN - 1, 0.7);
-      particles.chips(stackX, stackY, 6, 220 * u, 0b1111);
+      particles.chips(stackX, stackY, 6, 220 * u, pieceInks(kind, 0b1111));
       particles.glints(stackX, stackY - pieceH(kind) * 0.2, 1, pieceW(kind) * 0.3);
       return;
     }
@@ -1430,14 +1434,15 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
       particles.chips(cx, cy, 12, 300 * u, 0b1111); particles.glints(cx, cy, 4, closePx * 2);
     }
     if (buy >= 0 && t >= closeBuyAt && t < closeBuyAt + CLOSE_STREAM) {
-      // The takings fly to the harbour as a stream of mustard and cream chips.
+      // The takings fly to the harbour as a stream of silver, copper and cream chips (the coins' metals and the bills' paper).
       if (!closeStreamed) { closeStreamed = true; play('whoosh', 'C', 0, 0.6); }
       buyPoint();
       // From the total at the top of the slate, at the end of it nearest the harbour spot, so the stream never crosses the cups.
       const panel = L.slatePanel, away = easeInCubic(clamp01((t - closeBuyAt - 0.2) / CLOSE_AWAY)), sdy = -away * (L.slate.y + L.slate.h + 20);
       const sx = Math.min(panel.x + panel.w - closePitch * 2, Math.max(panel.x + closePitch * 2, pos.x)) + (Math.random() - 0.5) * closePitch * 3;
       const sy = panel.y + closePx * 0.75 + sdy + (Math.random() - 0.5) * closePx * 0.4, life = 0.45;
-      particles.spawn(Math.random() < 0.6 ? 2 : 3 + 4 * Math.floor(Math.random() * 3), sx, sy, (pos.x - sx) / life, (pos.y - sy) / life, life, 1, 0, 8, 0);
+      const r = Math.random();
+      particles.spawn((r < 0.5 ? 5 : r < 0.75 ? 4 : 3) + INK_COUNT * Math.floor(Math.random() * 3), sx, sy, (pos.x - sx) / life, (pos.y - sy) / life, life, 1, 0, 8, 0);
     }
     const revealAt = closeBuyAt + 0.45;
     if (buy >= 0 && t >= revealAt) {
@@ -1681,7 +1686,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
   function coin(ctx: CanvasRenderingContext2D, kind: number, face: number, x: number, y: number, scale: number, rot = 0, sx = 1): void {
     const d = coinD[kind]!;
     drawSprite(ctx, sprites, COIN_FACES[kind]![face]!, x, y, d, rot, sx * scale, scale);
-    note(COIN_FACES[kind]![face]!, d * scale * Math.max(1, sx), 384);
+    note(COIN_FACES[kind]![face]!, d * scale * Math.max(1, sx), COIN_PX);
   }
   /** A bill at full size anywhere (dish, till, paw, in flight); it never squashes below its size. */
   function bill(ctx: CanvasRenderingContext2D, kind: number, x: number, y: number, scale: number, rot = 0, sx = 1): void {
