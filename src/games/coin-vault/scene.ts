@@ -42,7 +42,7 @@ const VISITOR_NAMES = VISITORS.map(a => [`${ART}${a}-wait`, `${ART}${a}-happy`] 
 const CUT_WAIT = [0.937, 0.952, 0.993, 0.928, 0.93, 0.925] as const;
 const CUT_HAPPY = 0.99;
 const COIN_FACES = COIN_NAMES.map(c => [`${ART}coin-${c}-heads`, `${ART}coin-${c}-tails`] as const);
-const COIN_PX = 384;
+const COIN_PX = 320;
 /** bill-1.webp to bill-20.webp (640x320): the plain side panels where code draws the numeral. */
 const BILL_NAMES = BILL_VALUE.map(v => `${ART}bill-${v}`);
 const BILL_PX = 640, BILL_PANEL0 = 0.04, BILL_PANEL1 = 0.31;
