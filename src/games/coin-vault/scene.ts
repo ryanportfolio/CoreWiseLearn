@@ -456,7 +456,7 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
   /** Coins per row in each dish and their spacing (so the coins' value tags never overlap). */
   const dishPer = new Uint8Array(4).fill(4), dishPitch = new Float32Array(4).fill(30);
   /** Scratch for laying a lock's tags in lanes: each placed tag's lane and its left and right edges. */
-  const laneOf = new Uint8Array(LOCK_MAX), laneX0 = new Float32Array(LOCK_MAX), laneX1 = new Float32Array(LOCK_MAX);
+  const laneX0 = new Float32Array(2 * LOCK_MAX), laneX1 = new Float32Array(2 * LOCK_MAX), laneY0 = new Float32Array(2 * LOCK_MAX), laneY1 = new Float32Array(2 * LOCK_MAX);
   let tagMinInk = TAG_MIN_INK, tagBakedInk = 0, tagFont = false;
   let artRatio = 0, glowSize = 0, bakedCup = 0, bakedMat = '', fontReady = false;
   let phase: Phase = 'play', tier: Tier = 0, intro = false, introStage = 0, visitorOffset = 0;
@@ -2062,29 +2062,34 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
       }
       const n = Math.min(LOCK_MAX, lockN[l]!);
       for (let i = 0; i < n; i++) { const k = lockKind[l * LOCK_MAX + i]!; lockSlot(l, i, Math.max(n, 4)); smallCoin(ctx, k, lockFace[l * LOCK_MAX + i]!, pos.x, pos.y, lockCoinD(k), 1, false, false); }
-      lockTags(ctx, l, n);
     }
+    // Every lock's tags after every plank and coin: a first-lock tag in the lower lane hangs over the second plank's
+    // top edge and must lie on it whole, never under it. Both locks share one list of placed tags.
+    let placed = 0;
+    for (let l = one ? 1 : 0; l < 2; l++) placed = lockTags(ctx, l, Math.min(LOCK_MAX, lockN[l]!), placed);
   }
   /**
-   * The value tags of a lock's coins, laid so none overlaps another: from the last coin back, each tag takes the first
-   * of two lanes (under the coin, or one tag lower) where it is clear; a tag with no clear lane lies hidden under the
-   * tags beside it and is not drawn, so a crowded plank never shows a tag cut into a misleading amount.
+   * The value tags of a lock's coins, laid so none touches another: from the last coin back, each tag takes the first
+   * of two lanes (under the coin, or one tag and 5 px lower) where its box, with a 2 px margin, meets no tag already placed in
+   * either lane or either lock; a tag with no clear lane lies hidden under the tags beside it and is not drawn, so a
+   * crowded plank never shows a tag cut into a misleading amount. Returns the new count of placed tags.
    */
-  function lockTags(ctx: CanvasRenderingContext2D, l: number, n: number): void {
-    let placed = 0;
+  function lockTags(ctx: CanvasRenderingContext2D, l: number, n: number, placed: number): number {
     for (let i = n - 1; i >= 0; i--) {
       const k = lockKind[l * LOCK_MAX + i]!, d = lockCoinD(k), t = tagSlot(k, d); if (t < 0) continue;
       lockSlot(l, i, Math.max(n, 4));
-      const w = tagWs[t]!, x0 = pos.x - w / 2 - 2, x1 = pos.x + w / 2 + 2;
+      const w = tagWs[t]!, h = tagHs[t]!, x0 = pos.x - w / 2 - 2, x1 = pos.x + w / 2 + 2;
       for (let lane = 0; lane < 2; lane++) {
+        const y = pos.y + lane * (h + 5), y0 = y + tagOff[t]! - h / 2 - 2, y1 = y0 + h + 4;
         let clear = true;
-        for (let j = 0; j < placed; j++) if (laneOf[j] === lane && x0 < laneX1[j]! && x1 > laneX0[j]!) { clear = false; break; }
+        for (let j = 0; j < placed; j++) if (x0 < laneX1[j]! && x1 > laneX0[j]! && y0 < laneY1[j]! && y1 > laneY0[j]!) { clear = false; break; }
         if (!clear) continue;
-        if (placed < LOCK_MAX) { laneOf[placed] = lane; laneX0[placed] = x0; laneX1[placed] = x1; placed++; }
-        coinTag(ctx, k, d, pos.x, pos.y + lane * tagHs[t]! * 0.92, 1, 1, 0);
+        if (placed < 2 * LOCK_MAX) { laneX0[placed] = x0; laneX1[placed] = x1; laneY0[placed] = y0; laneY1[placed] = y1; placed++; }
+        coinTag(ctx, k, d, pos.x, y, 1, 1, 0);
         break;
       }
     }
+    return placed;
   }
   /** Fill `seq` with the glyphs of an amount and return their count. */
   function amountSeq(form: number, value: number): number {
@@ -2873,7 +2878,7 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     const out: BillInfo[] = [];
     if (!playable()) return out;
     const info = (kind: number, x: number, y: number, w: number, h: number, where: string, count: number, hit: Rect | null): BillInfo =>
-      ({ value: BILL_VALUE[kind - BILL1]!, x, y, w, h, where, count, label: `${BILL_VALUE[kind - BILL1]} | ${BILL_VALUE[kind - BILL1]}`, hit });
+      ({ value: BILL_VALUE[kind - BILL1]!, x, y, w, h, where, count, label: `$${BILL_VALUE[kind - BILL1]} | $${BILL_VALUE[kind - BILL1]}`, hit });
     for (let p = 0; p < nPlaces; p++) if (pCount[p]! > 0 && isBill(pKind[p]!)) out.push(info(pKind[p]!, pX[p]! + pNx[p]!, pY[p]! + pNy[p]!, billW, billH, 'row', pCount[p]!, placeHit(p)));
     for (let i = 0; i < Math.min(PILE_MAX, pileCount); i++) { pileSlot(i); out.push(info(pileKind[i]!, pos.x, pos.y, billW * pileScale, billH * pileScale, 'pile', 1, null)); }
     if (boardBill) out.push({ value: 1, x: boardBillX + boardBillW / 2, y: boardBillY + boardBillH / 2, w: boardBillW, h: boardBillH, where: 'board', count: 1, label: '$1 | $1', hit: null });
