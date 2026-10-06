@@ -36,10 +36,20 @@ export function preloadVoice(audio: Audio, base: string): void {
   audio.onUnlock(() => { for (const name of AVAILABLE.keys()) load(audio, base, name); });
 }
 
+/** When the last clip started will have finished, in the audio clock's seconds. */
+let speechEnds = 0;
+
 /** Play a clip if its file exists and has decoded; otherwise do nothing. */
 export function playVoice(audio: Audio, name: VoiceClip): void {
   const buffer = buffers.get(name);
-  if (buffer && !audio.muted) audio.playBuffer(buffer, 1);
+  if (!buffer || audio.muted || !audio.context) return;
+  audio.playBuffer(buffer, 1);
+  speechEnds = Math.max(speechEnds, audio.context.currentTime + buffer.duration);
+}
+
+/** Seconds until the clips already playing have finished (0 when none is). */
+export function voiceRemaining(audio: Audio): number {
+  return audio.context && !audio.muted ? Math.max(0, speechEnds - audio.context.currentTime) : 0;
 }
 
 export const voiceClipCount = (): number => AVAILABLE.size;

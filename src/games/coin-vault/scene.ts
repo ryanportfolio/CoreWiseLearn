@@ -28,7 +28,7 @@ import {
   applyLearning, applyMotor, BILL1, BILL20, BILL_VALUE, CENTS, COIN_MM, COIN_NAMES, COIN_VALUE, DIME, DIME_MM, DISH_ORDER, DOLLARS, fewestTakes, introTask,
   lockTakes, MIN_DIME_PX, NICKEL, PENNY, PIECE_NAMES, planTask, QUARTER, recordTask, ROUND_STARS, roundTasks, taskStep, TIERS, type TaskPlan, type TierParams,
 } from './rules';
-import { playVoice, preloadVoice, voiceSeconds, type VoiceClip } from './voice';
+import { playVoice, preloadVoice, voiceRemaining, voiceSeconds, type VoiceClip } from './voice';
 
 export { GAME_ID };
 const ART = 'coin-vault/';
@@ -1216,7 +1216,8 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
         if (cup >= 0 && cup < CUPS) cupKind[cup] = g;
       }
     }
-    countOnT = 0; countOnNext = 0; countOnReplay = replay; countOnAt = -1;
+    // The first group waits for a coin or bill name still being said (the last one dropped), so the total never talks over it.
+    countOnT = 0; countOnNext = voiceRemaining(audio); countOnReplay = replay; countOnAt = -1;
     if (!replay) { taskPhase = 'counton'; tagFocus = 0; }
   }
   function updateCountOn(dt: number): void {
