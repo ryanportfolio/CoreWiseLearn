@@ -1,8 +1,8 @@
 /**
  * Market Stall: the child is the cashier of a harbour bread stall. Animal customers come to the counter one at a time
- * with an item and a price tag and pay more than the price into the wooden dish; the board shows the payment. The
- * child counts the change back up from the price, moving coins or bills from the till to the customer's open paw while
- * the board's counter climbs to the payment. Customers always leave happily; nothing is ever wrong.
+ * with an item and a price tag and pay more than the price into the wooden dish. The board is a count-up track from
+ * the price tag to the dish. The child counts the change back up from the price, moving coins or bills from the till to
+ * the customer's open paw while the board's marker climbs along the track to the payment. Customers always leave happily; nothing is ever wrong.
  */
 import { rewards, type AppServices } from '../../app/services';
 import { STICKERS, stickerSpriteName } from '../../app/stickers';
@@ -102,8 +102,14 @@ const BOARD_W = 320, CUST_H = 520, CUST_CLIP = 0.68, ITEM_W = 170, TAG_W = 150, 
 const DISH_MAX = 640;
 /** Till: well margin around the largest coin, tray padding and gaps, in layout units. */
 const WELL_PAD = 28, TILL_PAD = 24, TILL_GAP = 12;
-/** Cups on the board never draw under this many CSS px. */
+/** Cups on the closing slate never draw under this many CSS px. */
 const MIN_CUP = 12;
+/**
+ * The board's count-up track (round MB1): the price tag at its left end and the dish at its right end, each at least
+ * END_ICON_MIN CSS px tall (END_ICON_U layout units); at steps 1 to 3 one dot per cent of change on the track, never
+ * under MIN_DOT CSS px, each DOT_FILL of its pitch. The board widens for the dots in steps of DOT_BUCKETS.
+ */
+const END_ICON_MIN = 40, END_ICON_U = 44, MIN_DOT = 12, DOT_FILL = 0.8, DOT_BUCKETS = [10, 15, 20] as const;
 const U_MAX = 1.405;
 /** Zone shifts tried in order: centred, then up or left, then down or right. */
 const SHIFT3 = [0, -1, 1] as const;
@@ -154,10 +160,11 @@ const HAND_DEMO = 1, HAND_TAP = 2, HAND_POINTS = 3, HAND_HINT = 4;
 /** Till wells and slots (at most five: four coins and the $1 bill); hand targets are wells 0..4, then these. */
 const MAX_WELLS = 5;
 const TG_PAW = 12, TG_TAG = 15, TG_TAG2 = 16;
-/** Cup looks: empty socket, paid (yellow), paid past the price (orange-red), counted back as change (cream). */
-const CUP_UNLIT = 0, CUP_PAID = 1, CUP_OVER = 2, CUP_BACK = 3;
-/** The till count's dollar cup: deep ink with a mustard ring, drawn larger than a cent cup. */
-const CUP_DOLLAR = 4;
+/**
+ * Cup and dot looks: a cream socket (a track dot not given yet), mustard (a cent cup at closing), the till count's dollar
+ * cup (deep ink with a mustard ring, drawn larger), orange-red (a track dot given, standing out on the mustard lit track).
+ */
+const CUP_UNLIT = 0, CUP_PAID = 1, CUP_DOLLAR = 2, CUP_GIVEN = 3;
 
 interface Flight {
   active: boolean; mode: number; kind: number; idx: number; demo: boolean;
@@ -179,15 +186,19 @@ export interface MarketStallStats {
     till: string[]; pay: string[]; merged: boolean;
   } | null;
   /**
-   * What the board shows now, as written: the counter (the price, then climbing as change is given), the payment
-   * poured so far, and how many cups (0 from step 4: no cups, so the change owed is never shown).
+   * What the board's count-up track shows now, as written: the price at the tag end, the payment poured so far at the
+   * dish end, the marker's numeral ('' before change counting) with the marker's place (fraction of the change given,
+   * -1 when hidden; its x and the track's ends in CSS px), the dots shown and lit (steps 1 to 3 only), the end icons'
+   * boxes and the dot and numeral sizes.
    */
-  readonly board: { counter: string; payment: string; cups: number; owedCups: number } | null;
+  readonly board: {
+    price: string; payment: string; counter: string; dots: number; dotsLit: number; marker: number; markerX: number; trackX0: number; trackX1: number; trackY: number;
+    tagIcon: Box; dishIcon: Box; dotSize: number; numPx: number; endPx: number;
+  } | null;
   readonly coins: readonly { kind: string; face: 'heads' | 'tails'; x: number; y: number; d: number; where: string; tag: string }[];
   readonly bills: readonly { value: number; x: number; y: number; w: number; h: number; where: string }[];
   /** Hit rectangles in CSS px (the paw's also gives the snap distance a release may be outside it). */
   readonly targets: readonly { kind: string; x: number; y: number; w: number; h: number; snap?: number }[];
-  readonly cups: { total: number; lit: number; price: number; back: number; size: number };
   readonly layout: Record<string, Box | boolean | number>;
   /**
    * The round-end till count: each sale's price (in its own unit), the exact total in whole dollars and cents (cents
@@ -261,18 +272,38 @@ function bakeDot(d: number, ratio: number): HTMLCanvasElement {
   return c;
 }
 /**
- * One cup, `d` across, in the linocut inks: a pale socket, mustard (paid), orange-red (paid past the price), cream
- * (counted back), or the till count's dollar cup (deep ink with a mustard ring).
+ * One cup or dot, `d` across, in the linocut inks: a cream socket (unlit), mustard (a closing cent cup), orange-red (a given dot), or the till count's dollar cup (deep ink
+ * with a mustard ring).
  */
 function bakeCup(d: number, ratio: number, look: number): HTMLCanvasElement {
   const size = d + 2, { c, g } = cpuCanvas(size * ratio, size * ratio); if (!g) return c;
   g.scale(ratio, ratio);
   const lw = Math.max(1.5, d * 0.13), r = d / 2 - lw / 2;
   g.beginPath(); g.arc(size / 2, size / 2, r, 0, Math.PI * 2);
-  g.fillStyle = look === CUP_PAID ? '#efb531' : look === CUP_OVER ? '#d9542c' : look === CUP_BACK ? CREAM : look === CUP_DOLLAR ? INK : '#e9dcbc';
+  g.fillStyle = look === CUP_PAID ? '#efb531' : look === CUP_GIVEN ? RED : look === CUP_DOLLAR ? INK : CREAM;
   g.fill();
   g.lineWidth = look === CUP_DOLLAR ? lw * 1.4 : lw;
-  g.strokeStyle = look === CUP_UNLIT ? 'rgba(29, 52, 97, 0.45)' : look === CUP_BACK ? RED : look === CUP_DOLLAR ? '#efb531' : INK; g.stroke();
+  g.strokeStyle = look === CUP_UNLIT ? 'rgba(29, 52, 97, 0.7)' : look === CUP_DOLLAR ? '#efb531' : INK; g.stroke();
+  g.getImageData(0, 0, 1, 1);
+  return c;
+}
+/** The board's track, len x t: a rounded bar with a deep-ink edge, pale (unlit) or mustard (lit up to the marker). */
+function bakeTrack(len: number, t: number, ratio: number, lit: boolean): HTMLCanvasElement {
+  const { c, g } = cpuCanvas(len * ratio, t * ratio); if (!g) return c;
+  g.scale(ratio, ratio);
+  const lw = Math.max(1.5, t * 0.18);
+  g.beginPath(); g.roundRect(lw / 2, lw / 2, len - lw, t - lw, (t - lw) / 2);
+  g.fillStyle = lit ? '#efb531' : '#e9dcbc'; g.fill(); g.lineWidth = lw; g.strokeStyle = INK; g.stroke();
+  g.getImageData(0, 0, 1, 1);
+  return c;
+}
+/** The board's marker, h tall: an orange-red triangle pointing up at the track, with a deep-ink edge over a cream one. */
+function bakeMarker(h: number, ratio: number): HTMLCanvasElement {
+  const w = h * 1.25, pad = Math.max(3, h * 0.2), { c, g } = cpuCanvas((w + pad * 2) * ratio, (h + pad * 2) * ratio); if (!g) return c;
+  g.scale(ratio, ratio);
+  g.beginPath(); g.moveTo(pad + w / 2, pad); g.lineTo(pad + w, pad + h); g.lineTo(pad, pad + h); g.closePath();
+  g.lineJoin = 'round'; g.lineWidth = pad * 1.6; g.strokeStyle = CREAM; g.stroke();
+  g.fillStyle = RED; g.fill(); g.lineWidth = Math.max(1.5, h * 0.12); g.strokeStyle = INK; g.stroke();
   g.getImageData(0, 0, 1, 1);
   return c;
 }
@@ -414,6 +445,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
   const pawKind = new Int8Array(MAX_PAW);
   /** Pieces in the paw, and the value of pieces no longer drawn (past MAX_PAW). */
   let pawN = 0, pawLost = 0;
+  /** Each track dot's pop clock (negative: not shown yet, it pops in when its turn comes). */
   const cupPulse = new Float32Array(MAX_CUPS).fill(9);
   // ---- till
   const tillKind = new Int8Array(MAX_WELLS), wellX = new Float32Array(MAX_WELLS), wellY = new Float32Array(MAX_WELLS), wellHop = new Float32Array(MAX_WELLS).fill(9);
@@ -481,15 +513,20 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
   const tagAt = box();
   let tagH0 = 60, stackX = 0, stackY = 0;
   let dishInChange = true, custX = 0, custH = 0, custW = 0, custS = 1, pawX = 0, pawY = 0, snap = 0, wellW = 0, wellH = 0;
-  /** Board: cup pitch and size, rows, the counter numeral's size, the payment line's size (`payK` of it) and where the cups start. */
-  let cupPitch = 20, cupD = 18, cupRows = 1, numPx = 30, tagPx = 30, cupTop = 40, payK = 0.72;
+  /**
+   * Board (the count-up track): the marker's numeral size, the end amounts' size, the end icons' height and widths, the
+   * track's ends, centre line and thickness, the end icons' centres, the end amounts' line, the marker's top and height,
+   * the marker numeral's line, and the dots (how many, pitch, size).
+   */
+  let numPx = 30, tagPx = 30, endPx = 18, iconH = 44, tagIconW = 60, dishIconW = 80, trackX0 = 0, trackX1 = 0, trackY = 0, trackT = 8;
+  let tagCx = 0, dishCx = 0, endY = 0, markerTop = 0, markerH = 12, numY = 0, dotsN = 0, dotPitch = 20, dotD = 16;
   let starY = 0, starR = 0, choiceSize = 0, choiceY = 0, restSize = 0, restY = 0, controlsY = 0, controlsRadius = 60;
   const offers = createStickerOffers(sprites), bookAt = new Float32Array(2);
   let bookH = 150, bookGlide = false;
   const stickerNames = new Map(STICKERS.map(s => [s.id, stickerSpriteName(s.id)]));
   // ---- bakes
   let glowCanvas: HTMLCanvasElement | undefined, dotCanvas: HTMLCanvasElement | undefined, trayCanvas: HTMLCanvasElement | undefined, boardCanvas: HTMLCanvasElement | undefined;
-  const cupCanvas: (HTMLCanvasElement | undefined)[] = [undefined, undefined, undefined, undefined];
+  const cupCanvas: (HTMLCanvasElement | undefined)[] = [undefined, undefined];
   const billCanvas: (HTMLCanvasElement | undefined)[] = [undefined, undefined, undefined, undefined];
   /** Each coin kind's value tag, baked at its diameter (coinTagD). */
   const coinTagCanvas: (HTMLCanvasElement | undefined)[] = [undefined, undefined, undefined, undefined];
@@ -501,12 +538,15 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
   const qKind = new Int8Array(TAGS_MAX), qX = new Float32Array(TAGS_MAX), qY = new Float32Array(TAGS_MAX), qS = new Float32Array(TAGS_MAX);
   const qSx = new Float32Array(TAGS_MAX), qRot = new Float32Array(TAGS_MAX), qA = new Float32Array(TAGS_MAX);
   let tagN = 0;
-  let inkBoard: Strip | undefined, redBoard: Strip | undefined, inkTag: Strip | undefined, inkClose: Strip | undefined;
+  let redBoard: Strip | undefined, inkTag: Strip | undefined, inkClose: Strip | undefined, inkEnd: Strip | undefined;
+  /** The board's track (unlit, and lit up to the marker) and the marker, baked per size. */
+  let trackCanvas: HTMLCanvasElement | undefined, trackLitCanvas: HTMLCanvasElement | undefined, markerCanvas: HTMLCanvasElement | undefined;
+  let bakedTrack = '', bakedMarker = 0, bakedEnd = 0;
   let shadowCanvas: HTMLCanvasElement | undefined, slateCanvas: HTMLCanvasElement | undefined, ctrayCanvas: HTMLCanvasElement | undefined;
   let bakedClose = 0, bakedSlate = '', bakedCtray = '', closeCupCanvas: HTMLCanvasElement | undefined, bakedCloseCup = 0;
   let closeDollarCanvas: HTMLCanvasElement | undefined, bakedCloseDollar = 0;
   const boardCache = new Map<string, HTMLCanvasElement>(), trayCache = new Map<string, HTMLCanvasElement>(), boardQueue: number[] = [];
-  let trayWant = '', trayWantW = 0, trayWantH = 0, boardQueued = '', boardPitchW = 20;
+  let trayWant = '', trayWantW = 0, trayWantH = 0, boardQueued = '';
   let bakedCup = 0, bakedTray = '', bakedBoard = '', bakedBills = '', bakedNum = 0, bakedTag = 0, glowSize = 0, dotSize = 0;
   const drawnScale = new Map<string, number>();
 
@@ -519,8 +559,8 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
   const value = (kind: number): number => valueOf(kind, plan.dollars);
   const payment = (): number => { let s = 0; for (let i = 0; i < dishLanded; i++) s += value(dishKind[i]!); return s; };
   const planned = (): number => paid(plan);
-  /** The board shows the price and the payment as cups, with the change owed as orange-red cups, at steps 1 to 3 only. */
-  const cupsOn = (): boolean => plan.content <= CUP_STEPS;
+  /** The board's track shows one dot per cent of change at steps 1 to 3 only. */
+  const dotsOn = (): boolean => plan.content <= CUP_STEPS;
   const note = (name: string, drawn: number, natural: number): void => {
     const k = drawn / (natural || 1), old = drawnScale.get(name) ?? 0;
     if (k > old) drawnScale.set(name, k);
@@ -659,6 +699,11 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     if (over(L.foot, L.body)) out.push(`dish ${show(L.foot)} over the customer ${show(L.body)}`);
     if (!inWin(L.foot)) out.push(`dish pile outside the window ${show(L.foot)}`);
     if (over(L.foot, L.board)) out.push('dish over the board');
+    // The board (the count-up track) stays whole: inside the window, clear of the corner buttons, and the customer
+    // (drawn after it) covers at most 8 percent of its own width of it.
+    if (!inWin(L.board)) out.push(`board outside the window ${show(L.board)}`);
+    for (const c of corners) if (over(L.board, c)) out.push('board over a corner button');
+    if (L.board.x + L.board.w - L.body.x > 0.08 * L.body.w && over(L.board, L.body)) out.push(`customer ${show(L.body)} over the board ${show(L.board)}`);
     const front: Box[] = two() ? [L.ftag, L.ftag2, L.fmtag] : [L.ftag];
     for (const t of front) {
       if (!inWin(t)) out.push(`tag outside the window ${show(t)}`);
@@ -692,8 +737,15 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     if (!glowCanvas || reratio || glow !== glowSize) { glowSize = glow; glowCanvas = bakeGlow(glowSize, artRatio, false); }
     const dot = Math.max(12, Math.round(coinD[PENNY]! * 0.13));
     if (!dotCanvas || reratio || dot !== dotSize) { dotSize = dot; dotCanvas = bakeDot(dotSize, artRatio); }
-    if (!cupCanvas[0] || reratio || cupD !== bakedCup) { bakedCup = cupD; for (let k = 0; k < 4; k++) cupCanvas[k] = bakeCup(cupD, artRatio, k); }
-    if (!inkBoard || reratio || numPx !== bakedNum) { bakedNum = numPx; inkBoard = bakeStrip(numPx, artRatio, INK); redBoard = bakeStrip(numPx, artRatio, RED); }
+    // The track's dots: cream sockets, turning orange-red as each cent of change is given ([0] unlit, [1] given).
+    if (!cupCanvas[0] || reratio || dotD !== bakedCup) { bakedCup = dotD; cupCanvas[0] = bakeCup(dotD, artRatio, CUP_UNLIT); cupCanvas[1] = bakeCup(dotD, artRatio, CUP_GIVEN); }
+    if (!redBoard || reratio || numPx !== bakedNum) { bakedNum = numPx; redBoard = bakeStrip(numPx, artRatio, RED); }
+    if (!inkEnd || reratio || endPx !== bakedEnd) { bakedEnd = endPx; inkEnd = bakeStrip(endPx, artRatio, INK); }
+    const trackKey = `${Math.round(trackX1 - trackX0)}x${trackT}@${artRatio}`;
+    if (trackX1 > trackX0 && (trackKey !== bakedTrack || reratio)) {
+      bakedTrack = trackKey; trackCanvas = bakeTrack(trackX1 - trackX0, trackT, artRatio, false); trackLitCanvas = bakeTrack(trackX1 - trackX0, trackT, artRatio, true);
+    }
+    if (!markerCanvas || reratio || markerH !== bakedMarker) { bakedMarker = markerH; markerCanvas = bakeMarker(markerH, artRatio); }
     if (!inkTag || reratio || tagPx !== bakedTag) { bakedTag = tagPx; inkTag = bakeStrip(tagPx, artRatio, INK); }
     for (let k = 0; k < 4; k++) {
       if (!coinTagCanvas[k] || reratio || coinTagD[k] !== coinD[k]) {
@@ -712,9 +764,11 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     }
     const boardKey = `${Math.round(L.board.w)}x${Math.round(L.board.h)}@${artRatio}`;
     if (boardKey !== bakedBoard) { const c = boardCache.get(boardKey) ?? bakeBoard(L.board.w, L.board.h); if (c) { bakedBoard = boardKey; boardCanvas = c; } }
-    if (boardQueue.length === 0 && boardQueued !== `${Math.round(L.board.w)}@${artRatio}`) {
-      boardQueued = `${Math.round(L.board.w)}@${artRatio}`;
-      for (let rows = 0; rows <= 5; rows++) boardQueue.push(boardHeight(rows));
+    // Every board width (no dots, or each dot bucket) bakes ahead in idle periods once per window size.
+    const queueKey = `${boardWidth(0)}x${Math.round(boardPanelH())}@${artRatio}`;
+    if (boardQueue.length === 0 && boardQueued !== queueKey) {
+      boardQueued = queueKey;
+      boardQueue.push(boardWidth(0)); for (const n of DOT_BUCKETS) boardQueue.push(boardWidth(n));
     }
     const billKey = `${billW}@${artRatio}`;
     if (billKey !== bakedBills && BILLS.every(b => sprites.get(b))) {
@@ -727,7 +781,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     const board = sprites.get(BOARD); if (!board) return undefined;
     const key = `${Math.round(w)}x${Math.round(h)}@${artRatio}`;
     let c = boardCache.get(key);
-    if (!c) { c = bakeNine(board, w, h, artRatio, BOARD_FRAME[0], BOARD_FRAME[1], BOARD_FRAME[2], BOARD_FRAME[3], boardK(w, h)); boardCache.set(key, c); }
+    if (!c) { c = bakeNine(board, w, h, artRatio, BOARD_FRAME[0], BOARD_FRAME[1], BOARD_FRAME[2], BOARD_FRAME[3], frameK(h)); boardCache.set(key, c); }
     return c;
   }
   /** Bake the tray the current customer's till wants (cached by size). */
@@ -757,12 +811,40 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
   /** The till count's dollar cup: nearly the whole pitch, so it reads larger than a cent cup (0.9 of the pitch). */
   const dollarCupD = (pitch: number): number => Math.max(MIN_CUP + 2, Math.floor(pitch * 0.98));
   const closingBaked = (): boolean => bakedSlate === slateKey() && bakedCtray === ctrayKey();
-  /** The board's height for this many rows of cups at the current board width (as solve computes it). */
-  function boardHeight(rows: number): number {
-    const k0 = Math.min(1, L.board.w / BOARD_PX[0]), frame = (BOARD_FRAME[2] + BOARD_FRAME[3]) * k0;
-    let pitch = boardPitchW;
-    if (!portrait && rows > 0) pitch = Math.max(MIN_CUP / 0.9, Math.min(pitch, (Yc - L.board.y - frame - cupTop) / (rows + 0.3)));
-    return Math.round(cupTop + (rows > 0 ? (rows + 0.3) * pitch : 0) + frame);
+  /**
+   * The board's sizes for the current layout unit: the marker numeral, the end amounts (smaller), the end icons (at
+   * least END_ICON_MIN px tall), the track's thickness and the marker's height.
+   */
+  function boardMetrics(): void {
+    const inW = BOARD_IN[1] - BOARD_IN[0];
+    numPx = Math.max(24, Math.round(BOARD_W * u * inW * 0.17));
+    endPx = Math.max(16, Math.round(numPx * 0.6));
+    iconH = Math.max(END_ICON_MIN, Math.round(END_ICON_U * u));
+    tagIconW = Math.round(iconH * TAG_PX[0] / TAG_PX[1]); dishIconW = Math.round(iconH * DISH_PX[0] / DISH_PX[1]);
+    trackT = Math.max(6, Math.round(iconH * 0.2)); markerH = Math.max(12, Math.round(numPx * 0.45));
+  }
+  /** Padding inside the panel and the gap between an end icon and the track. */
+  const boardPad = (): number => Math.max(2, 4 * u), boardGap = (): number => Math.max(4, 8 * u);
+  /** The board's base width: 320u, never narrower than its readable minimum (181 px). */
+  const boardBase = (): number => Math.round(Math.max(BOARD_W * u, 181));
+  /**
+   * The frame's corner scale for a board h tall: set by the base width (at most 1.0), so a board widened for its dots
+   * keeps the frame of the base board and only its panel grows.
+   */
+  const frameK = (h: number): number => boardK(boardBase(), h);
+  /** The panel's height: the end amounts, the end icons with the track between them, the marker, the marker's numeral. */
+  const boardPanelH = (): number => endPx * 1.4 + iconH * 1.15 / 2 + trackT / 2 + 1 + markerH + numPx * 1.3;
+  /** The board's height (the same at every width: the frame keeps the base width's scale). */
+  const boardHeight = (): number => Math.round(boardPanelH() + (BOARD_FRAME[2] + BOARD_FRAME[3]) * Math.min(1, boardBase() / BOARD_PX[0]));
+  /**
+   * The board's width for n dots (0: none): the base width, wider when the track needs room for n dots of MIN_DOT px
+   * (n rounded up to a dot bucket, so a few widths bake ahead), never wider than the window allows.
+   */
+  function boardWidth(n: number): number {
+    let bucket = 0; if (n > 0) { bucket = n; for (const b of DOT_BUCKETS) if (n <= b) { bucket = b; break; } }
+    const track = bucket * MIN_DOT / DOT_FILL, inner = 2 * boardPad() + tagIconW + dishIconW + 2 * boardGap() + track;
+    const frame = (BOARD_FRAME[0] + BOARD_FRAME[1]) * frameK(boardHeight());
+    return Math.min(W - 8, Math.max(boardBase(), Math.ceil(inner + frame)));
   }
   /**
    * Place everything for the current customer: board, dish, till, customer, and the zones the child uses. The paw
@@ -771,27 +853,23 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
    */
   function solve(tp: TierParams): void {
     const m = Math.max(4, 12 * u);
-    // Board: the counter numeral, the payment line under it, then (steps 1 to 3) cups in rows of ten (5, gap, 5),
-    // one per cent of the payment. Cups at least 12 px; the panel grows for them.
-    cupRows = cupsOn() ? Math.max(1, Math.ceil(planned() / 10)) : 0;
-    const minPitch = MIN_CUP / 0.9, inW = BOARD_IN[1] - BOARD_IN[0];
-    const bw = Math.round(Math.max(BOARD_W * u, (10.6 * minPitch) / inW));
-    let pitchW = Math.min(bw * inW / 10.6, 40 * u);
-    // The panel: the counter numeral in a band at its top, the payment line (the dish's sign and the amount paid)
-    // under it, then the cups; the board is as tall as its rows need (the frame is baked in nine parts, so any height
-    // keeps its look).
-    numPx = Math.max(24, Math.round(bw * inW * 0.17));
-    cupTop = numPx * 1.45 + numPx * payK * 1.5;
-    const k0 = Math.min(1, bw / BOARD_PX[0]), boardTop = Math.round(cornerY + cornerRadius + (portrait ? 4 : Math.max(4, 8 * u)));
-    const roomH = Yc - boardTop - (BOARD_FRAME[2] + BOARD_FRAME[3]) * k0 - cupTop;
-    if (!portrait && cupRows) pitchW = Math.max(minPitch, Math.min(pitchW, roomH / (cupRows + 0.3)));
-    const panelH = cupTop + (cupRows ? (cupRows + 0.3) * pitchW : 0);
-    boardPitchW = Math.min(bw * inW / 10.6, 40 * u);
-    const bh = Math.round(panelH + (BOARD_FRAME[2] + BOARD_FRAME[3]) * k0), k = boardK(bw, bh);
+    // Board: a count-up track read left to right. The price tag at its left end and the dish at its right end, each
+    // with its amount above it; between them the track (at steps 1 to 3 one dot per cent of change); under the track
+    // the marker and its climbing numeral. The board widens for the dots (the frame is baked in nine parts, so any
+    // size keeps its look).
+    boardMetrics();
+    dotsN = dotsOn() ? Math.max(0, plan.change) : 0;
+    const bw = boardWidth(dotsN), bh = boardHeight(), k = frameK(bh);
+    const boardTop = Math.round(cornerY + cornerRadius + (portrait ? 4 : Math.max(4, 8 * u)));
     setBox(L.board, portrait ? 4 : Math.max(4, Math.round(24 * u)), boardTop, bw, bh);
     setBox(L.panel, L.board.x + BOARD_FRAME[0] * k, L.board.y + BOARD_FRAME[2] * k, bw - (BOARD_FRAME[0] + BOARD_FRAME[1]) * k, bh - (BOARD_FRAME[2] + BOARD_FRAME[3]) * k);
-    cupPitch = cupRows ? Math.min(pitchW, L.panel.w / 10.6, (L.panel.h - cupTop) / (cupRows + 0.3)) : pitchW;
-    cupD = Math.max(MIN_CUP, Math.floor(cupPitch * 0.9));
+    const pad = boardPad(), gap = boardGap(), endBand = endPx * 1.4;
+    tagCx = L.panel.x + pad + tagIconW / 2; dishCx = L.panel.x + L.panel.w - pad - dishIconW / 2;
+    trackX0 = Math.round(L.panel.x + pad + tagIconW + gap); trackX1 = Math.round(L.panel.x + L.panel.w - pad - dishIconW - gap);
+    endY = L.panel.y + endBand * 0.5; trackY = L.panel.y + endBand + iconH * 1.15 / 2;
+    markerTop = trackY + trackT / 2 + 1; numY = markerTop + markerH + numPx * 0.62;
+    dotPitch = dotsN ? (trackX1 - trackX0) / dotsN : 0;
+    dotD = Math.max(MIN_DOT, Math.floor(Math.min(dotsN ? dotPitch * DOT_FILL : iconH * 0.5, iconH * 0.5)));
     // Dish: the payment as a compact pile.
     packDish();
     // Till (change customers): one row of wells or slots where it fits beside the dish, else two rows; in windows too
@@ -1134,6 +1212,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
   /** Change counting starts once the payment has poured; a step's first customer gets its demonstration. */
   function startChange(): void {
     moment = CHANGE; momentT = 0; idleT = 0; counter = 0;
+    showTrack();
     focusHelpful();
     if (intro && introStage === 1) return;
     if (intro && introStage === 2 && customerIndex === 0) { data.cashDemos |= 1 << 1; startCarryDemo(); return; }
@@ -1146,6 +1225,20 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     cheerT = 0; cheerLevel = intro && introStage === 1 ? 0 : Math.min(3, customerIndex);
     particles.chips(custX, Yc - custH * 0.4, 4 + 3 * cheerLevel, (240 + 30 * cheerLevel) * u, 0b1111);
     if (cheerLevel >= 2) particles.glints(custX, Yc - custH * 0.5, cheerLevel, custW * 0.4);
+  }
+  /**
+   * The board's moments, one function each, so a later round can voice them: the price shown at the track's tag end,
+   * the payment shown at its dish end (the pour has finished), the marker's numeral changed, and the marker reaching
+   * the dish end (done).
+   */
+  function priceShown(): void { sayPrice(); }
+  function paymentShown(): void { /* voiced in a later round */ }
+  function counterChanged(): void { /* voiced in a later round */ }
+  function trackDone(): void { /* voiced in a later round */ }
+  /** Change counting starts: the marker appears at the tag end and (steps 1 to 3) the dots pop in left to right. */
+  function showTrack(): void {
+    for (let i = 0; i < dotsN && i < MAX_CUPS; i++) cupPulse[i] = -i * 0.03;
+    paymentShown();
   }
   /** Say the price when a clip for it exists (the number clips run to 100). */
   function sayPrice(): void { if (!plan.dollars && plan.price <= 100 && (plan.price <= 20 || plan.price % 10 === 0)) playVoice(audio, NUMBER_CLIPS[plan.price]!); else if (plan.dollars && plan.price <= 20) playVoice(audio, NUMBER_CLIPS[plan.price]!); }
@@ -1246,8 +1339,9 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     if (hand.mode === HAND_TAP || hand.mode === HAND_HINT) hand.mode = 0;
     recordEvidence(!bounced);
     moment = PAID; momentT = 0; boardPulse = 0; startCheer();
-    particles.glints(L.panel.x + L.panel.w / 2, L.panel.y + numPx * 0.75, 2, numPx);
+    particles.glints(trackX1, trackY, 2, numPx);
     play('pop-big', 'C', 4, 0.8);
+    trackDone();
   }
 
   // ---------------------------------------------------------------- helper hand
@@ -1539,8 +1633,8 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     exact(SLOT, Math.round(billW * 1.12));
     for (let c = 0; c < CUSTOMER_COUNT; c++) { exact(CUST_NAMES[c]![0]!, CUST_H * u); exact(CUST_NAMES[c]![1]!, CUST_H * u * CUSTOMERS[c]!.hh / 760); }
     exact(HAND, Math.round(150 * u));
-    // The board's payment line shows the dish's sign at this width.
-    exact(DISH, numPx * payK * 1.5);
+    // The board's track ends: the price tag and the dish at these widths.
+    exact(DISH, dishIconW); exact(TAG, tagIconW);
     for (let g = 0; g < GOODS_COUNT; g++) {
       const gd = GOODS[g]!, tall = Math.max(1, gd.h / gd.w);
       for (const iw of [ITEM_W * u * 0.85, ITEM_W * u * 0.85 * 0.72]) exact(GOOD_NAMES[g]!, iw * tall);
@@ -1572,7 +1666,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     }
     if (madeN || (!overdue && deadline.timeRemaining() < 4)) return;
     if (trayWant) { bakeTray(); idleWaitFrom = -1; return; }
-    if (boardQueue.length) { bakeBoard(L.board.w, boardQueue.shift()!); idleWaitFrom = -1; return; }
+    if (boardQueue.length) { const bw = boardQueue.shift()!; bakeBoard(bw, boardHeight()); idleWaitFrom = -1; return; }
     if (!closingBaked() && bakeClosing()) { closingFresh = true; idleWaitFrom = -1; return; }
     for (; warmIndex < warmNames.length; warmIndex++) {
       const name = warmNames[warmIndex]!, size = warmSizes[warmIndex]!, key = `${name}@${size}`;
@@ -1624,18 +1718,19 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
         tagSwing = 0; play('pop', 'D', 1, 0.4);
         if (intro && introStage === 1) {
           // The goal shows its payment already poured, then three pennies hop into the paw.
-          dishLanded = dishN; lit = cupsTotal; moment = CHANGE; momentT = 0; tillUp = 1;
+          dishLanded = dishN; lit = cupsTotal; moment = CHANGE; momentT = 0; tillUp = 1; showTrack();
         } else if (two()) startMerge();
-        else { startDrop(); sayPrice(); }
+        else { startDrop(); priceShown(); }
       }
     } else if (moment === MERGE) {
       if (!mergePopped && momentT >= mergeDur * MERGE_TAGS) {
         // The tags meet: one tag with the total, and the total on the board.
         mergePopped = true; play('pop-big', 'B', 2, 0.6); tagSwing = 0;
         tagNow(2); particles.chips(tagAt.x + tagAt.w / 2, tagAt.y + tagAt.h * 0.4, 7, 260 * u, 0b0110);
-        particles.glints(L.panel.x + L.panel.w / 2, L.panel.y + numPx * 0.75, 3, numPx);
+        particles.glints(tagCx, trackY, 3, numPx);
+        priceShown();
       }
-      if (momentT >= mergeDur) { startDrop(); sayPrice(); }
+      if (momentT >= mergeDur) startDrop();
     } else if (moment === DROP) {
       let flying = false; for (const f of flights) if (f.active && f.mode === F_DROP) flying = true;
       if (!flying && dishLanded >= dropTo) { pourIdx = 0; startPour(); }
@@ -1665,18 +1760,19 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     }
     pourTimer -= dt;
     while (pourLeft > 0 && pourTimer <= 0) {
-      lit = Math.min(cupsTotal, lit + 1); if (lit - 1 < MAX_CUPS) cupPulse[lit - 1] = 0; pourLeft--; pourTimer += pourGap;
+      lit = Math.min(cupsTotal, lit + 1); pourLeft--; pourTimer += pourGap;
       if (lit % pourEvery === 0) play('tick', 'C', pourEvery === 1 ? (lit - 1) % 10 : Math.floor((lit - 1) / pourEvery) % 10, pourGap < POUR_GAP_MAX ? 0.5 : 0.7);
     }
   }
-  /** The counter climbs one unit at a time from the price as change lands; cups past the price turn cream. */
+  /** The marker's numeral climbs one unit at a time from the price as change lands; at steps 1 to 3 each cent's dot lights. */
   function updateCount(dt: number): void {
     if (countLeft <= 0) { countTimer = 0; return; }
     countTimer -= dt;
     while (countLeft > 0 && countTimer <= 0) {
       counter++; countLeft--; countTimer += countGap;
-      const i = plan.price + counter - 1; if (i >= 0 && i < MAX_CUPS) cupPulse[i] = 0;
+      if (counter - 1 < MAX_CUPS) cupPulse[counter - 1] = 0;
       play('tick', 'C', (plan.price + counter - 1) % 10, 0.7);
+      counterChanged();
     }
   }
   function idleTick(dt: number): void {
@@ -1812,51 +1908,74 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     if (dollars > 0 && cents === 0) amount(ctx, s, dollars, true, cx, cy, k);
     else amount(ctx, s, dollars * 100 + cents, false, cx, cy, k);
   }
-  /** Centre of cup i into pos: rows of ten (5, gap, 5) under the numeral. */
-  function cupAt(i: number): void {
-    const row = Math.floor(i / 10), col = i % 10, x0 = L.panel.x + (L.panel.w - 10.6 * cupPitch) / 2;
-    pos.x = x0 + cupPitch * (col + 0.5 + (col >= 5 ? 0.6 : 0));
-    pos.y = L.panel.y + cupTop + cupPitch * (row + 0.5);
-  }
-  /** A cup popping in: it comes down from 1.35 times its size, dips a little under and settles (0.3 s). */
+  /** A dot popping in: it comes down from 1.35 times its size, dips a little under and settles (0.3 s). */
   const popScale = (p: number): number => (p < 0.3 ? 1 + 0.35 * (1 - p / 0.3) * Math.cos(p / 0.3 * Math.PI * 1.5) : 1);
+  /** The marker shows while change is counted and until the customer has left. */
+  const markerShown = (): boolean => moment === CHANGE || moment === PAID || moment === GLIDE || moment === LEAVE;
+  /** How far along the track the marker is: the change given so far over the change owed (0 at the tag end, 1 at the dish end). */
+  const markerFrac = (): number => (markerShown() && plan.change > 0 ? clamp01(counter / plan.change) : 0);
+  /** The payment shows at the dish end once it starts pouring (not while step 9's tags merge). */
+  const paymentOnBoard = (): boolean => (lit > 0 || moment >= CHANGE) && moment !== MERGE;
+  /** Where the marker's numeral is centred: under the marker, kept inside the panel. */
+  function markerNumX(mx: number, v: number): number {
+    const s = redBoard; if (!s) return mx;
+    const hw = amountW(s, v, plan.dollars) / 2 + 2;
+    return Math.min(L.panel.x + L.panel.w - hw, Math.max(L.panel.x + hw, mx));
+  }
+  /** An end amount centred on its icon, kept inside the panel. */
+  function endX(cx: number, v: number): number {
+    const s = inkEnd; if (!s) return cx;
+    const hw = amountW(s, v, plan.dollars) / 2 + 2;
+    return Math.min(L.panel.x + L.panel.w - hw, Math.max(L.panel.x + hw, cx));
+  }
   /**
-   * The board: the counter (the price in ink; while change is given, the price plus the change so far in orange-red,
-   * climbing to the payment), the payment line under it (the dish's sign and the amount poured so far), and at steps
-   * 1 to 3 the cups: the price in yellow, the change owed in orange-red, turning cream as it is given. From step 4
-   * nothing on the board shows the change owed.
+   * The board: a count-up track read left to right. At its left end a small copy of the price tag with the price above
+   * it (step 9: the merged total, once the tags meet); at its right end a small copy of the dish with what was paid
+   * above it (climbing as the payment pours). While change is counted a bright marker starts at the tag end and moves
+   * toward the dish end by the fraction of change given, the track lighting behind it, with the climbing amount (the
+   * price plus the change given) in large numerals under it: the only large number on the board. At steps 1 to 3 the
+   * track shows one dot per cent of change, each turning orange-red as that cent is given. When the marker reaches the dish end
+   * the whole board pulses once.
    */
   function renderBoard(ctx: CanvasRenderingContext2D): void {
     const b = L.board;
+    const pulse = moment === PAID ? Math.sin(clamp01(momentT / PAID_PULSE) * Math.PI) : 0;
+    if (pulse > 0) {
+      const cx = b.x + b.w / 2, cy = b.y + b.h / 2, k = 1 + pulse * 0.05;
+      ctx.save(); ctx.translate(cx, cy); ctx.scale(k, k); ctx.translate(-cx, -cy);
+    }
     if (boardCanvas) {
       ctx.drawImage(boardCanvas, b.x, b.y, b.w, b.h);
-      note(BOARD, boardK(b.w, b.h), 1);
+      note(BOARD, frameK(b.h), 1);
     }
-    const changing = moment === CHANGE || moment === PAID || moment === GLIDE || moment === LEAVE;
-    const s = changing && redBoard ? redBoard : inkBoard, cx = L.panel.x + L.panel.w / 2;
     // Step 9 shows the total as soon as the two tags meet, with a small pop.
     const since = moment === MERGE ? momentT - mergeDur * MERGE_TAGS : 9, pop = since >= 0 && since < 0.3 ? 1 + Math.sin(since / 0.3 * Math.PI) * 0.25 : 1;
-    // When the counter reaches the payment, it (and at steps 1 to 3 the cups) pulses once.
-    const pulse = moment === PAID ? Math.sin(clamp01(momentT / PAID_PULSE) * Math.PI) : 0;
-    if (s && mergeTagK() >= 1) amount(ctx, s, changing ? plan.price + counter : plan.price, plan.dollars, cx, L.panel.y + numPx * 0.75, pop * (1 + pulse * 0.15));
-    // The payment line: the dish's sign, then the amount paid so far (it climbs as the payment pours).
-    if (inkBoard && (lit > 0 || moment >= CHANGE) && moment !== MERGE) {
-      const py = L.panel.y + numPx * 1.45 + numPx * payK * 0.75, iw = numPx * payK * 1.5, tw = amountW(inkBoard, lit, plan.dollars) * payK;
-      const x0 = cx - (iw + numPx * 0.2 + tw) / 2;
-      drawSprite(ctx, sprites, DISH, x0 + iw / 2, py, iw); note(DISH, iw, DISH_PX[0]);
-      amount(ctx, inkBoard, lit, plan.dollars, x0 + iw + numPx * 0.2 + tw / 2, py, payK);
+    // The two ends: the price tag with the price, the dish with what was paid.
+    drawSprite(ctx, sprites, TAG, tagCx, trackY, tagIconW); note(TAG, tagIconW, TAG_PX[0]);
+    drawSprite(ctx, sprites, DISH, dishCx, trackY, dishIconW); note(DISH, dishIconW, DISH_PX[0]);
+    if (inkEnd && mergeTagK() >= 1) amount(ctx, inkEnd, plan.price, plan.dollars, endX(tagCx, plan.price), endY, pop);
+    if (inkEnd && paymentOnBoard()) amount(ctx, inkEnd, lit, plan.dollars, endX(dishCx, lit), endY, 1);
+    // The track, lit from the tag end up to the marker.
+    const len = trackX1 - trackX0, ty = trackY - trackT / 2, f = markerFrac();
+    if (trackCanvas) ctx.drawImage(trackCanvas, trackX0, ty, len, trackT);
+    if (trackLitCanvas && f > 0) ctx.drawImage(trackLitCanvas, 0, 0, Math.max(1, trackLitCanvas.width * f), trackLitCanvas.height, trackX0, ty, len * f, trackT);
+    if (!markerShown()) { if (pulse > 0) ctx.restore(); return; }
+    // Steps 1 to 3: one dot per cent of change, lit as each cent is given (they pop in left to right as counting starts).
+    for (let i = 0; i < dotsN && i < MAX_CUPS; i++) {
+      const p = cupPulse[i]!; if (p < 0) continue;
+      const img = cupCanvas[i < counter ? 1 : 0]; if (!img) continue;
+      const w = img.width / artRatio * popScale(p);
+      ctx.drawImage(img, trackX0 + dotPitch * (i + 0.5) - w / 2, trackY - w / 2, w, w);
     }
-    if (!cupsOn()) return;
-    for (let i = 0; i < cupsTotal && i < MAX_CUPS; i++) {
-      let look = CUP_UNLIT;
-      if (i < lit) look = i < plan.price ? CUP_PAID : CUP_OVER;
-      if (i >= plan.price && i < plan.price + counter) look = CUP_BACK;
-      const img = cupCanvas[look]; if (!img) continue;
-      cupAt(i);
-      const sc = popScale(cupPulse[i]!) + pulse * 0.15;
-      const w = img.width / artRatio * sc;
-      ctx.drawImage(img, pos.x - w / 2, pos.y - w / 2, w, w);
+    // The marker and its numeral (the price plus the change given so far).
+    const mx = trackX0 + len * f;
+    if (markerCanvas) {
+      const pad = Math.max(3, markerH * 0.2), mw = markerCanvas.width / artRatio, mh = markerCanvas.height / artRatio;
+      ctx.drawImage(markerCanvas, mx - mw / 2, markerTop - pad, mw, mh);
     }
+    const v = plan.price + counter;
+    if (redBoard) amount(ctx, redBoard, v, plan.dollars, markerNumX(mx, v), numY, 1);
+    if (pulse > 0) ctx.restore();
   }
   /** Customer x on the counter now (walking in from the left, walking off to the right). */
   function custNowX(): number {
@@ -2494,11 +2613,17 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     },
     get board() {
       if (!playable()) return null;
-      const changing = moment === CHANGE || moment === PAID || moment === GLIDE || moment === LEAVE;
-      const owed = cupsOn() ? Math.max(0, Math.min(cupsTotal, lit) - plan.price - counter) : 0;
+      const shown = markerShown(), f = markerFrac();
+      let dotsShown = 0; for (let i = 0; i < dotsN && i < MAX_CUPS; i++) if (cupPulse[i]! >= 0) dotsShown++;
       return {
-        counter: mergeTagK() >= 1 ? amountText(changing ? plan.price + counter : plan.price, plan.dollars) : '',
-        payment: (lit > 0 || moment >= CHANGE) && moment !== MERGE ? amountText(lit, plan.dollars) : '', cups: cupsOn() ? cupsTotal : 0, owedCups: owed,
+        price: mergeTagK() >= 1 ? amountText(plan.price, plan.dollars) : '',
+        payment: paymentOnBoard() ? amountText(lit, plan.dollars) : '',
+        counter: shown ? amountText(plan.price + counter, plan.dollars) : '',
+        dots: shown ? dotsShown : 0, dotsLit: shown ? Math.min(dotsN, counter) : 0,
+        marker: shown ? f : -1, markerX: shown ? Math.round(trackX0 + (trackX1 - trackX0) * f) : -1, trackX0, trackX1, trackY: Math.round(trackY),
+        tagIcon: { x: Math.round(tagCx - tagIconW / 2), y: Math.round(trackY - tagIconW * TAG_PX[1] / TAG_PX[0] / 2), w: tagIconW, h: Math.round(tagIconW * TAG_PX[1] / TAG_PX[0]) },
+        dishIcon: { x: Math.round(dishCx - dishIconW / 2), y: Math.round(trackY - dishIconW * DISH_PX[1] / DISH_PX[0] / 2), w: dishIconW, h: Math.round(dishIconW * DISH_PX[1] / DISH_PX[0]) },
+        dotSize: dotsN ? dotD : 0, numPx, endPx,
       };
     },
     get coins() {
@@ -2531,13 +2656,12 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
       out.push({ kind: 'corner-sound', x: soundX - cornerRadius, y: cornerY - cornerRadius, w: cornerRadius * 2, h: cornerRadius * 2 });
       return out;
     },
-    get cups() { return { total: playable() && cupsOn() ? cupsTotal : 0, lit: playable() && cupsOn() ? lit : 0, price: plan.price, back: counter, size: cupD }; },
     get layout() {
       return {
         u, uiScale: uiK, portrait, Yc: Math.round(Yc), scale: custS, board: r(L.board), dish: r(L.dish), dishFootprint: r(L.foot), dishInChange, till: r(L.till),
         customer: r(L.body), pawZone: r(L.pawZone), tag: r(L.ftag),
         front: r(L.front), front2: r(L.front2), frontTags: r(L.frontAll), mergedTag: r(L.fmtag), pawStack: r(L.stack), fitted, dishCoinK: dishK,
-        pawX: Math.round(pawX), pawY: Math.round(pawY), well: wellW, wellH, cupPitch, numPx, tagPx, coinDime: coinD[DIME]!, coinQuarter: coinD[QUARTER]!, billW, billH,
+        pawX: Math.round(pawX), pawY: Math.round(pawY), well: wellW, wellH, dotPitch, numPx, tagPx, coinDime: coinD[DIME]!, coinQuarter: coinD[QUARTER]!, billW, billH,
       };
     },
     get workMean() { let sum = 0; for (let i = 0; i < workCount; i++) sum += work[i]!; return workCount ? sum / workCount : 0; },
@@ -2548,7 +2672,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
       const keep = { plan, who, good, good2, tier, W, H }, failures: string[] = [], dump: string[] = [];
       const f3 = (n: number): string => n.toFixed(3);
       const boxes = (): string => {
-        const parts: string[] = [`u ${f3(u)} corner ${f3(cornerRadius)} coins ${Array.from(coinD, f3).join(' ')} bill ${billW}x${billH} snap ${f3(snap)} cup ${f3(cupPitch)} ${cupD} well ${wellW}x${wellH} dishInChange ${dishInChange} fitted ${fitted}`];
+        const parts: string[] = [`u ${f3(u)} corner ${f3(cornerRadius)} coins ${Array.from(coinD, f3).join(' ')} bill ${billW}x${billH} snap ${f3(snap)} dot ${f3(dotPitch)} ${dotD} track ${trackX0} ${trackX1} well ${wellW}x${wellH} dishInChange ${dishInChange} fitted ${fitted}`];
         for (const [k, b] of Object.entries(L)) parts.push(`${k} ${f3(b.x)} ${f3(b.y)} ${f3(b.w)} ${f3(b.h)}`);
         for (let i = 0; i < tillN; i++) parts.push(`w${i} ${f3(wellX[i]!)} ${f3(wellY[i]!)}`);
         for (let i = 0; i < dishN; i++) parts.push(`d${i} ${f3(dishPx[i]!)} ${f3(dishPy[i]!)}`);
