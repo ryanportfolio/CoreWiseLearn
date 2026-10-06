@@ -110,6 +110,8 @@ const RETURN_SECONDS = 0.4, ARRIVE_SECONDS = 0.45, ARRIVE_STAGGER = 0.06, LEAVE_
 const TO_SECONDS = 0.35, BACK_HOLD = 0.3, BACK_HOP = 0.5;
 /** A coin flying into the paws shrinks to this share of its size. */
 const PAWS_HOLD = 0.62;
+/** The lowest of a coin's dots keeps at least this far (CSS px) above the top of its value tag. */
+const DOT_GAP = 3;
 /** The swap: hold, the coins slide together, the new coin shows its dots, then hops onto the tray. */
 const MERGE_SLIDE_AT = 0.2, MERGE_AT = 0.55, MERGE_HOP_AT = 1.15, MERGE_HOP = 0.5;
 /**
@@ -190,6 +192,13 @@ export interface RideFareStats {
   readonly targets: readonly TargetInfo[];
   readonly coinSizes: { penny: number; nickel: number; dime: number };
   readonly workMean: number; readonly workMax: number;
+  /** Smallest gap between a drawn dot and its coin's value tag since resetWork, CSS px (null before any dots). */
+  readonly dotGap: number | null;
+  /**
+   * For this layout, the smallest gap between a dot and its coin's tag over every coin and scale each place can draw
+   * dots at (tray with hover, plate pulse, stand, merge pop, swapped hop, slot), CSS px; state unchanged.
+   */
+  dotGaps(): Record<string, number>;
   /** Largest drawn scale of each image drawn this layout (drawn px / image px at pixel ratio 1). */
   scales(): Record<string, number>;
   resetWork(): void;
@@ -361,6 +370,10 @@ export function createRideFareScene(services: AppServices): RideFareScene {
   let tagN = 0, deferTags = false;
   /** Numeral height of the last tag coin() drew, CSS px (for the checks). */
   let drawnInk = 0;
+  /** The ring dotRing placed last: its radius, its centre's offset below the coin's centre and each dot's drawn size, CSS px. */
+  let ringR = 0, ringY = 0, ringDs = 0;
+  /** Smallest gap between a drawn dot and its coin's tag since resetWork, CSS px (for the checks). */
+  let dotGapMin = Infinity;
   let phase: Phase = 'play', tier: Tier = 0, intro = false, introStage = 0, animalOffset = 0;
   let riderPhase: RiderPhase = 'enter', riderT = 0, seqT = 0, riderIndex = 0, ridersTotal = 3, enterSeconds = 1;
   let plan: RiderPlan = introRider(), fare = 0, lit = 0, reserved = 0, pourLeft = 0, pourTimer = 0, pourGap = POUR_GAP, plateN = 0, lastFare = 0;
@@ -1493,7 +1506,7 @@ export function createRideFareScene(services: AppServices): RideFareScene {
       } else coin(ctx, kind, cx, cy, base * sc, 0, 1, plateD(kind, plateN));
       ctx.globalAlpha = 1;
       // Step 7: the wanted coin shows its value as dots, like the coin the swap stand makes.
-      if (plan.swap) coinDots(ctx, kind, cx, cy, state === 2 ? 1 : 0.85, base * sc);
+      if (plan.swap) coinDots(ctx, kind, cx, cy, state === 2 ? 1 : 0.85, base * sc, state === 2 ? tagTop(kind, base * sc, plateD(kind, plateN)) : sc * tags.top(plateD(kind, plateN)));
     }
     flushTags(ctx);
   }
@@ -1532,7 +1545,7 @@ export function createRideFareScene(services: AppServices): RideFareScene {
       }
       const hs = 1 + hv * 0.08;
       coin(ctx, kind, x, y, hs, 0, 1);
-      if (pDots[p]) coinDots(ctx, kind, x, y, 1, hs);
+      if (pDots[p]) coinDots(ctx, kind, x, y, 1, hs, tagTop(kind, hs));
     }
     flushTags(ctx);
   }
@@ -1552,12 +1565,36 @@ export function createRideFareScene(services: AppServices): RideFareScene {
       ctx.lineWidth = 6 * u; ctx.strokeStyle = '#fff8b2'; ctx.stroke(); ctx.globalAlpha = 1;
     }
   }
-  /** Dots on a coin, one per cent of its value, as a ring (a penny's one dot in the middle), `k` of the coin's size. */
-  function coinDots(ctx: CanvasRenderingContext2D, kind: number, x: number, y: number, a: number, k = 1): void {
+  /** How far below the centre of a coin coin() draws at `scale` with tag size `base` its tag's upper edge lies (coin()'s tag scale). */
+  function tagTop(kind: number, scale: number, base = -1): number {
+    const b = base < 0 ? coinD[kind]! : base;
+    return Math.max(coinD[kind]! * scale / b, tags.ink(0) / tags.ink(b)) * tags.top(b);
+  }
+  /**
+   * Place the ring of dots on a coin of `kind` drawn at `k` of its size whose tag's upper edge lies `top` below its
+   * centre (sets ringR, ringY, ringDs): each dot drawn ringDs across (never under 0.45 of its full size), the lowest dot's
+   * edge DOT_GAP above the tag and the top dot's edge inside the coin; the ring at most 0.26 of the diameter in radius
+   * and its centre at least 0.07 of it above the coin's. Returns the gap between the lowest dot's edge and the tag.
+   */
+  function dotRing(kind: number, k: number, top: number): number {
+    const n = COIN_VALUE[kind]!, dk = coinD[kind]! * k;
+    ringDs = dotSize * Math.max(0.45, k) * (n === 1 ? 1.6 : 1);
+    // The lowest dot's centre may sit this far below the coin's centre, the top dot's this far above it.
+    const low = top - DOT_GAP - ringDs / 2, high = dk / 2 - ringDs / 2;
+    // How far down the ring's lowest dot lies, as a share of its radius (a dot straight down when the count is even).
+    const drop = n === 1 ? 0 : n % 2 ? Math.cos(Math.PI / n) : 1;
+    ringR = n === 1 ? 0 : Math.max(0, Math.min(dk * 0.26, (low + high) / (1 + drop)));
+    ringY = Math.min(-dk * 0.07, low - ringR * drop);
+    return top - (ringY + ringR * drop + ringDs / 2);
+  }
+  /**
+   * Dots on a coin, one per cent of its value, as a ring (a penny's one dot in the middle), `k` of the coin's size, the
+   * ring placed by dotRing clear of the tag whose upper edge lies `top` below the coin's centre. Drawn before the tag.
+   */
+  function coinDots(ctx: CanvasRenderingContext2D, kind: number, x: number, y: number, a: number, k: number, top: number): void {
     if (!dotCanvas || a <= 0) return;
-    // The ring sits a little high and tight, so its lowest dot stays clear of the value tag over the coin's lower edge.
-    const n = COIN_VALUE[kind]!, r = coinD[kind]! * k * (n === 1 ? 0 : 0.26), ds = dotSize * Math.max(0.45, k) * (n === 1 ? 1.6 : 1);
-    const cy = y - coinD[kind]! * k * 0.07;
+    const gap = dotRing(kind, k, top); if (gap < dotGapMin) dotGapMin = gap;
+    const n = COIN_VALUE[kind]!, r = ringR, ds = ringDs, cy = y + ringY;
     ctx.globalAlpha = a;
     for (let i = 0; i < n; i++) {
       const ang = -Math.PI / 2 + (i / n) * Math.PI * 2;
@@ -1603,7 +1640,7 @@ export function createRideFareScene(services: AppServices): RideFareScene {
       // The swapped coin hops from the stand onto its place, its dots still glowing inside.
       const k = clamp01(f.t / f.dur), e = easeInOutSine(k), from = standCoinD(2) / coinD[kind]!;
       const x = lerp(f.x0, f.x1, e), y = lerp(f.y0, f.y1, e) - Math.sin(k * Math.PI) * 120 * u, sc = lerp(from, 1, e);
-      coin(ctx, kind, x, y, sc, 0, 1); coinDots(ctx, kind, x, y, 1, sc);
+      deferTags = true; coin(ctx, kind, x, y, sc, 0, 1); coinDots(ctx, kind, x, y, 1, sc, tagTop(kind, sc)); flushTags(ctx);
       return;
     }
     // SEND and REJECT: fly to the slot top, show the coin's dots, then slip in (edge-on) or hop home.
@@ -1617,8 +1654,9 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     if (f.mode === SEND) {
       const t = f.t - SEND_FLY;
       if (t < SEND_DOTS) {
-        coin(ctx, kind, slotX(), sy - coinD[kind]! * 0.35, 1, 0, 1);
-        coinDots(ctx, kind, slotX(), sy - coinD[kind]! * 0.35, Math.sin(Math.min(1, t / SEND_DOTS) * Math.PI * 0.5 + 0.3));
+        deferTags = true; coin(ctx, kind, slotX(), sy - coinD[kind]! * 0.35, 1, 0, 1);
+        coinDots(ctx, kind, slotX(), sy - coinD[kind]! * 0.35, Math.sin(Math.min(1, t / SEND_DOTS) * Math.PI * 0.5 + 0.3), 1, tagTop(kind, 1));
+        flushTags(ctx);
       } else {
         const k = clamp01((t - SEND_DOTS) / SEND_SLIP);
         coin(ctx, kind, slotX(), sy - coinD[kind]! * 0.35 + k * coinD[kind]! * 0.5, 1, 0, Math.max(0.08, 1 - k));
@@ -1628,8 +1666,8 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     const t = f.t - SEND_FLY;
     if (t < REJECT_HOLD) {
       const jig = Math.sin(t * 40) * 3 * u;
-      coin(ctx, kind, slotX() + jig, sy - coinD[kind]! * 0.35, 1, 0, 1);
-      coinDots(ctx, kind, slotX() + jig, sy - coinD[kind]! * 0.35, 1);
+      deferTags = true; coin(ctx, kind, slotX() + jig, sy - coinD[kind]! * 0.35, 1, 0, 1);
+      coinDots(ctx, kind, slotX() + jig, sy - coinD[kind]! * 0.35, 1, 1, tagTop(kind, 1)); flushTags(ctx);
     } else {
       const k = clamp01((t - REJECT_HOLD) / REJECT_HOP), e = easeInOutSine(k);
       const x = lerp(slotX(), pX[f.place] ?? f.x0, e), y = lerp(sy - coinD[kind]! * 0.35, pY[f.place] ?? f.y0, e) - Math.sin(k * Math.PI) * 120 * u;
@@ -1648,7 +1686,7 @@ export function createRideFareScene(services: AppServices): RideFareScene {
       const k = clamp01((mergeT - MERGE_AT) / 0.25), sc = (standCoinD(2) / coinD[standKind]!) * (1 + Math.sin(k * Math.PI) * 0.2);
       const cx = standX + standW / 2, cy = standY + standH * STAND_TABLE - standCoinD(2) * 0.55 - hop;
       if (glowCanvas) { const g = standCoinD(2) * 1.8; ctx.drawImage(glowCanvas, cx - g / 2, cy - g / 2, g, g); }
-      coin(ctx, standKind, cx, cy, sc, 0, 1, standCoinD(2)); coinDots(ctx, standKind, cx, cy, 1, sc);
+      coin(ctx, standKind, cx, cy, sc, 0, 1, standCoinD(2)); coinDots(ctx, standKind, cx, cy, 1, sc, tagTop(standKind, sc, standCoinD(2)));
       flushTags(ctx);
       return;
     }
@@ -1668,7 +1706,7 @@ export function createRideFareScene(services: AppServices): RideFareScene {
       // Merging, the coins slide together to the middle of the table row. A merging pile shows one tag, the middle
       // coin's: the others fade out while the coins still stand apart (before the slide), so no tag ever covers another.
       const cx = lerp(x, standX + standW / 2, slide), cy = lerp(y, standRowY(n) - hop, slide), sc = d / coinD[standKind]!;
-      coin(ctx, standKind, cx, cy, sc, 0, 1, 0); coinDots(ctx, standKind, cx, cy, 1, sc);
+      coin(ctx, standKind, cx, cy, sc, 0, 1, 0); coinDots(ctx, standKind, cx, cy, 1, sc, tags.top(d));
       const a = merging && i !== n >> 1 ? clamp01(1 - mergeT / MERGE_SLIDE_AT) : 1;
       if (a > 0) tag(ctx, standKind, d, cx, cy, 1, 1, a);
     }
@@ -2128,7 +2166,25 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     get workMean() { let sum = 0; for (let i = 0; i < workCount; i++) sum += work[i]!; return workCount ? sum / workCount : 0; },
     get workMax() { let max = 0; for (let i = 0; i < workCount; i++) max = Math.max(max, work[i]!); return max; },
     scales() { return Object.fromEntries(drawnScale); },
-    resetWork() { workHead = workCount = 0; },
+    resetWork() { workHead = workCount = 0; dotGapMin = Infinity; },
+    get dotGap() { return Number.isFinite(dotGapMin) ? dotGapMin : null; },
+    dotGaps() {
+      const out: Record<string, number> = { tray: Infinity, plate: Infinity, stand: Infinity, pop: Infinity, swapped: Infinity, slot: Infinity };
+      const at = (where: string, gap: number): void => { out[where] = Math.min(out[where]!, gap); };
+      for (let kind = 0; kind < 3; kind++) {
+        for (let i = 0; i <= 8; i++) { const hs = 1 + i * 0.01; at('tray', dotRing(kind, hs, tagTop(kind, hs))); }
+        at('slot', dotRing(kind, 1, tagTop(kind, 1)));
+        for (let n = 1; n <= 3; n++) {
+          const base = plateNickel(n) / coinD[NICKEL]!, pd = plateD(kind, n);
+          for (let i = 0; i <= 20; i++) { const sc = 1 + i * 0.01; at('plate', Math.min(dotRing(kind, base * sc, tagTop(kind, base * sc, pd)), dotRing(kind, base * sc, sc * tags.top(pd)))); }
+        }
+        const pop = standCoinD(2);
+        for (let i = 0; i <= 20; i++) { const sc = pop / coinD[kind]! * (1 + i * 0.01); at('pop', dotRing(kind, sc, tagTop(kind, sc, pop))); }
+        for (let i = 0; i <= 50; i++) { const sc = pop / coinD[kind]! + (1 - pop / coinD[kind]!) * i / 50; at('swapped', dotRing(kind, sc, tagTop(kind, sc))); }
+      }
+      for (const n of [5, 2]) { const kind = n === 5 ? PENNY : NICKEL, d = standCoinD(n); at('stand', dotRing(kind, d / coinD[kind]!, tags.top(d))); }
+      return out;
+    },
     pawsFor(owed) {
       const keep = changeOwed; changeOwed = owed; fitPawsZone();
       const out = { zone: rect(pZoneX0, pZoneY0, pZoneX1, pZoneY1), spots: pawsSpots(owed), boxZone: rect(zoneX0, zoneY0, zoneX1, zoneY1), trayY, W };
