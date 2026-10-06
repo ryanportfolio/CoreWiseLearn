@@ -1,1 +1,9 @@
-[]
+[
+  "circle",
+  "heart",
+  "rectangle",
+  "semicircle",
+  "square",
+  "star",
+  "triangle"
+]

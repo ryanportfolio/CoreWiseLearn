@@ -1,0 +1,33 @@
+{
+  "folder": "letter-train",
+  "role": "postman",
+  "list": "letter-train",
+  "lines": [
+    { "file": "a", "text": "Ay!", "accept": ["a", "ay", "eh"] },
+    { "file": "b", "text": "Bee!", "accept": ["b", "bee", "be"] },
+    { "file": "c", "text": "See!", "accept": ["c", "see", "sea"] },
+    { "file": "d", "text": "Dee!", "accept": ["d", "dee"] },
+    { "file": "e", "text": "Ee!", "accept": ["e", "ee", "eee"] },
+    { "file": "f", "text": "Eff!", "accept": ["f", "eff", "ef"] },
+    { "file": "g", "text": "Jee!", "accept": ["g", "gee", "jee"] },
+    { "file": "h", "text": "Aitch!", "accept": ["h", "aitch", "haitch"] },
+    { "file": "i", "text": "Eye!", "accept": ["i", "eye", "aye"] },
+    { "file": "j", "text": "Jay!", "accept": ["j", "jay"] },
+    { "file": "k", "text": "Kay!", "accept": ["k", "kay"] },
+    { "file": "l", "text": "Ell!", "accept": ["l", "ell", "el"] },
+    { "file": "m", "text": "Em!", "accept": ["m", "em"] },
+    { "file": "n", "text": "En!", "accept": ["n", "en"] },
+    { "file": "o", "text": "Oh!", "accept": ["o", "oh"] },
+    { "file": "p", "text": "Pee!", "accept": ["p", "pee"] },
+    { "file": "q", "text": "Cue!", "accept": ["q", "cue", "queue"] },
+    { "file": "r", "text": "Ar!", "accept": ["r", "ar", "are", "ah"] },
+    { "file": "s", "text": "Ess!", "accept": ["s", "ess", "es"] },
+    { "file": "t", "text": "Tee!", "accept": ["t", "tee", "tea"] },
+    { "file": "u", "text": "You!", "accept": ["u", "you"] },
+    { "file": "v", "text": "Vee!", "accept": ["v", "vee"] },
+    { "file": "w", "text": "Double-you!", "accept": ["w", "double you", "doubleyou"] },
+    { "file": "x", "text": "Ex!", "accept": ["x", "ex"] },
+    { "file": "y", "text": "Why!", "accept": ["y", "why"] },
+    { "file": "z", "text": "Zed.", "accept": ["z", "zed"] }
+  ]
+}

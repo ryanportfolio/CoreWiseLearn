@@ -4,7 +4,7 @@
  */
 
 import type { Scene } from './scene';
-import { registerSaveValidator, type AppServices, type SaveBagValidator } from '../app/services';
+import { registerEarnedLists, registerSaveValidator, type AppServices, type SaveBagValidator } from '../app/services';
 import { bubblePop } from '../games/bubble-pop';
 import { dinoPicnic } from '../games/dino-picnic';
 import { letterTrain } from '../games/letter-train';
@@ -12,6 +12,7 @@ import { webPlayground } from '../games/web-playground';
 import { shapeWorkshop } from '../games/shape-workshop';
 import { piggyParade } from '../games/piggy-parade';
 import { rideFare } from '../games/ride-fare';
+import { frogPond } from '../games/frog-pond';
 import { marketStall } from '../games/market-stall';
 
 /** Everything a game may need from the hub, handed in when its scene is created. */
@@ -38,6 +39,8 @@ export interface GameDefinition {
    * Keep it in cheap code: this definition is imported at startup.
    */
   validateSave?: SaveBagValidator;
+  /** Optional paths to lists in this game's bag that only grow (a collection the child earned); two tabs' additions are both kept. */
+  earnedLists?: readonly (readonly string[])[];
   /** Build a fresh scene for a play session. */
   createScene(services: GameServices): Scene;
 }
@@ -50,6 +53,7 @@ const games: GameDefinition[] = [
   shapeWorkshop,
   piggyParade,
   rideFare,
+  frogPond,
   marketStall,
   // Add games here in hub order. See docs/adding-a-game.md.
 ];
@@ -62,9 +66,12 @@ export function findGame(id: string): GameDefinition | undefined {
   return games.find((g) => g.id === id);
 }
 
-/** Register every listed game's save validator. bootApp calls this before creating the save store. */
+/** Register every listed game's save validator and earned lists. bootApp calls this before creating the save store. */
 export function registerSaveValidators(): void {
-  for (const game of games) if (game.validateSave) registerSaveValidator(game.id, game.validateSave);
+  for (const game of games) {
+    if (game.validateSave) registerSaveValidator(game.id, game.validateSave);
+    if (game.earnedLists) registerEarnedLists(game.id, game.earnedLists);
+  }
 }
 
 export function gamesWithTheme(theme: string): GameDefinition[] {
