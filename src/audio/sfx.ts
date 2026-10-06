@@ -51,7 +51,12 @@ export type SfxName =
   | 'sticker' // sticker placed in the book
   | 'yawn' // mascot break nudge
   | 'whoosh' // scene transition
-  | 'tick'; // counter increments
+  | 'tick' // counter increments
+  | 'coin-clink' // a coin lands on coins; use `index` for a pitch that climbs as a pile grows
+  | 'bill-rustle' // a paper bill is picked up or lands
+  | 'lock-spin' // a vault dial spins and clicks shut
+  | 'door-clunk' // a heavy wooden door shuts
+  | 'jar-fill'; // money pours into a jar; use `index` for a rising pitch
 
 export type SfxVariant = 'A' | 'B' | 'C' | 'D';
 
@@ -87,6 +92,11 @@ export const SFX_NAMES: readonly SfxName[] = [
   'yawn',
   'whoosh',
   'tick',
+  'coin-clink',
+  'bill-rustle',
+  'lock-spin',
+  'door-clunk',
+  'jar-fill',
 ];
 
 /** Seconds from trigger until each effect is silent, at the default patches. */
@@ -109,6 +119,11 @@ export const SFX_DURATION: Readonly<Record<SfxName, number>> = {
   yawn: 0.8,
   whoosh: 0.3,
   tick: 0.05,
+  'coin-clink': 0.3,
+  'bill-rustle': 0.2,
+  'lock-spin': 0.55,
+  'door-clunk': 0.45,
+  'jar-fill': 0.22,
 };
 
 export const MAX_SFX_VOICES = 8;
@@ -139,6 +154,11 @@ export const SFX_PATCHES: Record<SfxName, Patch> = {
   yawn: makePatch({ brightness: 1800 }),
   whoosh: makePatch(),
   tick: makePatch({ level: 2 }),
+  'coin-clink': makePatch(),
+  'bill-rustle': makePatch({ brightness: 2200 }),
+  'lock-spin': makePatch(),
+  'door-clunk': makePatch({ brightness: 1600 }),
+  'jar-fill': makePatch(),
 };
 
 // ---------------------------------------------------------------------------
@@ -705,6 +725,47 @@ export function playSfx(audio: Audio, name: SfxName, options: SfxOptions = {}): 
       const o = v.tone(tone.shape, hz(79) * 1.4, t, tone.attack, tone.decay, 0.12, out);
       o.frequency.exponentialRampToValueAtTime(hz(79) * 1.2, t + 0.035);
       v.noise(t, 0.001, dc(0.015), 0.12 * tone.noise, kit.wood);
+      break;
+    }
+    case 'coin-clink': {
+      // Two soft bell partials a sixth apart, low on the scale (C4 up), with a tiny wood tick for the contact.
+      const f = hz(pentaMidi(climb(index), 60));
+      const bt = shaped(p, { ...BELL, decay: 0.22, overtone: 0.3 });
+      bell(v, t, f, 0.1, out, bt);
+      bell(v, t + 0.035, f * 1.68, 0.05, out, bt);
+      v.noise(t, 0.001, dc(0.012), 0.08 * p.noise, kit.wood);
+      break;
+    }
+    case 'bill-rustle': {
+      // Two quick soft paper scuffs: band noise through the wood band, the second a little quieter.
+      v.noise(t, at(0.01), dc(0.06), 0.16 * finite(p.noise, 1, 0), kit.popBand);
+      v.noise(t + 0.07, at(0.01), dc(0.08), 0.11 * finite(p.noise, 1, 0), kit.popBand);
+      break;
+    }
+    case 'lock-spin': {
+      // A dial's ratchet: six wood clicks that speed up then slow, stepping down the scale, then a deeper catch.
+      const gaps = [0, 0.07, 0.13, 0.18, 0.235, 0.3];
+      for (let i = 0; i < gaps.length; i++) {
+        const ct = t + (gaps[i] ?? 0);
+        v.noise(ct, 0.001, dc(0.012), 0.16 * p.noise, kit.wood);
+        v.tone(0, hz(pentaMidi(6 - i, 60)), ct, at(0.001), dc(0.03), 0.05, out);
+      }
+      marimba(v, t + 0.4, hz(55), 0.16, out, shaped(p, { ...MARIMBA, decay: 0.12 }));
+      v.noise(t + 0.4, 0.001, dc(0.02), 0.2 * p.noise, kit.wood);
+      break;
+    }
+    case 'door-clunk': {
+      // A heavy soft thud (C3 falling to G2), a hollow wood knock on top and a low marimba ring.
+      const thump = v.tone(0, hz(48), t, at(0.003), dc(0.22), 0.3, out);
+      thump.frequency.exponentialRampToValueAtTime(hz(43), t + 0.15);
+      v.noise(t, 0.001, dc(0.04), 0.3 * p.noise, kit.wood);
+      marimba(v, t + 0.01, hz(55), 0.12, out, shaped(p, { ...MARIMBA, decay: 0.3 }));
+      break;
+    }
+    case 'jar-fill': {
+      // A bubbly glug that climbs with `index` (C4 up the scale), with a soft splash of noise.
+      bubble(v, t, hz(pentaMidi(climb(index), 60)), 0.18, out, shaped(p, { ...BUBBLE, decay: 0.14 }));
+      v.noise(t, 0.002, dc(0.05), 0.08 * p.noise, kit.popBand);
       break;
     }
   }
