@@ -9,9 +9,9 @@
  * src/ui/button.ts report their own hover through markButtonHover().
  *
  * Motion: a slow sway while idle, a springy grow on hover, a squash and a ring
- * ripple at the hotspot on any press (smaller when nothing is under it). No
- * cursor is drawn for touch or pen input. Under prefers-reduced-motion the
- * sway and the ripple are left out.
+ * ripple at the hotspot on any press (smaller when nothing is under it), drawn
+ * over the cursor so it shows from its first frame. No cursor is drawn for
+ * touch or pen input. Like the rest of the hub, it ignores prefers-reduced-motion.
  */
 
 import type { CursorHover, SceneManager } from './scene';
@@ -256,11 +256,6 @@ export function createCursor(element: HTMLCanvasElement, input: Input, scenes: S
   for (let i = 0; i < RIPPLE_SLOTS; i++) ripples[i * 4 + 2] = -1;
   let nextRipple = 0;
 
-  const motionQuery = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : undefined;
-  let reduced = motionQuery?.matches ?? false;
-  const onMotion = (): void => { reduced = motionQuery?.matches ?? false; };
-  motionQuery?.addEventListener('change', onMotion);
-
   element.style.cursor = 'none';
 
   function lookFor(hover: CursorHover): Look {
@@ -285,7 +280,6 @@ export function createCursor(element: HTMLCanvasElement, input: Input, scenes: S
     if (input.pointer.type !== 'mouse') return;
     squash[0] = 0.2;
     squash[1] = 0;
-    if (reduced) return;
     const at = nextRipple * 4;
     ripples[at] = info.x;
     ripples[at + 1] = info.y;
@@ -370,16 +364,19 @@ export function createCursor(element: HTMLCanvasElement, input: Input, scenes: S
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = 'source-over';
       ctx.imageSmoothingEnabled = true;
-      if (!reduced) drawRipples(ctx);
       const q = squash[0] ?? 0;
       const g = grow[0] ?? 1;
-      const idle = reduced || look !== Look.Arrow ? 0 : 1;
+      const idle = look === Look.Arrow ? 1 : 0;
+      ctx.save();
       ctx.translate(p.x, p.y);
       if (idle) ctx.rotate(0.035 * Math.sin(time * 1.7));
       const breathe = 1 + idle * 0.015 * Math.sin(time * 2.3);
       ctx.scale(g * breathe * (1 + q * 0.5), g * breathe * (1 - q));
       const u = (size / UNIT_BOX) * art.k;
       ctx.drawImage(image, -art.hx * u, -art.hy * u, art.w * u, art.h * u);
+      ctx.restore();
+      // Over the cursor, so the ring shows from its first frame whichever look sits on the hotspot.
+      drawRipples(ctx);
       ctx.restore();
     },
     resize(width, height, dpr) {
@@ -395,7 +392,6 @@ export function createCursor(element: HTMLCanvasElement, input: Input, scenes: S
     },
     destroy() {
       offDown();
-      motionQuery?.removeEventListener('change', onMotion);
       element.style.cursor = '';
     },
   };
