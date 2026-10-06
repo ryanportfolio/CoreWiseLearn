@@ -62,12 +62,37 @@ const DEMO_AT = 2.2, DEMO_FIRST = 0.9, DEMO_SECOND = 1.7, DEMO_FADE = 0.5, HINT_
 const HELP_BONKS = 3, HELP_PAUSE = 14;
 const KEY_GAP_MS = 150;
 const SPARKLE_HUES = [48, 330, 190, 90] as const;
+/**
+ * Swimmer states. Every word of the collection has a swimmer; only as many as the open water holds are in it at once.
+ * Hidden: not in the water now. Shown: swimming. Entering and leaving: fading in or out over SWAP_FADE. Waiting: a word
+ * made this round whose picture is still on its way; it appears when the picture lands.
+ */
+const S_HIDDEN = 0, S_SHOWN = 1, S_ENTER = 2, S_LEAVE = 3, S_WAIT = 4;
+/** Every SWAP_EVERY seconds one swimmer leaves and a hidden one comes in, so in time every word swims. */
+const SWAP_EVERY = 5, SWAP_FADE = 1.2;
+/** The newest words of the collection always swim, and so does every word made this round. */
+const NEWEST_SHOWN = 4;
+/**
+ * How full the open water may get: the swimmers' boxes (picture and label, plus SWIM_GAP all round) cover at most this
+ * share of its area. MIN_SWIMMERS holds on the smallest windows, crowded or not.
+ */
+const POND_FILL = 0.9, SWIM_GAP = 10, MIN_SWIMMERS = 6;
+/**
+ * Each swimmer swims to and fro about its home: it turns round SWIM_RANGE units either side of it, and a gentle pull
+ * (per second, per pixel away) brings it back after a push; a stronger one keeps it near its home's height.
+ */
+const SWIM_RANGE = 44, HOME_PULL_X = 0.05, HOME_PULL_Y = 0.25;
 
 export interface PotBubbleInfo {
   word: string; state: 'free' | 'lifted' | 'joining' | 'gone'; half: boolean;
   x: number; y: number; r: number; hit: { x: number; y: number; w: number; h: number };
 }
-export interface PotSwimmerInfo { word: string; visible: boolean; x: number; y: number; hit: { x: number; y: number; w: number; h: number } }
+export interface PotSwimmerInfo {
+  word: string; visible: boolean; state: 'hidden' | 'shown' | 'entering' | 'leaving' | 'waiting'; pinned: boolean;
+  /** The two-colour label under the picture. */
+  label: { x: number; y: number; w: number; h: number };
+  x: number; y: number; hit: { x: number; y: number; w: number; h: number };
+}
 
 export interface PotResult {
   /** Words the child made (the introduction's demonstrated word excluded). */
@@ -105,6 +130,8 @@ export interface WordPot {
     readonly bubbles: PotBubbleInfo[]; readonly swimmers: PotSwimmerInfo[]; readonly selected: number; readonly focus: number;
     readonly keyMode: boolean; readonly help: boolean; readonly hand: number; readonly made: number; readonly bonks: number;
     readonly words: readonly string[]; readonly reveals: number;
+    /** How many swimmers the open water holds at this size, and how many swaps have run this round. */
+    readonly pondCap: number; readonly swaps: number;
     readonly fountain: { x: number; y: number; w: number; h: number };
   };
 }
@@ -130,12 +157,16 @@ export function createWordPot(services: AppServices): WordPot {
   const joinKind = new Uint8Array(MAX_BUBBLES);
   let nBubbles = 0;
 
-  // Swimmers: the pictures of every word made, swimming in the pond.
+  // Swimmers: the pictures of every word made. Up to pondCap swim in the pond at once; the rest wait their turn.
   const swimWord: string[] = new Array<string>(MAX_SWIMMERS).fill('');
   const labels: (WordArt | undefined)[] = new Array<WordArt | undefined>(MAX_SWIMMERS).fill(undefined);
   const sx = new Float32Array(MAX_SWIMMERS), sy = new Float32Array(MAX_SWIMMERS), sHeading = new Float32Array(MAX_SWIMMERS), sSeed = new Float32Array(MAX_SWIMMERS);
-  const sHop = new Float32Array(MAX_SWIMMERS).fill(9), sVisible = new Uint8Array(MAX_SWIMMERS);
-  let nSwim = 0;
+  const sHop = new Float32Array(MAX_SWIMMERS).fill(9), sState = new Uint8Array(MAX_SWIMMERS), sPin = new Uint8Array(MAX_SWIMMERS);
+  /** Seconds into its fade (entering or leaving), and when it last came in or went out (the longest gone comes in next). */
+  const sFade = new Float32Array(MAX_SWIMMERS), sStamp = new Float32Array(MAX_SWIMMERS);
+  /** Where each swimmer swims to and fro about, spread apart when it comes into the water (placeHome). */
+  const sHomeX = new Float32Array(MAX_SWIMMERS), sHomeY = new Float32Array(MAX_SWIMMERS), sPlaced = new Uint8Array(MAX_SWIMMERS);
+  let nSwim = 0, pondCap = MAX_SWIMMERS, swapT = 0, swaps = 0;
 
   // Reveals: a made word's picture and card, holding, then swimming to its swimmer.
   const rWord: string[] = new Array<string>(MAX_REVEALS).fill('');
@@ -159,6 +190,7 @@ export function createWordPot(services: AppServices): WordPot {
 
   // ---------------------------------------------------------------- layout
   function layout(width: number, height: number, unit: number, topY: number, pixelRatio: number): void {
+    const resized = width !== W || height !== H || unit !== u;
     W = width; H = height; u = unit; top = topY;
     const reratio = pixelRatio !== ratio; ratio = pixelRatio;
     fountainSize = Math.round(Math.min(FOUNTAIN_SIZE * u, H * 0.38, W * 0.3));
@@ -174,9 +206,13 @@ export function createWordPot(services: AppServices): WordPot {
     rebake(reratio);
     for (let i = 0; i < nBubbles; i++) if (state[i] === FREE && riseT[i]! >= RISE_SECONDS) keepInside(i);
     for (let s = 0; s < nSwim; s++) keepSwimmerInside(s);
-    // Scale the fountain, the pictures in play and the glove now, so no frame scales art.
+    // A new size holds a different number of swimmers: hide or show some now, without fading.
+    updateCap(); fitPond();
+    if (resized) rehome();
+    // Scale the fountain, the pictures in the water and the glove now, so no frame scales art. The hidden swimmers'
+    // pictures are scaled in idle time below, and a swap only brings in a picture already scaled (see swapOne).
     warmScaled(FOUNTAIN, fountainSize);
-    for (let s = 0; s < nSwim; s++) warmScaled(pictureName(swimWord[s]!), swimSize);
+    for (let s = 0; s < nSwim; s++) if (sState[s] !== S_HIDDEN) warmScaled(pictureName(swimWord[s]!), swimSize);
     warmScaled(HAND, Math.round(130 * u));
     // The round's pictures are needed only once a word is made, and any word made before may swim in the next round's
     // pond: scale those in idle time, so opening a round decodes no pictures (see warmIdle).
@@ -210,6 +246,11 @@ export function createWordPot(services: AppServices): WordPot {
       for (let k = 0; k < warmCount; k++) { warmNames[k] = warmNames[k + 1]!; warmSizes[k] = warmSizes[k + 1]!; }
     }
     if (warmCount > 0) warmHandle = requestIdleCallback(warmIdle);
+  }
+  /** The picture is still waiting in the idle queue (not scaled yet), so drawing it now would decode it in a frame. */
+  function warmPending(name: string, size: number): boolean {
+    for (let k = 0; k < warmCount; k++) if (warmNames[k] === name && warmSizes[k] === size) return true;
+    return false;
   }
   /** Bake every word in play again when a size or the pixel ratio changed (layout time, never a frame). */
   function rebake(force: boolean): void {
@@ -297,9 +338,31 @@ export function createWordPot(services: AppServices): WordPot {
       bx[k] = fountainX; by[k] = sprayY;
     }
     placeHomes();
-    // The pond: every word made before swims there already.
-    nSwim = 0;
-    for (const w of collection) if (nSwim < MAX_SWIMMERS && !swimWord.slice(0, nSwim).includes(w)) addSwimmer(w, true);
+    // The pond: every word made before has a swimmer. The newest few swim; the rest of the water is filled from the
+    // others in a random order, and the ones left out come in later by swapping (swapOne).
+    nSwim = 0; swapT = 0; swaps = 0;
+    for (const w of collection) {
+      if (nSwim >= MAX_SWIMMERS) break;
+      let seen = false;
+      for (let s = 0; s < nSwim; s++) if (swimWord[s] === w) { seen = true; break; }
+      if (!seen) addSwimmer(w, S_HIDDEN);
+    }
+    // Stamps order who comes in and goes out first: random, and below any time this round, so the first swaps follow it.
+    for (let s = 0; s < nSwim; s++) { sPin[s] = s >= nSwim - NEWEST_SHOWN ? 1 : 0; sStamp[s] = -1 - random() * 100; }
+    updateCap();
+    for (let s = nSwim - 1; s >= 0; s--) if (sPin[s]) showSwimmer(s, S_SHOWN);
+    for (let shown = Math.min(nSwim, NEWEST_SHOWN); shown < pondCap; shown++) {
+      // Pictures already scaled first, so opening the round decodes as few as it can.
+      let s = longestHidden(true);
+      if (s < 0) s = longestHidden(false);
+      if (s < 0) break;
+      showSwimmer(s, S_SHOWN);
+    }
+    for (let s = 0; s < nSwim; s++) {
+      if (sState[s] === S_HIDDEN) continue;
+      if (!sPin[s]) sStamp[s] = -random(); // the first to leave, in a random order
+      warmScaled(pictureName(swimWord[s]!), swimSize);
+    }
     revealCards.clear(); bakedCardH = revealCardH;
     // Bake the round's reveal cards and pond labels here, so making a word (in update) only looks them up.
     for (const c of plan.compounds) { revealCard(c); labelCard(c.word); }
@@ -327,24 +390,112 @@ export function createWordPot(services: AppServices): WordPot {
   }
   const bakeSizeGuess = (w: string): number => Math.max(104, w.length * bubblePx * 0.72 + bubblePx * 1.1);
 
-  function addSwimmer(word: string, visible: boolean): number {
+  function addSwimmer(word: string, st: number): number {
     if (nSwim >= MAX_SWIMMERS) return -1;
     const s = nSwim++;
-    swimWord[s] = word; labels[s] = labelCard(word); sSeed[s] = random() * 100; sHop[s] = 9; sVisible[s] = visible ? 1 : 0;
-    sHeading[s] = random() < 0.5 ? 0 : Math.PI;
-    // The farthest of a few random spots from the swimmers already there.
-    let best = -1;
-    for (let n = 0; n < 12; n++) {
-      const x = lerp(swimMinX(s), swimMaxX(s), random()), y = lerp(swimMinY(), swimMaxY(x), random());
-      if (inFountainBox(x, y, swimHW(s))) continue;
-      let d = 1e9;
-      for (let j = 0; j < s; j++) d = Math.min(d, Math.hypot(x - sx[j]!, y - sy[j]!));
-      if (d > best) { best = d; sx[s] = x; sy[s] = y; }
-    }
-    if (best < 0) { sx[s] = swimMinX(s); sy[s] = swimMinY(); }
-    keepSwimmerInside(s);
-    warmScaled(pictureName(word), swimSize);
+    swimWord[s] = word; labels[s] = labelCard(word); sSeed[s] = random() * 100; sHop[s] = 9;
+    sState[s] = st; sPin[s] = 0; sFade[s] = 0; sStamp[s] = time; sPlaced[s] = 0;
     return s;
+  }
+
+  /** In the water now (or about to be): these count towards pondCap, and the others keep clear of them. */
+  const inWater = (s: number): boolean => sState[s] === S_SHOWN || sState[s] === S_ENTER || sState[s] === S_WAIT;
+  /** A swimmer's height from its picture's top to its label's bottom. */
+  const swimBoxH = (): number => swimSize * 0.92 + labelH;
+  /** Bring a swimmer into the water at the clearest spot: swimming at once (S_SHOWN), fading in, or waiting for its picture. */
+  function showSwimmer(s: number, st: number): void {
+    sPlaced[s] = 0; placeHome(s);
+    sx[s] = sHomeX[s]!; sy[s] = sHomeY[s]!;
+    sState[s] = st; sFade[s] = 0; sStamp[s] = time; sHop[s] = 9;
+    sHeading[s] = random() < 0.5 ? 0 : Math.PI;
+  }
+  /**
+   * A swimmer's home, where it swims to and fro: the clearest of a few random spots, the one whose box is farthest from
+   * the homes of the others in the water (the gap along whichever axis separates them more). No allocation, so a swap
+   * or a made word can place a swimmer in a frame.
+   */
+  function placeHome(s: number): void {
+    const hw = swimHW(s), bh = swimBoxH() + SWIM_GAP * u;
+    let best = -Infinity;
+    for (let n = 0; n < 64; n++) {
+      const x = lerp(swimMinX(s), swimMaxX(s), random()), y = lerp(swimMinY(), swimMaxY(x), random());
+      if (inFountainBox(x, y, hw)) continue;
+      let clear = 1e9;
+      for (let j = 0; j < nSwim; j++) {
+        if (j === s || !sPlaced[j] || !inWater(j)) continue;
+        clear = Math.min(clear, Math.max(Math.abs(x - sHomeX[j]!) - hw - swimHW(j) - SWIM_GAP * u, Math.abs(y - sHomeY[j]!) - bh));
+      }
+      if (clear > best) { best = clear; sHomeX[s] = x; sHomeY[s] = y; }
+    }
+    if (best === -Infinity) { sHomeX[s] = swimMinX(s); sHomeY[s] = swimMinY(); }
+    sPlaced[s] = 1;
+  }
+  /** New homes for every swimmer in the water, one after another (a new size; layout time). */
+  function rehome(): void {
+    sPlaced.fill(0);
+    for (let s = nSwim - 1; s >= 0; s--) if (inWater(s)) placeHome(s);
+  }
+  /** The hidden swimmer gone longest (optionally only one whose picture is already scaled), or -1. */
+  function longestHidden(scaledOnly: boolean): number {
+    let best = -1;
+    for (let s = 0; s < nSwim; s++) {
+      if (sState[s] !== S_HIDDEN || (best >= 0 && sStamp[s]! >= sStamp[best]!)) continue;
+      if (scaledOnly && warmPending(pictureName(swimWord[s]!), swimSize)) continue;
+      best = s;
+    }
+    return best;
+  }
+  /** The swimmer in the water longest that may leave: not pinned, not hopping. -1 if none. */
+  function longestShown(): number {
+    let best = -1;
+    for (let s = 0; s < nSwim; s++) {
+      if (sState[s] !== S_SHOWN || sPin[s] || sHop[s]! < 0.7) continue;
+      if (best < 0 || sStamp[s]! < sStamp[best]!) best = s;
+    }
+    return best;
+  }
+  function countInWater(): number {
+    let n = 0;
+    for (let s = 0; s < nSwim; s++) if (inWater(s)) n++;
+    return n;
+  }
+  function startLeave(s: number): void { sState[s] = S_LEAVE; sFade[s] = 0; sStamp[s] = time; }
+  /** One swap: the swimmer in longest leaves (when the water is full) and the one gone longest fades in elsewhere. */
+  function swapOne(): void {
+    const inS = longestHidden(true);
+    if (inS < 0) return;
+    if (countInWater() >= pondCap) {
+      const outS = longestShown();
+      if (outS < 0) return;
+      startLeave(outS);
+    }
+    showSwimmer(inS, S_ENTER);
+    swaps++;
+  }
+  /**
+   * How many swimmers the open water holds at this size: the water's area (from the swim line to the banks, less the
+   * fountain) over one swimmer's box with SWIM_GAP all round, at POND_FILL cover. Layout and round start only.
+   */
+  function updateCap(): void {
+    let wSum = 0;
+    for (let s = 0; s < nSwim; s++) wSum += swimHW(s) * 2;
+    const boxW = (nSwim ? wSum / nSwim : Math.max(swimSize, labelH * 5)) + SWIM_GAP * u, boxH = swimBoxH() + SWIM_GAP * u;
+    const steps = 64, x0 = W * 0.05, dx = (W * 0.9) / steps;
+    let area = 0;
+    for (let k = 0; k < steps; k++) {
+      const x = x0 + (k + 0.5) * dx;
+      // A swimmer's box reaches from its picture's top (swimT at the highest) to its label's bottom (the water's edge).
+      let bottom = waterBottom(x);
+      if (Math.abs(x - fountainX) < fountainHalfW) bottom = Math.min(bottom, fountainTopY + labelH);
+      area += Math.max(0, bottom - swimT) * dx;
+    }
+    pondCap = Math.max(MIN_SWIMMERS, Math.min(MAX_SWIMMERS, Math.floor(area * POND_FILL / (boxW * boxH))));
+  }
+  /** After a resize: hide the swimmers in longest until the water holds them, or bring hidden ones in. No fading. */
+  function fitPond(): void {
+    let n = countInWater();
+    while (n > pondCap) { const s = longestShown(); if (s < 0) break; sState[s] = S_HIDDEN; sStamp[s] = time; n--; }
+    while (n < pondCap) { const s = longestHidden(false); if (s < 0) break; showSwimmer(s, S_SHOWN); n++; }
   }
 
   // ---------------------------------------------------------------- actions
@@ -435,10 +586,20 @@ export function createWordPot(services: AppServices): WordPot {
     // The picture sits above its card; both stay in the window.
     rX[k] = Math.max(revealSize / 2 + 8, Math.min(W - revealSize / 2 - 8, x));
     rY[k] = Math.max(top * 0.5 + revealSize + revealCardH * 0.5, Math.min(H - revealCardH, y));
-    // Its swimmer: the one already in the pond (it will hop), or a new one that appears when the picture lands.
+    // Its swimmer: the one already in the water (it will hop), or one that appears where the picture lands: a new word,
+    // or a word made before that is not in the water now. Either way it stays in the water for the rest of the round.
     let s = -1;
     for (let n = 0; n < nSwim; n++) if (swimWord[n] === c.word) { s = n; break; }
-    if (s < 0) s = addSwimmer(c.word, false);
+    if (s < 0) s = addSwimmer(c.word, S_HIDDEN);
+    if (s >= 0) {
+      // Normally scaled in idle time already (layout queues every collection word), so this only looks it up.
+      warmScaled(pictureName(c.word), swimSize);
+      if (sState[s] === S_HIDDEN) showSwimmer(s, S_WAIT);
+      else if (sState[s] === S_LEAVE) { sState[s] = S_ENTER; sFade[s] = Math.max(0, SWAP_FADE - sFade[s]!); }
+      sPin[s] = 1;
+      // A full pond makes room: the swimmer in longest fades out.
+      if (countInWater() > pondCap) { const out = longestShown(); if (out >= 0) startLeave(out); }
+    }
     rSwim[k] = s;
   }
 
@@ -461,9 +622,11 @@ export function createWordPot(services: AppServices): WordPot {
     }
     return -1;
   }
+  /** Swimming, or more than half faded in. A fading-out swimmer takes no presses. */
+  const pressableSwimmer = (s: number): boolean => sState[s] === S_SHOWN || (sState[s] === S_ENTER && sFade[s]! >= SWAP_FADE * 0.5);
   function swimmerAt(x: number, y: number): number {
     for (let s = nSwim - 1; s >= 0; s--) {
-      if (!sVisible[s]) continue;
+      if (!pressableSwimmer(s)) continue;
       if (Math.abs(x - sx[s]!) <= swimSize / 2 && y >= sy[s]! - swimSize / 2 && y <= sy[s]! + swimSize * 0.45 + labelH) return s;
     }
     return -1;
@@ -537,18 +700,38 @@ export function createWordPot(services: AppServices): WordPot {
 
   function updateSwimmer(s: number, dt: number): void {
     sHop[s] = sHop[s]! + dt;
-    if (!sVisible[s]) return;
+    const st = sState[s];
+    if (st === S_HIDDEN || st === S_WAIT) return;
+    if (st === S_ENTER || st === S_LEAVE) {
+      sFade[s] = sFade[s]! + dt;
+      if (sFade[s]! >= SWAP_FADE) {
+        sState[s] = st === S_ENTER ? S_SHOWN : S_HIDDEN; sStamp[s] = time;
+        if (st === S_LEAVE) return;
+      }
+    }
     const seedS = sSeed[s]!;
     sHeading[s] = sHeading[s]! + Math.sin(time * 0.4 + seedS) * 0.35 * dt;
     const speed = 11 * u;
-    let vx = Math.cos(sHeading[s]!) * speed, vy = Math.sin(sHeading[s]!) * speed * 0.35;
+    // It swims to and fro about its home, which keeps the pond spread out.
+    const offX = sx[s]! - sHomeX[s]!;
+    if (offX * Math.cos(sHeading[s]!) > SWIM_RANGE * u) sHeading[s] = Math.PI - sHeading[s]!;
+    let vx = Math.cos(sHeading[s]!) * speed - offX * HOME_PULL_X;
+    let vy = Math.sin(sHeading[s]!) * speed * 0.35 + (sHomeY[s]! - sy[s]!) * HOME_PULL_Y;
+    // Keep apart: boxes closer than SWIM_GAP slide away along the axis they overlap least. A leaving swimmer is
+    // ignored by the others, so they can take its place as it fades.
+    const gap = SWIM_GAP * u, bh = swimBoxH() + gap;
     for (let j = 0; j < nSwim; j++) {
-      if (j === s || !sVisible[j]) continue;
+      if (j === s || !inWater(j)) continue;
       const dx = sx[s]! - sx[j]!, dy = sy[s]! - sy[j]!;
-      const ox = swimHW(s) + swimHW(j) + 10 * u - Math.abs(dx), oy = swimSize * 0.9 + labelH - Math.abs(dy);
+      const ox = swimHW(s) + swimHW(j) + gap - Math.abs(dx), oy = bh - Math.abs(dy);
       if (ox <= 0 || oy <= 0) continue;
-      const push = 40 * u * Math.min(1, ox / 40);
-      if (ox < oy) vx += (dx > 0 || (dx === 0 && s > j) ? 1 : -1) * push; else vy += (dy > 0 || (dy === 0 && s > j) ? 1 : -1) * push;
+      const push = 40 * u * Math.min(1, Math.min(ox, oy) / 30);
+      const away = dx > 0 || (dx === 0 && s > j) ? 1 : -1;
+      if (ox < oy) {
+        vx += away * push;
+        // Swimming into its neighbour: turn round, as they meet side by side.
+        if (Math.cos(sHeading[s]!) * away < 0) sHeading[s] = Math.PI - sHeading[s]!;
+      } else vy += (dy > 0 || (dy === 0 && s > j) ? 1 : -1) * push;
     }
     let x = sx[s]! + vx * dt, y = sy[s]! + vy * dt;
     const c = Math.cos(sHeading[s]!), sn = Math.sin(sHeading[s]!);
@@ -573,7 +756,8 @@ export function createWordPot(services: AppServices): WordPot {
         const s = rSwim[k]!;
         rT[k] = -1;
         if (s >= 0) {
-          sVisible[s] = 1; sHop[s] = 0;
+          if (sState[s] === S_WAIT) { sState[s] = S_SHOWN; sStamp[s] = time; }
+          sHop[s] = 0;
           particles.burst(10, (p, n) => {
             const a = (n / 10) * Math.PI * 2;
             p.x = sx[s]!; p.y = sy[s]! + swimSize * 0.35; p.vx = Math.cos(a) * 110 * u; p.vy = Math.sin(a) * 40 * u - 40 * u;
@@ -637,6 +821,8 @@ export function createWordPot(services: AppServices): WordPot {
     }
     for (let i = 0; i < nBubbles; i++) updateBubble(i, dt);
     for (let s = 0; s < nSwim; s++) updateSwimmer(s, dt);
+    swapT += dt;
+    if (swapT >= SWAP_EVERY) { swapT = 0; swapOne(); }
     const revealing = updateReveals(dt);
     updateHand(dt);
     if (keyMode && !pressable(focus)) focus = nearestFree(focus >= 0 ? bx[focus]! : W / 2, focus >= 0 ? by[focus]! : top);
@@ -702,17 +888,26 @@ export function createWordPot(services: AppServices): WordPot {
   }
 
   function drawSwimmer(ctx: CanvasRenderingContext2D, s: number): void {
-    if (!sVisible[s]) return;
+    const st = sState[s];
+    if (st === S_HIDDEN || st === S_WAIT) return;
     const seedS = sSeed[s]!, x = sx[s]!;
     let y = sy[s]! + Math.sin(time * 1.8 + seedS) * 4 * u, rot = Math.sin(time * 1.2 + seedS) * 0.07, k = 1;
     const hop = sHop[s]!;
     if (hop < 0.7) { const h = hop / 0.7; y -= Math.sin(h * Math.PI) * 34 * u; rot += Math.sin(h * Math.PI * 2) * 0.25; k = 1 + 0.08 * Math.sin(h * Math.PI); }
+    // Fading in, it rises out of the water and its ripple widens; fading out, it sinks back in.
+    let a = 1, sink = 0;
+    if (st === S_ENTER || st === S_LEAVE) {
+      const f = clamp01(sFade[s]! / SWAP_FADE);
+      a = easeInOutSine(st === S_ENTER ? f : 1 - f); sink = (1 - a) * 18 * u; k *= 0.82 + 0.18 * a;
+      ctx.globalAlpha = a;
+    }
     // A ripple on the water under it.
-    ctx.beginPath(); ctx.ellipse(x, sy[s]! + swimSize * 0.36, swimSize * 0.42, swimSize * 0.09, 0, 0, Math.PI * 2);
+    ctx.beginPath(); ctx.ellipse(x, sy[s]! + swimSize * 0.36, swimSize * (0.3 + 0.12 * a), swimSize * 0.09, 0, 0, Math.PI * 2);
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)'; ctx.lineWidth = 3; ctx.stroke();
-    drawSprite(ctx, sprites, pictureName(swimWord[s]!), x, y, swimSize, rot, k, k);
+    drawSprite(ctx, sprites, pictureName(swimWord[s]!), x, y + sink, swimSize, rot, k, k);
     const label = labels[s];
-    if (label) ctx.drawImage(label.canvas, x - label.w / 2, sy[s]! + swimSize * 0.42, label.w, label.h);
+    if (label) ctx.drawImage(label.canvas, x - label.w / 2, sy[s]! + swimSize * 0.42 + sink, label.w, label.h);
+    if (a < 1) ctx.globalAlpha = 1;
   }
 
   function drawBubble(ctx: CanvasRenderingContext2D, i: number): void {
@@ -894,7 +1089,8 @@ export function createWordPot(services: AppServices): WordPot {
   };
   const swimmerInfo = (): PotSwimmerInfo[] => {
     const out: PotSwimmerInfo[] = [];
-    for (let s = 0; s < nSwim; s++) out.push({ word: swimWord[s]!, visible: sVisible[s] === 1, x: sx[s]!, y: sy[s]!, hit: { x: sx[s]! - swimSize / 2, y: sy[s]! - swimSize / 2, w: swimSize, h: swimSize * 0.95 + labelH } });
+    const names = ['hidden', 'shown', 'entering', 'leaving', 'waiting'] as const;
+    for (let s = 0; s < nSwim; s++) out.push({ word: swimWord[s]!, visible: sState[s] === S_SHOWN || sState[s] === S_ENTER, state: names[sState[s]!]!, pinned: sPin[s] === 1, x: sx[s]!, y: sy[s]!, hit: { x: sx[s]! - swimSize / 2, y: sy[s]! - swimSize / 2, w: swimSize, h: swimSize * 0.95 + labelH }, label: { x: sx[s]! - (labels[s]?.w ?? 0) / 2, y: sy[s]! + swimSize * 0.42, w: labels[s]?.w ?? 0, h: labels[s]?.h ?? 0 } });
     return out;
   };
 
@@ -909,6 +1105,7 @@ export function createWordPot(services: AppServices): WordPot {
       get focus() { return keyMode ? focus : -1; }, get keyMode() { return keyMode; }, get help() { return help; }, get hand() { return hand.mode; },
       get made() { return madeAll; }, get bonks() { return bonks; }, get words() { return plan.compounds.map(c => c.word); },
       get reveals() { let n = 0; for (let k = 0; k < MAX_REVEALS; k++) if (rT[k]! >= 0) n++; return n; },
+      get pondCap() { return pondCap; }, get swaps() { return swaps; },
       get fountain() { return { x: fountainX - fountainHalfW, y: fountainTopY, w: fountainHalfW * 2, h: H - fountainTopY }; },
     },
   };
