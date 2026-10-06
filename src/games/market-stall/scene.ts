@@ -188,9 +188,10 @@ export interface MarketStallStats {
   /**
    * Debug: lay out sample customers of every step, tier and customer at each window size (default 1366x768 and
    * 1920x1080) without drawing, and list every fit failure (zones overlapping, outside the window or under 96 px; the
-   * dish over the customer or a price tag; a tag outside the window).
+   * dish over the customer or a price tag; a tag outside the window). With `rects`, also one line per layout listing
+   * every laid-out box, well and size, to compare two builds' layouts exactly.
    */
-  layoutCheck(sizes?: readonly (readonly [number, number])[], perStep?: number): { layouts: number; failures: string[]; slowestMs: number };
+  layoutCheck(sizes?: readonly (readonly [number, number])[], perStep?: number, rects?: boolean): { layouts: number; failures: string[]; slowestMs: number; rects?: string[] };
   /** Largest drawn scale of each image drawn this layout (drawn px / image px at pixel ratio 1). */
   scales(): Record<string, number>;
   resetWork(): void;
@@ -415,6 +416,9 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
   let crowdX0 = 0, crowdStep = 0, crowdH = 0;
   /** Whether the last layout found a place for every zone (false only when the solver had to keep a layout that does not fit). */
   let fitted = true;
+  /** The layout's own scale (config uiScale, or less where that does not fit) and what it was found for. */
+  let uiK = 1;
+  const uiFor = { plan: null as CustomerPlan | null, who: -1, good: -1, good2: -1, tier: -1, w: 0, h: 0, ui: 0 };
   /** A tag's box now (tagNow), the full-size tag height its numeral strip is baked for, the newest paw piece's centre. */
   const tagAt = box(), itemAt = box();
   const lerpBox = (out: Box, a: Box, b: Box, k: number): Box => setBox(out, lerp(a.x, b.x, k), lerp(a.y, b.y, k), lerp(a.w, b.w, k), lerp(a.h, b.h, k));
@@ -477,15 +481,41 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     bookH = Math.round(Math.max(72, Math.min(200, choiceSize * 0.45)));
     bake(reratio);
     planWarm();
-    const key = `${W}x${H}@${artRatio}/${tier}`;
+    const key = `${W}x${H}@${artRatio}/${tier}/${uiK}`;
     if (key !== sizeKey) { sizeKey = key; releaseArt(); drawnScale.clear(); boardCache.clear(); trayCache.clear(); boardQueue.length = 0; boardQueued = ''; }
     if (resized || reratio || !bgCanvas) { sprites.clearScaled(BG); bgCanvas = undefined; }
   }
-  /** Sizes and places for the current customer at width x height, with no drawing or baking (layoutCheck uses it alone). */
+  /**
+   * Sizes and places for the current customer at width x height, with no drawing or baking (layoutCheck uses it alone).
+   * A config uiScale above 1 is the largest scale tried: when the layout at that scale does not fit (a target off
+   * screen, under 96 px or overlapping), the scale is searched down towards 1 (halving the gap six times, keeping
+   * only scales that fit) and the largest fitting one is used. The result is kept for the customer, tier and window.
+   */
   function geometry(width: number, height: number): void {
+    const ui = services.config.uiScale;
+    if (ui <= 1) { uiK = ui; place(width, height, ui); return; }
+    if (uiFor.plan === plan && uiFor.who === who && uiFor.good === good && uiFor.good2 === good2 && uiFor.tier === tier && uiFor.w === width && uiFor.h === height && uiFor.ui === ui) {
+      place(width, height, uiK); return;
+    }
+    const fits = (): boolean => fitted && fitFailures().length === 0;
+    let k = ui;
+    place(width, height, ui);
+    if (!fits()) {
+      k = 1; place(width, height, 1);
+      if (fits()) {
+        let lo = 1, hi = ui;
+        for (let i = 0; i < 6; i++) { const mid = (lo + hi) / 2; place(width, height, mid); if (fits()) lo = mid; else hi = mid; }
+        k = lo; place(width, height, lo);
+      }
+    }
+    uiK = k;
+    uiFor.plan = plan; uiFor.who = who; uiFor.good = good; uiFor.good2 = good2; uiFor.tier = tier; uiFor.w = width; uiFor.h = height; uiFor.ui = ui;
+  }
+  /** Sizes and places at layout scale `ui` (the config's uiScale, or less when that does not fit: see geometry). */
+  function place(width: number, height: number, ui: number): void {
     W = width; H = height; portrait = W < H;
-    u = Math.min(U_MAX, Math.max(0.45, Math.min(W / 1366, H / 768))) * services.config.uiScale;
-    const cornerU = Math.min(1.5, Math.max(0.4, Math.min(W / 1366, H / 768))) * services.config.uiScale;
+    u = Math.min(U_MAX, Math.max(0.45, Math.min(W / 1366, H / 768))) * ui;
+    const cornerU = Math.min(1.5, Math.max(0.4, Math.min(W / 1366, H / 768))) * ui;
     cornerRadius = Math.max(48, Math.min(60 * cornerU, W / 8, H / 6));
     homeX = cornerRadius + 12; soundX = W - cornerRadius - 12; cornerY = cornerRadius + 12;
     soundButton.x = soundX; soundButton.y = cornerY; soundButton.radius = cornerRadius;
@@ -2473,7 +2503,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     get cups() { return { total: playable() ? cupsTotal : 0, lit: playable() ? lit : 0, price: plan.price, back: counter, size: cupD }; },
     get layout() {
       return {
-        u, portrait, Yc: Math.round(Yc), scale: custS, board: r(L.board), dish: r(L.dish), dishFootprint: r(L.foot), dishInChange, till: r(L.till),
+        u, uiScale: uiK, portrait, Yc: Math.round(Yc), scale: custS, board: r(L.board), dish: r(L.dish), dishFootprint: r(L.foot), dishInChange, till: r(L.till),
         customer: r(L.body), item: r(L.item), tag: r(L.tag), purse: r(L.purse), itemZone: r(L.itemZone), purseZone: r(L.purseZone), pawZone: r(L.pawZone),
         front: r(L.front), front2: r(L.front2), frontTags: r(L.frontAll), mergedTag: r(L.fmtag), pawStack: r(L.stack), fitted,
         pawX: Math.round(pawX), pawY: Math.round(pawY), well: wellW, wellH, cupPitch, numPx, tagPx, coinDime: coinD[DIME]!, coinQuarter: coinD[QUARTER]!, billW, billH,
@@ -2483,8 +2513,17 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     get workMax() { let max = 0; for (let i = 0; i < workCount; i++) max = Math.max(max, work[i]!); return max; },
     scales() { return Object.fromEntries(drawnScale); },
     resetWork() { workHead = workCount = 0; },
-    layoutCheck(sizes = [[1366, 768], [1920, 1080]], perStep = 40) {
-      const keep = { plan, who, good, good2, tier, W, H }, failures: string[] = [];
+    layoutCheck(sizes = [[1366, 768], [1920, 1080]], perStep = 40, rects = false) {
+      const keep = { plan, who, good, good2, tier, W, H }, failures: string[] = [], dump: string[] = [];
+      const f3 = (n: number): string => n.toFixed(3);
+      const boxes = (): string => {
+        const parts: string[] = [`u ${f3(u)} corner ${f3(cornerRadius)} coins ${Array.from(coinD, f3).join(' ')} bill ${billW}x${billH} snap ${f3(snap)} cup ${f3(cupPitch)} ${cupD} well ${wellW}x${wellH} dishInChange ${dishInChange} fitted ${fitted}`];
+        for (const [k, b] of Object.entries(L)) parts.push(`${k} ${f3(b.x)} ${f3(b.y)} ${f3(b.w)} ${f3(b.h)}`);
+        for (let i = 0; i < tillN; i++) parts.push(`w${i} ${f3(wellX[i]!)} ${f3(wellY[i]!)}`);
+        for (let i = 0; i < dishN; i++) parts.push(`d${i} ${f3(dishPx[i]!)} ${f3(dishPy[i]!)}`);
+        parts.push(`paw ${f3(pawX)} ${f3(pawY)} stack ${f3(stackX)} ${f3(stackY)}`);
+        return parts.join('; ');
+      };
       let layouts = 0, seed = 20261005, slowest = 0;
       const rnd = (): number => { seed = (Math.imul(seed, 1103515245) + 12345) >>> 0; return seed / 4294967296; };
       for (const [w, h] of sizes) for (let t = 0; t < 3; t++) {
@@ -2504,13 +2543,14 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
               const took = performance.now() - t0; if (took > slowest) slowest = took;
               const label = `${w}x${h} tier ${t} step ${step} ${CUSTOMERS[c]!.name} ${p.dollars ? '$' : ''}${p.parts.join('+')}${p.dollars ? '' : 'c'} pay [${p.pay.map(name)}] top-up [${p.topUp.map(name)}] till [${p.till.map(name)}]`;
               for (const f of fitFailures()) failures.push(`${label}: ${f}`);
+              if (rects) dump.push(`${label} | ${boxes()}`);
             }
           });
         }
       }
       plan = keep.plan; who = keep.who; good = keep.good; good2 = keep.good2; tier = keep.tier;
       layout(keep.W, keep.H);
-      return { layouts, failures, slowestMs: Math.round(slowest * 100) / 100 };
+      return rects ? { layouts, failures, slowestMs: Math.round(slowest * 100) / 100, rects: dump } : { layouts, failures, slowestMs: Math.round(slowest * 100) / 100 };
     },
   };
 
