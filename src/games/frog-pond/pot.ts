@@ -177,12 +177,39 @@ export function createWordPot(services: AppServices): WordPot {
     // Scale the fountain, the pictures in play and the glove now, so no frame scales art.
     warmScaled(FOUNTAIN, fountainSize);
     for (let s = 0; s < nSwim; s++) warmScaled(pictureName(swimWord[s]!), swimSize);
-    for (const c of plan.compounds) { warmScaled(pictureName(c.word), swimSize); warmScaled(pictureName(c.word), revealSize); }
     warmScaled(HAND, Math.round(130 * u));
+    // The round's pictures are needed only once a word is made, and any word made before may swim in the next round's
+    // pond: scale those in idle time, so opening a round decodes no pictures (see warmIdle).
+    for (const c of plan.compounds) { queueWarm(pictureName(c.word), revealSize); queueWarm(pictureName(c.word), swimSize); }
+    for (const w of COLLECTION_WORDS) queueWarm(pictureName(w), swimSize);
   }
   function warmScaled(name: string, size: number): void {
     const img = sprites.get(name);
     if (img) sprites.scaled(name, size / (Math.max(img.naturalWidth, img.naturalHeight) || 1));
+  }
+  /**
+   * Pictures waiting to be scaled, one per idle period. A picture's first scale decodes its WebP on the main thread
+   * (about 3 ms each on the dev box); done all at once when a round opened, a full pond held that frame for 80-130 ms.
+   * A picture still waiting when it is drawn is scaled then, as before. Filled at layout time, never in a frame.
+   */
+  const WARM_MAX = MAX_SWIMMERS + 2 * 8;
+  const warmNames: string[] = new Array<string>(WARM_MAX).fill(''), warmSizes = new Float32Array(WARM_MAX);
+  let warmCount = 0, warmHandle = 0;
+  function queueWarm(name: string, size: number): void {
+    if (typeof requestIdleCallback !== 'function') { warmScaled(name, size); return; }
+    for (let k = 0; k < warmCount; k++) if (warmNames[k] === name && warmSizes[k] === size) return;
+    if (warmCount >= WARM_MAX) { warmScaled(name, size); return; }
+    warmNames[warmCount] = name; warmSizes[warmCount++] = size;
+    if (!warmHandle) warmHandle = requestIdleCallback(warmIdle);
+  }
+  function warmIdle(deadline: IdleDeadline): void {
+    warmHandle = 0;
+    if (warmCount > 0 && deadline.timeRemaining() >= 6) {
+      warmScaled(warmNames[0]!, warmSizes[0]!);
+      warmCount--;
+      for (let k = 0; k < warmCount; k++) { warmNames[k] = warmNames[k + 1]!; warmSizes[k] = warmSizes[k + 1]!; }
+    }
+    if (warmCount > 0) warmHandle = requestIdleCallback(warmIdle);
   }
   /** Bake every word in play again when a size or the pixel ratio changed (layout time, never a frame). */
   function rebake(force: boolean): void {

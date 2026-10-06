@@ -163,6 +163,20 @@ export const COMPOUNDS: readonly Compound[] = [
   { word: 'hilltop', parts: ['hill', 'top'] },
   { word: 'sandbox', parts: ['sand', 'box'] },
   { word: 'bathtub', parts: ['bath', 'tub'] },
+  { word: 'cupcake', parts: ['cup', 'cake'] },
+  { word: 'bulldog', parts: ['bull', 'dog'] },
+  { word: 'mailbox', parts: ['mail', 'box'] },
+  { word: 'goldfish', parts: ['gold', 'fish'] },
+  { word: 'snowman', parts: ['snow', 'man'] },
+  { word: 'snowball', parts: ['snow', 'ball'] },
+  { word: 'sailboat', parts: ['sail', 'boat'] },
+  { word: 'toothbrush', parts: ['tooth', 'brush'] },
+  { word: 'sunflower', parts: ['sun', 'flower'] },
+  { word: 'jellyfish', parts: ['jelly', 'fish'] },
+  { word: 'pinecone', parts: ['pine', 'cone'] },
+  { word: 'beehive', parts: ['bee', 'hive'] },
+  { word: 'firefly', parts: ['fire', 'fly'] },
+  { word: 'raincoat', parts: ['rain', 'coat'] },
 ];
 
 /**
@@ -180,8 +194,10 @@ export const RETIRED_COMPOUNDS: readonly Compound[] = [
  * Real one-word compounds that two halves from COMPOUNDS also make, with no picture. A round whose bubbles hold both
  * halves of one of these should either accept it as a word or (simpler) never hold both together. Rarer real words that the halves
  * make (panfish, sandfish, ladyfish, pigfish, sunbath, hotfoot, hotbox, sunbow, seabow, poptop, cornball, corncake,
- * sandpack) are left out: a child will not try them on purpose, and a bonk on them loses nothing. CAKEPOP and POPSTAR are
- * usually written as two words but are kept apart anyway, since a child may know cake pops and pop stars.
+ * sandpack, seaman, baseman, footman, boatman, bullpen, backfire, brushfire, firebug, firedog, firebox, flyball, sandfly,
+ * sundog, seadog, topcoat, snowpack, cornflower, coneflower) are left out: a child will not try them on purpose, and a
+ * bonk on them loses nothing. CAKEPOP, POPSTAR, DOGMAN, GOLDSTAR, SNOWCONE and PINETREE are usually written as two words
+ * but are kept apart anyway, since a child may know cake pops, pop stars, Dog Man, gold stars, snow cones and pine trees.
  */
 export const EXTRA_COMPOUNDS: readonly Compound[] = [
   { word: 'footbath', parts: ['foot', 'bath'] },
@@ -204,14 +220,29 @@ export const EXTRA_COMPOUNDS: readonly Compound[] = [
   { word: 'setback', parts: ['set', 'back'] },
   { word: 'cakepop', parts: ['cake', 'pop'] },
   { word: 'popstar', parts: ['pop', 'star'] },
+  { word: 'fireman', parts: ['fire', 'man'] },
+  { word: 'mailman', parts: ['mail', 'man'] },
+  { word: 'sandman', parts: ['sand', 'man'] },
+  { word: 'horseman', parts: ['horse', 'man'] },
+  { word: 'dogman', parts: ['dog', 'man'] },
+  { word: 'fireball', parts: ['fire', 'ball'] },
+  { word: 'fireboat', parts: ['fire', 'boat'] },
+  { word: 'sailfish', parts: ['sail', 'fish'] },
+  { word: 'horsefly', parts: ['horse', 'fly'] },
+  { word: 'flowerbed', parts: ['flower', 'bed'] },
+  { word: 'seastar', parts: ['sea', 'star'] },
+  { word: 'goldstar', parts: ['gold', 'star'] },
+  { word: 'snowcone', parts: ['snow', 'cone'] },
+  { word: 'pinetree', parts: ['pine', 'tree'] },
 ];
 
 /**
  * Bubbles that fit nothing: no decoy joins any COMPOUNDS half, or another decoy, in either order to make a real word.
- * Words that would (cup: cupcake; fan: fanbase; nap: catnap; net: netball; gum: gumball; bag: sandbag; tag: tagline;
- * pot: hotpot; red: redfish; bat: batfish; mop: moptop; log with jam: logjam) were left out on purpose. POPPET (pop and
- * pet) is real but rare and left in.
+ * Words that would (cup: cupcake, now a half; fan: fanbase; nap: catnap; net: netball; gum: gumball; bag: sandbag,
+ * mailbag; tag: tagline; pot: hotpot; red: redfish; bat: batfish, batman; mop: moptop; log with jam: logjam; fox:
+ * firefox; jet: jetpack; tin: tinman; pin: pinball; tug: tugboat; men: firemen, mailmen) were left out on purpose.
+ * POPPET (pop and pet) is real but rare and left in.
  */
 export const DECOYS: readonly string[] = [
-  'pet', 'jug', 'hen', 'wig', 'lid', 'fox', 'mug', 'van', 'rug', 'jam', 'hug', 'kid', 'dip', 'bib',
+  'pet', 'jug', 'hen', 'wig', 'lid', 'twig', 'mug', 'van', 'rug', 'jam', 'hug', 'kid', 'dip', 'bib',
 ];
