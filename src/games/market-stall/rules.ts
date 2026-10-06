@@ -25,7 +25,7 @@ const ALL_COINS = [PENNY, NICKEL, DIME, QUARTER] as const;
 const ALL_BILLS = [B1, B5, B10, B20] as const;
 
 export interface TierParams {
-  /** Customers in one round. */
+  /** Customers in one round at step 1 (above step 1 a round adds a warm-up customer at tier 0; see roundSize). */
   customers: number;
   /** Dime diameter and bill width in layout units (the other coins follow the true ratios; bills are 2:1). */
   dime: number; bill: number;
@@ -37,14 +37,12 @@ export interface TierParams {
   purseW: number;
   /** Till kinds: 0 = only the kinds the change needs, 1 = one more, 2 = every kind of that till. */
   extra: number;
-  /** A single press (click) on a piece sends it straight to the paw. */
-  oneTap: boolean;
 }
 
 export const TIERS: readonly [TierParams, TierParams, TierParams] = [
-  { customers: 3, dime: 120, bill: 240, snap: 80, paw: [170, 130], item: [210, 190], purse: [170, 170], purseW: 160, extra: 0, oneTap: true },
-  { customers: 4, dime: 108, bill: 220, snap: 56, paw: [150, 120], item: [190, 170], purse: [150, 150], purseW: 140, extra: 1, oneTap: false },
-  { customers: 4, dime: 96, bill: 200, snap: 40, paw: [130, 110], item: [170, 150], purse: [130, 130], purseW: 120, extra: 2, oneTap: false },
+  { customers: 3, dime: 120, bill: 240, snap: 80, paw: [170, 130], item: [210, 190], purse: [170, 170], purseW: 160, extra: 0 },
+  { customers: 4, dime: 108, bill: 220, snap: 56, paw: [150, 120], item: [190, 170], purse: [150, 150], purseW: 140, extra: 1 },
+  { customers: 4, dime: 96, bill: 200, snap: 40, paw: [130, 110], item: [170, 150], purse: [130, 130], purseW: 120, extra: 2 },
 ];
 
 export interface CustomerPlan {
@@ -114,15 +112,17 @@ const neededFor = (change: number, kinds: readonly number[], dollars: boolean): 
   kinds.filter((k, i) => i === 0 || valueOf(k, dollars) <= change);
 
 /**
- * Content step for customer `index` of a round at learning step `step`: the first customer above step 1 warms up with
- * the step below. At the top step a round's customers come from steps 7, 9, 8 and 9 in that order (only the step-9
- * customers count), so the child keeps getting varied full rounds.
+ * Content step for customer `index` of round number `round` at learning step `step`: the first customer above step 1
+ * warms up with the step below. At the top step the warm-up comes from step 7 and step 8 in turn (round by round) and
+ * every later customer is a step-9 customer, so each round counts at least three and still varies.
  */
-export function customerStep(step: number, index: number): number {
+export function customerStep(step: number, index: number, round = 0): number {
   const s = Math.max(1, Math.min(TOP_STEP, step));
-  if (s === TOP_STEP) return [TOP_STEP - 2, TOP_STEP, TOP_STEP - 1, TOP_STEP][index % 4]!;
+  if (s === TOP_STEP) return index === 0 ? TOP_STEP - 2 + (round % 2) : TOP_STEP;
   return index === 0 && s > 1 ? s - 1 : s;
 }
+/** Customers in a round: every round has at least three counted customers (above step 1 the warm-up comes on top). */
+export const roundSize = (step: number, tier: Tier): number => TIERS[tier].customers + (tier === 0 && step > 1 ? 1 : 0);
 export const contentOf = (step: number): number => Math.max(1, Math.min(TOP_STEP, step));
 
 const plan = (step: number, content: number, dollars: boolean, price: number, pay: number[], topUp: number[], decide: boolean, change: number, till: number[], parts = [price]): CustomerPlan =>

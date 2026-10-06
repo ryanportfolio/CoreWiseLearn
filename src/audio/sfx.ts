@@ -36,6 +36,10 @@ import {
 export type SfxName =
   | 'pop' // a bubble popped; use `index` for combo pitch climb
   | 'pop-big' // combo milestone or special pop
+  | 'till-drawer' // a wooden till drawer slides open with a soft bell
+  | 'coin-stack' // a coin settles on a stack; use `index` for a pitch that climbs as the stack grows
+  | 'paper-rustle' // a paper bill lands or flutters
+  | 'harbour-chime' // something in the harbour changes for the better: a low bell arpeggio
   | 'miss' // soft, never harsh; a bubble floated away
   | 'key' // a letter typed; use `index` (0..25) for per-letter pitch
   | 'backspace'
@@ -67,6 +71,10 @@ export interface SfxOptions {
 export const SFX_NAMES: readonly SfxName[] = [
   'pop',
   'pop-big',
+  'till-drawer',
+  'coin-stack',
+  'paper-rustle',
+  'harbour-chime',
   'miss',
   'key',
   'backspace',
@@ -85,6 +93,10 @@ export const SFX_NAMES: readonly SfxName[] = [
 export const SFX_DURATION: Readonly<Record<SfxName, number>> = {
   pop: 0.16,
   'pop-big': 0.6,
+  'till-drawer': 0.7,
+  'coin-stack': 0.3,
+  'paper-rustle': 0.22,
+  'harbour-chime': 1.3,
   miss: 0.25,
   key: 0.52,
   backspace: 0.16,
@@ -111,6 +123,10 @@ const DEDUPE_SECONDS = 0.03;
 export const SFX_PATCHES: Record<SfxName, Patch> = {
   pop: makePatch(),
   'pop-big': makePatch(),
+  'till-drawer': makePatch({ brightness: 2000 }),
+  'coin-stack': makePatch(),
+  'paper-rustle': makePatch({ brightness: 2000 }),
+  'harbour-chime': makePatch({ brightness: 2400 }),
   miss: makePatch({ brightness: 1400 }),
   key: makePatch(),
   backspace: makePatch({ brightness: 2000 }),
@@ -450,6 +466,37 @@ export function playSfx(audio: Audio, name: SfxName, options: SfxOptions = {}): 
       for (let i = 0; i < sparkle.length; i++) {
         bell(v, t + 0.08 + i * 0.07, hz(sparkle[i] ?? 72), 0.06 * body.overtone, out, bt);
       }
+      break;
+    }
+    case 'till-drawer': {
+      // A wooden drawer: a short low slide of filtered noise, a soft knock as it stops, and the till's small bell (G4).
+      v.noise(t, at(0.04), dc(0.12), 0.12 * finite(p.noise, 1, 0), kit.wood);
+      const knock = v.tone(0, hz(50), t + 0.12, at(0.002), dc(0.12), 0.2, out); // D3 falling
+      knock.frequency.exponentialRampToValueAtTime(hz(45), t + 0.22);
+      v.noise(t + 0.12, 0.001, dc(0.02), 0.22 * p.noise, kit.wood);
+      bell(v, t + 0.16, hz(67), 0.09, out, shaped(p, { ...BELL, decay: 0.5 }));
+      break;
+    }
+    case 'coin-stack': {
+      // A soft low clink: two short bell partials a sixth apart (C4 up the scale with `index`) and a tiny contact tick.
+      const f = hz(pentaMidi(climb(index), 60));
+      const bt = shaped(p, { ...BELL, decay: 0.18, overtone: 0.25 });
+      bell(v, t, f, 0.08, out, bt);
+      bell(v, t + 0.03, f * 1.68, 0.04, out, bt);
+      v.noise(t, 0.001, dc(0.01), 0.07 * p.noise, kit.wood);
+      break;
+    }
+    case 'paper-rustle': {
+      // Three quick soft paper scuffs through the pop band, each a little quieter.
+      for (let i = 0; i < 3; i++) v.noise(t + i * 0.05, at(0.008), dc(0.045), (0.13 - i * 0.03) * finite(p.noise, 1, 0), kit.popBand);
+      break;
+    }
+    case 'harbour-chime': {
+      // G4 C5 E5 G5 as soft bells over a low C3 marimba: warm, never above G5.
+      const notes = [67, 72, 76, 79];
+      const bt = shaped(p, { ...BELL, decay: 0.8, overtone: 0.2 });
+      for (let i = 0; i < notes.length; i++) bell(v, t + i * 0.11, hz(notes[i] ?? 72), 0.1, out, bt);
+      marimba(v, t, hz(48), 0.14, out, shaped(p, { ...MARIMBA, decay: 0.6 }));
       break;
     }
     case 'miss': {

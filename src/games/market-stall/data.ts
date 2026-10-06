@@ -16,7 +16,7 @@ export interface PendingRound {
 }
 
 export interface StallData extends Record<string, unknown> {
-  /** Motor tier: piece size, zone sizes, snap distance, till kinds, one-press send. */
+  /** Motor tier: piece size, zone sizes, snap distance, till kinds. */
   tier: number;
   qualifyingRounds: number;
   rounds: number;
