@@ -62,7 +62,7 @@ export interface FrogPondScene extends Scene { readonly stats: FrogPondStats }
 
 const spriteName = (path: string): string => path.replace(/\.\w+$/, '');
 function artList(): { name: string; path: string }[] {
-  const paths = [`${BG}.webp`, ...[...new Set([...RHYME_ART, ...POT_ART, ...SENTENCE_ART])].map(n => `${n}.webp`), `${BUTTON_PLAY}.png`, `${BUTTON_HOME}.png`, BOOK_ICON_PATH];
+  const paths = [`${BG}.webp`, ...[...new Set([...RHYME_ART, ...POT_ART, ...SENTENCE_ART])].map(n => `${n}.webp`), `${BUTTON_PLAY}.webp`, `${BUTTON_HOME}.webp`, BOOK_ICON_PATH];
   return [...paths.map(path => ({ name: spriteName(path), path })), ...STICKERS.filter(s => s.game === GAME_ID).map(s => ({ name: stickerSpriteName(s.id), path: s.path }))];
 }
 export async function loadFrogPondArt(services: AppServices): Promise<string[]> {

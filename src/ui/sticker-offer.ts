@@ -20,7 +20,7 @@ import { clamp01, easeInCubic, easeInOutSine, easeOutCubic, lerp } from './tween
 
 /** The hub's sticker-book icon, drawn on the book's cover. Games load it with their own art. */
 export const BOOK_ICON = 'buttons/sticker-star';
-export const BOOK_ICON_PATH = 'buttons/sticker-star.png';
+export const BOOK_ICON_PATH = 'buttons/sticker-star.webp';
 /** After a pick: the sticker lifts, flies into the book, then the book bounces. PICK_SECONDS is the whole of it. */
 export const PICK_LIFT = 0.12, PICK_FLY = 0.5, BOOK_BOUNCE = 0.3;
 export const PICK_SECONDS = PICK_LIFT + PICK_FLY + BOOK_BOUNCE;

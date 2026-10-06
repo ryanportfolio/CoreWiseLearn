@@ -22,7 +22,7 @@ import { loadVoiceList, sayShape, startVoice, stopVoice } from './voice';
 export const GAME_ID = 'shape-workshop';
 const ART = {
   wall: 'shape-workshop/workshop-wall.webp', grain: 'shape-workshop/paper-grain.webp', hand: 'shape-workshop/hand.webp',
-  gallery: 'shape-workshop/gallery.webp', brush: 'shape-workshop/brush.webp', home: 'buttons/home.png',
+  gallery: 'shape-workshop/gallery.webp', brush: 'shape-workshop/brush.webp', home: 'buttons/home.webp',
 };
 const sprite = (path: string): string => path.replace(/\.[a-z0-9]+$/i, '');
 const WALL = sprite(ART.wall), HAND = sprite(ART.hand);

@@ -192,7 +192,7 @@ export async function loadAllArt(services: AppServices, reqs: readonly ArtReques
   await Promise.all(reqs.map((r) => loadArt(services, r)));
 }
 
-/** Request for a plain art path such as 'mascot/idle.png'; the sprite name drops the extension. */
+/** Request for a plain art path such as 'mascot/idle.webp'; the sprite name drops the extension. */
 export function artRequest(services: AppServices, path: string, kind: PlaceholderKind, color?: string): ArtRequest {
   const req: ArtRequest = { name: path.replace(/\.[a-z0-9]+$/i, ''), url: services.art(path), kind };
   if (color !== undefined) req.color = color;
@@ -206,8 +206,8 @@ export const SOUND_WAITING = 'buttons/sound-waiting';
 
 export function soundArt(services: AppServices): ArtRequest[] {
   return [
-    artRequest(services, `${SOUND_ON}.png`, 'speaker-on', '#ffffff'),
-    artRequest(services, `${SOUND_OFF}.png`, 'speaker-off', '#ffffff'),
+    artRequest(services, `${SOUND_ON}.webp`, 'speaker-on', '#ffffff'),
+    artRequest(services, `${SOUND_OFF}.webp`, 'speaker-off', '#ffffff'),
     { name: SOUND_WAITING, url: placeholderUrl('speaker-waiting', '#ffffff'), kind: 'speaker-waiting' },
   ];
 }

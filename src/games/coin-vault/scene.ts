@@ -216,7 +216,7 @@ const spriteName = (path: string): string => path.replace(/\.\w+$/, '');
 
 function artList(): { name: string; path: string }[] {
   const paths = [`${BG}.webp`, `${STUMP}.webp`, `${DOOR}.webp`, `${MAT}.webp`, `${BOARD}.webp`, `${LOCK}.webp`, `${TAG}.webp`, `${PURSE}.webp`, `${HAND}.webp`,
-    `${BUTTON_PLAY}.png`, `${BUTTON_HOME}.png`, BOOK_ICON_PATH, `${SYMBOL}.webp`, `${JAR}.webp`, `${RIBBON}.webp`, `${GIFT_TAG}.webp`];
+    `${BUTTON_PLAY}.webp`, `${BUTTON_HOME}.webp`, BOOK_ICON_PATH, `${SYMBOL}.webp`, `${JAR}.webp`, `${RIBBON}.webp`, `${GIFT_TAG}.webp`];
   for (const n of GOAL_NAMES) paths.push(`${n}.webp`);
   for (const n of DISH_NAMES) paths.push(`${n}.webp`);
   for (const n of BILL_NAMES) paths.push(`${n}.webp`);

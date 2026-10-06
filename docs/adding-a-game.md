@@ -16,7 +16,7 @@ Each game may have its own medium and palette. Keep familiar home, mute, play, p
 export const myGame: GameDefinition = {
   id: 'my-game',
   title: 'My Game',
-  icon: 'tiles/my-game.png',
+  icon: 'tiles/my-game.webp',
   themes: ['shapes'],
   mode: 'round',
   learning: ['shapes'],

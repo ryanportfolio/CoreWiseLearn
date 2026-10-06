@@ -142,7 +142,7 @@ const STATE_NAMES = ['off', 'chute', 'fall', 'roll', 'rest', 'held', 'fly', 'slo
 
 function artList(): { name: string; path: string }[] {
   const paths = [BG, SHELF, STEPS_ART, TRAY, CHUTE, HEN, CHICK, HAND].map(n => `${n}.webp`);
-  paths.push(`${BUTTON_PLAY}.png`, `${BUTTON_HOME}.png`, BOOK_ICON_PATH);
+  paths.push(`${BUTTON_PLAY}.webp`, `${BUTTON_HOME}.webp`, BOOK_ICON_PATH);
   for (const pair of PIGGY_NAMES) for (const n of pair) paths.push(`${n}.webp`);
   for (const pair of COIN_SPRITES) for (const n of pair) paths.push(`${n}.webp`);
   return [...paths.map(path => ({ name: path.replace(/\.\w+$/, ''), path })), ...STICKERS.filter(st => st.game === GAME_ID).map(st => ({ name: stickerSpriteName(st.id), path: st.path }))];

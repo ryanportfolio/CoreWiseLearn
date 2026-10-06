@@ -124,7 +124,7 @@ const dinoName = (kind: number, pose: number): string => DINO_NAMES[kind % 3]![p
 const fruitName = (kind: number): string => FRUIT_NAMES[kind % FRUITS.length]!;
 
 function artList(): { name: string; path: string }[] {
-  const paths = [`${BG}.webp`, `${PLATE}.webp`, `${BASKET}.webp`, `${HAND}.webp`, `${BUTTON_PLAY}.png`, `${BUTTON_HOME}.png`, BOOK_ICON_PATH];
+  const paths = [`${BG}.webp`, `${PLATE}.webp`, `${BASKET}.webp`, `${HAND}.webp`, `${BUTTON_PLAY}.webp`, `${BUTTON_HOME}.webp`, BOOK_ICON_PATH];
   for (let k = 0; k < 3; k++) for (let p = 0; p < 3; p++) paths.push(`${dinoName(k, p)}.webp`);
   for (let f = 0; f < FRUITS.length; f++) paths.push(`${fruitName(f)}.webp`);
   return [...paths.map(path => ({ name: spriteName(path), path })), ...STICKERS.filter(s => s.game === GAME_ID).map(s => ({ name: stickerSpriteName(s.id), path: s.path }))];

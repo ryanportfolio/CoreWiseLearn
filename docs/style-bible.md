@@ -27,9 +27,9 @@ The concept sheet is a visual direction, not a screenshot of implemented games. 
 
 Use the built-in image generator for new bitmap art. Preserve the prompt, available model metadata, generation date, and reference roles. Review faces, anatomy, edges, and recognizability before shipping. Do not invent a model name when the generation tool does not report one.
 
-Keep animated parts separate and review their poses or frames. Draw exact letters, numerals, and quantities in code. `scripts/prepare-art.mjs` resizes into a separate output file and preserves alpha; `--palette` is optional for flat illustrations. Clay and paper worlds may retain true color. Review transparent edges on light and dark backgrounds; add bleeding or trim only when the specific asset needs it.
+Keep animated parts separate and review their poses or frames. Draw exact letters, numerals, and quantities in code. `scripts/prepare-art.mjs` resizes into a separate output file and preserves alpha; a `.webp` output is written at quality 92 with alpha quality 100, and `--palette` is optional for flat illustrations written as PNG. Clay and paper worlds may retain true color. Review transparent edges on light and dark backgrounds; add bleeding or trim only when the specific asset needs it.
 
-Current v1 art was reduced to indexed PNGs for the offline payload. Reviewed originals are retained outside the checkout. No new runtime image request or image-generation service is used by the children's browser.
+Current v1 art was reduced to indexed PNGs for the offline payload, then re-encoded as WebP (quality 92, alpha quality 100) on 2026-10-05. Reviewed originals are retained outside the checkout. No new runtime image request or image-generation service is used by the children's browser.
 
 ## Motion and sound
 

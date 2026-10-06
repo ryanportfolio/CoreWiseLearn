@@ -45,7 +45,7 @@ const SPARKLE_COLORS = ['#ffcf3a', '#ff7f5c'] as const;
 const WARM_RETRIES = 4;
 const IDLE_OPTIONS: IdleRequestOptions = { timeout: 500 };
 const REWARD_ART = ['rewards/shell-coral.webp', 'rewards/shell-mint.webp', 'rewards/shell-closed-coral.webp', 'rewards/shell-closed-mint.webp', 'rewards/counting-tray.webp', 'rewards/gold-star.webp'];
-const BUTTON_PLAY_PATH = 'buttons/play-arrow.png', BUTTON_HOME_PATH = 'buttons/home.png';
+const BUTTON_PLAY_PATH = 'buttons/play-arrow.webp', BUTTON_HOME_PATH = 'buttons/home.webp';
 type Phase = 'intro' | 'play' | 'celebration' | 'choice' | 'sticker' | 'rest';
 type Wave = 'warmup' | 'wave' | 'breather' | 'finale';
 export interface BubblePopOptions { roundSeconds?: number; theme?: BubbleTheme }

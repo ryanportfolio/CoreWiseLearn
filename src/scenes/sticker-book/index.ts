@@ -58,7 +58,7 @@ const PLACEHOLDER_HUES = ['#ff8a5c', '#5fd36b', '#c084fc', '#ffd23f', '#ff6b6b',
 function stickerArt(services: AppServices, stickers: readonly StickerDef[]): ArtRequest[] {
   return [
     artRequest(services, `${BG}.webp`, 'none'),
-    artRequest(services, `${HOME}.png`, 'home', '#ffffff'),
+    artRequest(services, `${HOME}.webp`, 'home', '#ffffff'),
     ...soundArt(services),
     ...stickers.map((def, i) => ({ name: stickerSpriteName(def.id), url: services.art(def.path), kind: 'blob' as const, color: PLACEHOLDER_HUES[i % PLACEHOLDER_HUES.length] ?? '#ffffff' })),
   ];

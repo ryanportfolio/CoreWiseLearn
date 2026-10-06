@@ -8,7 +8,7 @@ import type { GameDefinition } from '../../engine/registry';
 export const bubblePop: GameDefinition = {
   id: 'bubble-pop',
   title: 'Bubble Pop',
-  icon: 'tiles/ocean-octopus.png',
+  icon: 'tiles/ocean-octopus.webp',
   themes: ['numbers', 'motor', 'ocean'],
   createScene: (services) => createBubblePopScene(services),
 };
