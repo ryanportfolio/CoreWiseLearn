@@ -113,11 +113,11 @@ export function gameIconUrl(services: AppServices, icon: string): string {
 function hubArt(services: AppServices): ArtRequest[] {
   const reqs: ArtRequest[] = [
     artRequest(services, `${BG}.webp`, 'none'),
-    artRequest(services, `${WAVE}.png`, 'blob', MASCOT_BLUE),
-    artRequest(services, `${IDLE}.png`, 'blob', MASCOT_BLUE),
-    artRequest(services, `${POINT}.png`, 'blob', MASCOT_BLUE),
-    artRequest(services, `${SILHOUETTE}.png`, 'person', '#ffffff'),
-    artRequest(services, `${STICKER_STAR}.png`, 'star', '#ffd23f'),
+    artRequest(services, `${WAVE}.webp`, 'blob', MASCOT_BLUE),
+    artRequest(services, `${IDLE}.webp`, 'blob', MASCOT_BLUE),
+    artRequest(services, `${POINT}.webp`, 'blob', MASCOT_BLUE),
+    artRequest(services, `${SILHOUETTE}.webp`, 'person', '#ffffff'),
+    artRequest(services, `${STICKER_STAR}.webp`, 'star', '#ffd23f'),
     ...soundArt(services),
   ];
   const profile = services.profile();

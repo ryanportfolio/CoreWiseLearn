@@ -12,7 +12,7 @@ All commands run from the repo root with npm (Node 20.19 or newer, or 22.12 or n
 | `npm run typecheck` | `tsc --noEmit` against `tsconfig.json` (strict). Run before every commit. |
 | `npm run build` | Production build into `dist/`, then check complete public-asset precaching and total byte reporting. |
 | `npm run check:precache` | Check an already-built production bundle. |
-| `node scripts/prepare-art.mjs input.png output.png --palette` | Prepare separate optimized flat-art output; omit palette for true color. |
+| `node scripts/prepare-art.mjs input.png output.webp` | Resize art into a separate WebP file (quality 92, alpha quality 100). A `.png` output writes PNG, with `--palette` for 256 colors. |
 | `npm run preview` | Serve `dist/` at `http://localhost:4173/`. Use this, not `dev`, to check offline behaviour and installability. |
 | `node scripts/make-icons.mjs` | Regenerate the placeholder PNG icons in `public/icons/`. |
 

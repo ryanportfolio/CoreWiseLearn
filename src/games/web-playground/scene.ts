@@ -102,7 +102,7 @@ interface Ball {
 function artList(): { name: string; path: string }[] {
   return [
     ...ART.map(name => ({ name: spriteName(name), path: `${ART_DIR}${name}.webp` })),
-    { name: BUTTON_PLAY, path: `${BUTTON_PLAY}.png` }, { name: BUTTON_HOME, path: `${BUTTON_HOME}.png` }, { name: BOOK_ICON, path: BOOK_ICON_PATH },
+    { name: BUTTON_PLAY, path: `${BUTTON_PLAY}.webp` }, { name: BUTTON_HOME, path: `${BUTTON_HOME}.webp` }, { name: BOOK_ICON, path: BOOK_ICON_PATH },
     ...STICKERS.filter(s => s.game === GAME_ID).map(s => ({ name: stickerSpriteName(s.id), path: s.path })),
   ];
 }

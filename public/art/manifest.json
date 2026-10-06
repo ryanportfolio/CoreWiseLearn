@@ -1,488 +1,488 @@
 {
   "style": "Flat chunky vector, thick dark outlines, flat saturated fills, single soft highlight, no text. Sprites are 512x512 RGBA (mascot poses 768x768) with the subject centred and fitted to 80 percent of the canvas; backgrounds are 1920x1080 opaque WebP.",
   "generatedWith": "OpenAI image_gen through Codex CLI (gpt-6-astra agent), downscaled with the project scratch script .tmp/art/png.mjs",
-  "count": 114,
-  "totalBytes": 6091953,
+  "count": 131,
+  "totalBytes": 4501884,
   "files": [
     {
-      "file": "art/mascot/cheer.png",
+      "file": "art/mascot/cheer.webp",
       "group": "mascot",
       "name": "cheer",
       "use": "Mascot celebrating a win or a completed round (confetti drawn in code)",
       "width": 768,
       "height": 768,
       "transparent": true,
-      "bytes": 135487
+      "bytes": 42668
     },
     {
-      "file": "art/mascot/idle.png",
+      "file": "art/mascot/idle.webp",
       "group": "mascot",
       "name": "idle",
       "use": "Mascot resting pose for the hub and idle moments",
       "width": 768,
       "height": 768,
       "transparent": true,
-      "bytes": 128982
+      "bytes": 37684
     },
     {
-      "file": "art/mascot/point.png",
+      "file": "art/mascot/point.webp",
       "group": "mascot",
       "name": "point",
       "use": "Mascot pointing right to direct attention at a tile or button",
       "width": 768,
       "height": 768,
       "transparent": true,
-      "bytes": 114191
+      "bytes": 33580
     },
     {
-      "file": "art/mascot/wave.png",
+      "file": "art/mascot/wave.webp",
       "group": "mascot",
       "name": "wave",
       "use": "Mascot waving hello on the name-entry and welcome screens",
       "width": 768,
       "height": 768,
       "transparent": true,
-      "bytes": 120108
+      "bytes": 36138
     },
     {
-      "file": "art/mascot/yawn.png",
+      "file": "art/mascot/yawn.webp",
       "group": "mascot",
       "name": "yawn",
       "use": "Mascot yawning for the bedtime or inactivity prompt",
       "width": 768,
       "height": 768,
       "transparent": true,
-      "bytes": 159600
+      "bytes": 36960
     },
     {
-      "file": "art/mascot/cheer-closed.png",
+      "file": "art/mascot/cheer-closed.webp",
       "group": "mascot",
       "name": "cheer-closed",
       "use": "Mascot cheer pose with the mouth closed, swapped with the open pose while Wibble talks",
       "width": 768,
       "height": 768,
       "transparent": true,
-      "bytes": 136683
+      "bytes": 40220
     },
     {
-      "file": "art/mascot/wave-closed.png",
+      "file": "art/mascot/wave-closed.webp",
       "group": "mascot",
       "name": "wave-closed",
       "use": "Mascot wave pose with the mouth closed, swapped with the open pose while Wibble talks",
       "width": 768,
       "height": 768,
       "transparent": true,
-      "bytes": 122110
+      "bytes": 34850
     },
     {
-      "file": "art/mascot/yawn-closed.png",
+      "file": "art/mascot/yawn-closed.webp",
       "group": "mascot",
       "name": "yawn-closed",
       "use": "Mascot yawn pose with the mouth closed, swapped with the open pose while Wibble talks",
       "width": 768,
       "height": 768,
       "transparent": true,
-      "bytes": 160674
+      "bytes": 33910
     },
     {
-      "file": "art/mascot/idle-open.png",
+      "file": "art/mascot/idle-open.webp",
       "group": "mascot",
       "name": "idle-open",
       "use": "Mascot idle pose with the mouth open, swapped with the closed pose while Wibble talks",
       "width": 768,
       "height": 768,
       "transparent": true,
-      "bytes": 130957
+      "bytes": 39094
     },
     {
-      "file": "art/mascot/point-open.png",
+      "file": "art/mascot/point-open.webp",
       "group": "mascot",
       "name": "point-open",
       "use": "Mascot point pose with the mouth open, swapped with the closed pose while Wibble talks",
       "width": 768,
       "height": 768,
       "transparent": true,
-      "bytes": 115583
+      "bytes": 34932
     },
     {
-      "file": "art/tiles/candy-rainbow.png",
+      "file": "art/tiles/candy-rainbow.webp",
       "group": "tiles",
       "name": "candy-rainbow",
       "use": "Hub tile icon for a future candy game",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 40687
+      "bytes": 25834
     },
     {
-      "file": "art/tiles/dino-green.png",
+      "file": "art/tiles/dino-green.webp",
       "group": "tiles",
       "name": "dino-green",
       "use": "Hub tile icon for a future dinosaur game",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 56110
+      "bytes": 31422
     },
     {
-      "file": "art/tiles/ocean-octopus.png",
+      "file": "art/tiles/ocean-octopus.webp",
       "group": "tiles",
       "name": "ocean-octopus",
       "use": "Hub tile icon for the ocean bubble-pop game (active)",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 72085
+      "bytes": 42896
     },
     {
-      "file": "art/tiles/rocket-red.png",
+      "file": "art/tiles/rocket-red.webp",
       "group": "tiles",
       "name": "rocket-red",
       "use": "Hub tile icon for a future rocket game",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 47966
+      "bytes": 21822
     },
     {
-      "file": "art/tiles/unicorn-rainbow.png",
+      "file": "art/tiles/unicorn-rainbow.webp",
       "group": "tiles",
       "name": "unicorn-rainbow",
       "use": "Hub tile icon for a future unicorn game",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 48455
+      "bytes": 35944
     },
     {
-      "file": "art/buttons/avatar-silhouette.png",
+      "file": "art/buttons/avatar-silhouette.webp",
       "group": "buttons",
       "name": "avatar-silhouette",
       "use": "Placeholder profile icon before an avatar is chosen",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 67257
+      "bytes": 13374
     },
     {
-      "file": "art/buttons/backspace.png",
+      "file": "art/buttons/backspace.webp",
       "group": "buttons",
       "name": "backspace",
       "use": "Delete-letter key on the name-entry keyboard",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 42879
+      "bytes": 8612
     },
     {
-      "file": "art/buttons/home.png",
+      "file": "art/buttons/home.webp",
       "group": "buttons",
       "name": "home",
       "use": "Back-to-hub button icon",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 61044
+      "bytes": 21704
     },
     {
-      "file": "art/buttons/play-arrow.png",
+      "file": "art/buttons/play-arrow.webp",
       "group": "buttons",
       "name": "play-arrow",
       "use": "Start or play button icon",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 59548
+      "bytes": 11106
     },
     {
-      "file": "art/buttons/sound-off.png",
+      "file": "art/buttons/sound-off.webp",
       "group": "buttons",
       "name": "sound-off",
       "use": "Sound toggle icon, sound muted",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 71813
+      "bytes": 17364
     },
     {
-      "file": "art/buttons/sound-on.png",
+      "file": "art/buttons/sound-on.webp",
       "group": "buttons",
       "name": "sound-on",
       "use": "Sound toggle icon, sound on",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 54157
+      "bytes": 15138
     },
     {
-      "file": "art/buttons/stars-empty.png",
+      "file": "art/buttons/stars-empty.webp",
       "group": "buttons",
       "name": "stars-empty",
       "use": "Unearned rating star",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 57939
+      "bytes": 12434
     },
     {
-      "file": "art/buttons/stars-filled.png",
+      "file": "art/buttons/stars-filled.webp",
       "group": "buttons",
       "name": "stars-filled",
       "use": "Earned rating star",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 58707
+      "bytes": 17072
     },
     {
-      "file": "art/buttons/sticker-star.png",
+      "file": "art/buttons/sticker-star.webp",
       "group": "buttons",
       "name": "sticker-star",
       "use": "Sticker book button icon",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 62468
+      "bytes": 16960
     },
     {
-      "file": "art/creatures/clownfish.png",
+      "file": "art/creatures/clownfish.webp",
       "group": "creatures",
       "name": "clownfish",
       "use": "Pop-game bubble creature",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 60060
+      "bytes": 34370
     },
     {
-      "file": "art/creatures/crab.png",
+      "file": "art/creatures/crab.webp",
       "group": "creatures",
       "name": "crab",
       "use": "Pop-game bubble creature",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 63638
+      "bytes": 35794
     },
     {
-      "file": "art/creatures/dolphin.png",
+      "file": "art/creatures/dolphin.webp",
       "group": "creatures",
       "name": "dolphin",
       "use": "Pop-game bubble creature",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 55892
+      "bytes": 21450
     },
     {
-      "file": "art/creatures/jellyfish.png",
+      "file": "art/creatures/jellyfish.webp",
       "group": "creatures",
       "name": "jellyfish",
       "use": "Pop-game bubble creature",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 58624
+      "bytes": 29192
     },
     {
-      "file": "art/creatures/octopus-purple.png",
+      "file": "art/creatures/octopus-purple.webp",
       "group": "creatures",
       "name": "octopus-purple",
       "use": "Pop-game bubble creature",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 66554
+      "bytes": 39342
     },
     {
-      "file": "art/creatures/pufferfish.png",
+      "file": "art/creatures/pufferfish.webp",
       "group": "creatures",
       "name": "pufferfish",
       "use": "Pop-game bubble creature",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 58199
+      "bytes": 31392
     },
     {
-      "file": "art/creatures/seahorse.png",
+      "file": "art/creatures/seahorse.webp",
       "group": "creatures",
       "name": "seahorse",
       "use": "Pop-game bubble creature",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 37420
+      "bytes": 23924
     },
     {
-      "file": "art/creatures/starfish.png",
+      "file": "art/creatures/starfish.webp",
       "group": "creatures",
       "name": "starfish",
       "use": "Pop-game bubble creature",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 57250
+      "bytes": 23400
     },
     {
-      "file": "art/creatures/turtle.png",
+      "file": "art/creatures/turtle.webp",
       "group": "creatures",
       "name": "turtle",
       "use": "Pop-game bubble creature",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 53283
+      "bytes": 30676
     },
     {
-      "file": "art/creatures/whale-small.png",
+      "file": "art/creatures/whale-small.webp",
       "group": "creatures",
       "name": "whale-small",
       "use": "Pop-game bubble creature",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 51432
+      "bytes": 21618
     },
     {
-      "file": "art/decoys/seaweed-clump.png",
+      "file": "art/decoys/seaweed-clump.webp",
       "group": "decoys",
       "name": "seaweed-clump",
       "use": "Pop-game decoy or floor dressing",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 50772
+      "bytes": 26906
     },
     {
-      "file": "art/decoys/urchin-grumpy.png",
+      "file": "art/decoys/urchin-grumpy.webp",
       "group": "decoys",
       "name": "urchin-grumpy",
       "use": "Pop-game decoy: do not pop",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 75078
+      "bytes": 33768
     },
     {
-      "file": "art/effects/bubble-ring.png",
+      "file": "art/effects/bubble-ring.webp",
       "group": "effects",
       "name": "bubble-ring",
       "use": "Bubble overlay drawn over a creature; inside is transparent",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 62418
+      "bytes": 39692
     },
     {
-      "file": "art/effects/confetti-piece-set.png",
+      "file": "art/effects/confetti-piece-set.webp",
       "group": "effects",
       "name": "confetti-piece-set",
       "use": "Six confetti shapes on a 3 by 2 grid, cropped in code (3 columns by 2 rows, cells about 170 by 256 px)",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 34144
+      "bytes": 21086
     },
     {
-      "file": "art/effects/pop-burst.png",
+      "file": "art/effects/pop-burst.webp",
       "group": "effects",
       "name": "pop-burst",
       "use": "Burst overlay shown when a bubble pops; centre is transparent",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 50196
+      "bytes": 41192
     },
     {
-      "file": "art/effects/sparkle.png",
+      "file": "art/effects/sparkle.webp",
       "group": "effects",
       "name": "sparkle",
       "use": "Four-point sparkle for rewards and the sticker book",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 29109
+      "bytes": 14332
     },
     {
-      "file": "art/avatars/bunny.png",
+      "file": "art/avatars/bunny.webp",
       "group": "avatars",
       "name": "bunny",
       "use": "Child profile avatar",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 56126
+      "bytes": 27616
     },
     {
-      "file": "art/avatars/fox.png",
+      "file": "art/avatars/fox.webp",
       "group": "avatars",
       "name": "fox",
       "use": "Child profile avatar",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 73154
+      "bytes": 35290
     },
     {
-      "file": "art/avatars/frog.png",
+      "file": "art/avatars/frog.webp",
       "group": "avatars",
       "name": "frog",
       "use": "Child profile avatar",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 80600
+      "bytes": 26622
     },
     {
-      "file": "art/avatars/koala.png",
+      "file": "art/avatars/koala.webp",
       "group": "avatars",
       "name": "koala",
       "use": "Child profile avatar",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 58341
+      "bytes": 23708
     },
     {
-      "file": "art/avatars/lion.png",
+      "file": "art/avatars/lion.webp",
       "group": "avatars",
       "name": "lion",
       "use": "Child profile avatar",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 74092
+      "bytes": 32230
     },
     {
-      "file": "art/avatars/owl.png",
+      "file": "art/avatars/owl.webp",
       "group": "avatars",
       "name": "owl",
       "use": "Child profile avatar",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 75258
+      "bytes": 37944
     },
     {
-      "file": "art/avatars/panda.png",
+      "file": "art/avatars/panda.webp",
       "group": "avatars",
       "name": "panda",
       "use": "Child profile avatar",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 73117
+      "bytes": 24166
     },
     {
-      "file": "art/avatars/penguin.png",
+      "file": "art/avatars/penguin.webp",
       "group": "avatars",
       "name": "penguin",
       "use": "Child profile avatar",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 63536
+      "bytes": 23432
     },
     {
       "file": "art/backgrounds/hub-meadow-beach.webp",
@@ -935,20 +935,20 @@
       "bytes": 28792
     },
     {
-      "file": "art/frog-pond/pot.webp",
+      "file": "art/frog-pond/fountain.webp",
       "group": "frog-pond",
-      "name": "pot",
-      "use": "Frog Pond word pot: friendly bubbling pot holding the word bubbles",
+      "name": "fountain",
+      "use": "Frog Pond Word fountain: small friendly stone fountain whose spray carries the word bubbles up; also the activity's spot on the pond chooser",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 35920
+      "bytes": 46894
     },
     {
       "file": "art/frog-pond/cw-pancake.webp",
       "group": "frog-pond",
       "name": "cw-pancake",
-      "use": "Frog Pond word pot: picture of the compound word pancake",
+      "use": "Frog Pond Word fountain: picture of the compound word pancake",
       "width": 512,
       "height": 512,
       "transparent": true,
@@ -958,17 +958,17 @@
       "file": "art/frog-pond/cw-football.webp",
       "group": "frog-pond",
       "name": "cw-football",
-      "use": "Frog Pond word pot: picture of the compound word football",
+      "use": "Frog Pond Word fountain: picture of the compound word football (an American football)",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 28006
+      "bytes": 25744
     },
     {
       "file": "art/frog-pond/cw-starfish.webp",
       "group": "frog-pond",
       "name": "cw-starfish",
-      "use": "Frog Pond word pot: picture of the compound word starfish",
+      "use": "Frog Pond Word fountain: picture of the compound word starfish",
       "width": 512,
       "height": 512,
       "transparent": true,
@@ -978,7 +978,7 @@
       "file": "art/frog-pond/cw-bedtime.webp",
       "group": "frog-pond",
       "name": "cw-bedtime",
-      "use": "Frog Pond word pot: picture of the compound word bedtime",
+      "use": "Frog Pond Word fountain: picture of the compound word bedtime",
       "width": 512,
       "height": 512,
       "transparent": true,
@@ -988,7 +988,7 @@
       "file": "art/frog-pond/cw-seahorse.webp",
       "group": "frog-pond",
       "name": "cw-seahorse",
-      "use": "Frog Pond word pot: picture of the compound word seahorse",
+      "use": "Frog Pond Word fountain: picture of the compound word seahorse",
       "width": 512,
       "height": 512,
       "transparent": true,
@@ -998,7 +998,7 @@
       "file": "art/frog-pond/cw-baseball.webp",
       "group": "frog-pond",
       "name": "cw-baseball",
-      "use": "Frog Pond word pot: picture of the compound word baseball",
+      "use": "Frog Pond Word fountain: picture of the compound word baseball",
       "width": 512,
       "height": 512,
       "transparent": true,
@@ -1008,7 +1008,7 @@
       "file": "art/frog-pond/cw-ladybug.webp",
       "group": "frog-pond",
       "name": "cw-ladybug",
-      "use": "Frog Pond word pot: picture of the compound word ladybug",
+      "use": "Frog Pond Word fountain: picture of the compound word ladybug",
       "width": 512,
       "height": 512,
       "transparent": true,
@@ -1018,7 +1018,7 @@
       "file": "art/frog-pond/cw-hopscotch.webp",
       "group": "frog-pond",
       "name": "cw-hopscotch",
-      "use": "Frog Pond word pot: picture of the compound word hopscotch",
+      "use": "Frog Pond Word fountain: picture of the compound word hopscotch",
       "width": 512,
       "height": 512,
       "transparent": true,
@@ -1028,7 +1028,7 @@
       "file": "art/frog-pond/cw-treetop.webp",
       "group": "frog-pond",
       "name": "cw-treetop",
-      "use": "Frog Pond word pot: picture of the compound word treetop",
+      "use": "Frog Pond Word fountain: picture of the compound word treetop",
       "width": 512,
       "height": 512,
       "transparent": true,
@@ -1038,7 +1038,7 @@
       "file": "art/frog-pond/cw-zipline.webp",
       "group": "frog-pond",
       "name": "cw-zipline",
-      "use": "Frog Pond word pot: picture of the compound word zipline",
+      "use": "Frog Pond Word fountain: picture of the compound word zipline (no longer offered; kept for saved collections)",
       "width": 512,
       "height": 512,
       "transparent": true,
@@ -1048,7 +1048,7 @@
       "file": "art/frog-pond/cw-hairball.webp",
       "group": "frog-pond",
       "name": "cw-hairball",
-      "use": "Frog Pond word pot: picture of the compound word hairball",
+      "use": "Frog Pond Word fountain: picture of the compound word hairball (no longer offered; kept for saved collections)",
       "width": 512,
       "height": 512,
       "transparent": true,
@@ -1058,7 +1058,7 @@
       "file": "art/frog-pond/cw-laptop.webp",
       "group": "frog-pond",
       "name": "cw-laptop",
-      "use": "Frog Pond word pot: picture of the compound word laptop",
+      "use": "Frog Pond Word fountain: picture of the compound word laptop",
       "width": 512,
       "height": 512,
       "transparent": true,
@@ -1068,7 +1068,7 @@
       "file": "art/frog-pond/cw-pigpen.webp",
       "group": "frog-pond",
       "name": "cw-pigpen",
-      "use": "Frog Pond word pot: picture of the compound word pigpen",
+      "use": "Frog Pond Word fountain: picture of the compound word pigpen",
       "width": 512,
       "height": 512,
       "transparent": true,
@@ -1078,7 +1078,7 @@
       "file": "art/frog-pond/cw-bedbug.webp",
       "group": "frog-pond",
       "name": "cw-bedbug",
-      "use": "Frog Pond word pot: picture of the compound word bedbug",
+      "use": "Frog Pond Word fountain: picture of the compound word bedbug (no longer offered; kept for saved collections)",
       "width": 512,
       "height": 512,
       "transparent": true,
@@ -1088,7 +1088,7 @@
       "file": "art/frog-pond/cw-catfish.webp",
       "group": "frog-pond",
       "name": "cw-catfish",
-      "use": "Frog Pond word pot: picture of the compound word catfish",
+      "use": "Frog Pond Word fountain: picture of the compound word catfish",
       "width": 512,
       "height": 512,
       "transparent": true,
@@ -1098,7 +1098,7 @@
       "file": "art/frog-pond/cw-hotdog.webp",
       "group": "frog-pond",
       "name": "cw-hotdog",
-      "use": "Frog Pond word pot: picture of the compound word hotdog",
+      "use": "Frog Pond Word fountain: picture of the compound word hotdog",
       "width": 512,
       "height": 512,
       "transparent": true,
@@ -1108,17 +1108,17 @@
       "file": "art/frog-pond/cw-sunset.webp",
       "group": "frog-pond",
       "name": "cw-sunset",
-      "use": "Frog Pond word pot: picture of the compound word sunset",
+      "use": "Frog Pond Word fountain: picture of the compound word sunset",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 34818
+      "bytes": 24684
     },
     {
       "file": "art/frog-pond/cw-hilltop.webp",
       "group": "frog-pond",
       "name": "cw-hilltop",
-      "use": "Frog Pond word pot: picture of the compound word hilltop",
+      "use": "Frog Pond Word fountain: picture of the compound word hilltop",
       "width": 512,
       "height": 512,
       "transparent": true,
@@ -1128,7 +1128,7 @@
       "file": "art/frog-pond/cw-sandbox.webp",
       "group": "frog-pond",
       "name": "cw-sandbox",
-      "use": "Frog Pond word pot: picture of the compound word sandbox",
+      "use": "Frog Pond Word fountain: picture of the compound word sandbox",
       "width": 512,
       "height": 512,
       "transparent": true,
@@ -1138,18 +1138,189 @@
       "file": "art/frog-pond/cw-bathtub.webp",
       "group": "frog-pond",
       "name": "cw-bathtub",
-      "use": "Frog Pond word pot: picture of the compound word bathtub",
+      "use": "Frog Pond Word fountain: picture of the compound word bathtub",
       "width": 512,
       "height": 512,
       "transparent": true,
       "bytes": 32030
+    },
+    {
+      "file": "art/frog-pond/cw-rainbow.webp",
+      "group": "frog-pond",
+      "name": "cw-rainbow",
+      "use": "Frog Pond Word fountain: picture of the compound word rainbow",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 33146
+    },
+    {
+      "file": "art/frog-pond/cw-popcorn.webp",
+      "group": "frog-pond",
+      "name": "cw-popcorn",
+      "use": "Frog Pond Word fountain: picture of the compound word popcorn",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 39106
+    },
+    {
+      "file": "art/frog-pond/cw-backpack.webp",
+      "group": "frog-pond",
+      "name": "cw-backpack",
+      "use": "Frog Pond Word fountain: picture of the compound word backpack",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 34042
+    },
+    {
+      "file": "art/frog-pond/cw-cupcake.webp",
+      "group": "frog-pond",
+      "name": "cw-cupcake",
+      "use": "Frog Pond Word fountain: picture of the compound word cupcake",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 35736
+    },
+    {
+      "file": "art/frog-pond/cw-bulldog.webp",
+      "group": "frog-pond",
+      "name": "cw-bulldog",
+      "use": "Frog Pond Word fountain: picture of the compound word bulldog",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 42666
+    },
+    {
+      "file": "art/frog-pond/cw-mailbox.webp",
+      "group": "frog-pond",
+      "name": "cw-mailbox",
+      "use": "Frog Pond Word fountain: picture of the compound word mailbox",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 26038
+    },
+    {
+      "file": "art/frog-pond/cw-goldfish.webp",
+      "group": "frog-pond",
+      "name": "cw-goldfish",
+      "use": "Frog Pond Word fountain: picture of the compound word goldfish",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 33340
+    },
+    {
+      "file": "art/frog-pond/cw-snowman.webp",
+      "group": "frog-pond",
+      "name": "cw-snowman",
+      "use": "Frog Pond Word fountain: picture of the compound word snowman",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 29774
+    },
+    {
+      "file": "art/frog-pond/cw-snowball.webp",
+      "group": "frog-pond",
+      "name": "cw-snowball",
+      "use": "Frog Pond Word fountain: picture of the compound word snowball",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 23734
+    },
+    {
+      "file": "art/frog-pond/cw-sailboat.webp",
+      "group": "frog-pond",
+      "name": "cw-sailboat",
+      "use": "Frog Pond Word fountain: picture of the compound word sailboat",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 30514
+    },
+    {
+      "file": "art/frog-pond/cw-toothbrush.webp",
+      "group": "frog-pond",
+      "name": "cw-toothbrush",
+      "use": "Frog Pond Word fountain: picture of the compound word toothbrush",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 23904
+    },
+    {
+      "file": "art/frog-pond/cw-sunflower.webp",
+      "group": "frog-pond",
+      "name": "cw-sunflower",
+      "use": "Frog Pond Word fountain: picture of the compound word sunflower",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 41656
+    },
+    {
+      "file": "art/frog-pond/cw-jellyfish.webp",
+      "group": "frog-pond",
+      "name": "cw-jellyfish",
+      "use": "Frog Pond Word fountain: picture of the compound word jellyfish",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 36742
+    },
+    {
+      "file": "art/frog-pond/cw-pinecone.webp",
+      "group": "frog-pond",
+      "name": "cw-pinecone",
+      "use": "Frog Pond Word fountain: picture of the compound word pinecone",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 40838
+    },
+    {
+      "file": "art/frog-pond/cw-beehive.webp",
+      "group": "frog-pond",
+      "name": "cw-beehive",
+      "use": "Frog Pond Word fountain: picture of the compound word beehive",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 40356
+    },
+    {
+      "file": "art/frog-pond/cw-firefly.webp",
+      "group": "frog-pond",
+      "name": "cw-firefly",
+      "use": "Frog Pond Word fountain: picture of the compound word firefly",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 37652
+    },
+    {
+      "file": "art/frog-pond/cw-raincoat.webp",
+      "group": "frog-pond",
+      "name": "cw-raincoat",
+      "use": "Frog Pond Word fountain: picture of the compound word raincoat",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 45032
     }
   ],
   "prepared": {
     "date": "2026-10-02",
     "tool": "scripts/prepare-art.mjs with sharp",
     "settings": "PNG palette 256 colors, dither 0.5; backgrounds fit within 1366x768; alpha preserved",
-    "originals": "D:/CoreWise/_artifacts/CoreWiseLearn/v1.1-original-art/art"
+    "originals": "D:/CoreWise/_artifacts/CoreWiseLearn/v1.1-original-art/art",
+    "webp": "On 2026-10-05 the 48 prepared PNGs were re-encoded as WebP with sharp (quality 92, alpha quality 100, effort 6, the sprites' setting), same size and alpha; 3,543,783 bytes became 1,360,860. The prepared PNGs are kept in D:/CoreWise/_artifacts/CoreWiseLearn/png-before-webp and in git history."
   },
   "rewardArt": {
     "generatedWith": "OpenAI image_gen; model identifier not exposed",
@@ -1191,11 +1362,11 @@
     "generatedWith": "Codex CLI 0.159.0 (codex exec -m gpt-6-astra, reasoning effort medium) using its built-in image_gen tool, editing the attached original; the backend picks the image model and the log does not name it",
     "date": "2026-10-03",
     "files": [
-      "art/mascot/cheer.png",
-      "art/mascot/idle.png",
-      "art/mascot/point.png",
-      "art/mascot/wave.png",
-      "art/mascot/yawn.png",
+      "art/mascot/cheer.webp",
+      "art/mascot/idle.webp",
+      "art/mascot/point.webp",
+      "art/mascot/wave.webp",
+      "art/mascot/yawn.webp",
       "art/rewards/shell-coral.webp",
       "art/rewards/shell-mint.webp",
       "art/rewards/counting-tray.webp",
@@ -1216,6 +1387,8 @@
     "attempts": "One attempt each, except: frog-open (the first, frog-tongue, had a long tongue sticking up and a smaller frog; replaced by an open mouth so the game draws the tongue), cw-zipline (the first was thin and hard to read when small).",
     "source": "Raw 1254x1254 RGBA PNGs (frog-sit 1024x1024; pond 1672x941 opaque) and prompts retained outside public in D:/CoreWise/_artifacts/CoreWiseLearn/frog-pond-art",
     "preparation": "Sprites: alpha under 12 cleared, cropped to the alpha bounds, longest side fitted to 410 px (80 percent) centred on a 512x512 transparent canvas with Lanczos 3; frog-open and frog-puff instead take frog-sit's scale and foot line, matched by the width of the feet, so swapping poses does not shift the frog. Pond: cover-fit to 1920x1080 with Lanczos 3, opaque. WebP quality 92 with alpha quality 100 for sprites, quality 95 for the pond. Done with a scratch sharp script in place of scripts/prepare-art.mjs, which writes PNG and fits backgrounds within 1366x768.",
-    "tile": "tile.webp, 2026-10-05, same Codex CLI and image_gen as the sprites, first attempt, with frog-sit, lily-pad and bug-ladybird attached as style references. Prompt: the same happy frog on its round lily pad looking up and to the right at a small ladybird flying above its head, mouth open in a delighted smile, a few water ripple lines, compact silhouette filling about 80 percent, no text, background, frame, tongue or extra frogs; 1024x1024 transparent PNG. Prepared like the sprites (alpha under 12 cleared, cropped, fitted to 410 px on a 512x512 canvas, WebP quality 92, alpha quality 100). Raw file in D:/CoreWise/_artifacts/CoreWiseLearn/frog-pond-art/raw/tile-raw.png."
+    "tile": "tile.webp, 2026-10-05, same Codex CLI and image_gen as the sprites, first attempt, with frog-sit, lily-pad and bug-ladybird attached as style references. Prompt: the same happy frog on its round lily pad looking up and to the right at a small ladybird flying above its head, mouth open in a delighted smile, a few water ripple lines, compact silhouette filling about 80 percent, no text, background, frame, tongue or extra frogs; 1024x1024 transparent PNG. Prepared like the sprites (alpha under 12 cleared, cropped, fitted to 410 px on a 512x512 canvas, WebP quality 92, alpha quality 100). Raw file in D:/CoreWise/_artifacts/CoreWiseLearn/frog-pond-art/raw/tile-raw.png.",
+    "update": "fountain.webp (replacing pot.webp), cw-rainbow, cw-popcorn, cw-backpack, a new cw-football (an American football) and a new cw-sunset (no face), 2026-10-05: same Codex CLI 0.159.0 and image_gen, first attempt each, two runs (fountain and sunset; rainbow, popcorn, football and backpack) with creatures/crab, cw-baseball and the old pot attached as style references. Prompts locked the same house style plus no faces on anything; the fountain asked for a chunky round stone basin of sky-blue water, a short pillar holding a small bowl, one water jet spraying up from it and falling to both sides, and a few bubbles above the jet; the sunset asked for a round badge of orange and pink sky bands, a plain half sun on the sea horizon and golden reflections. Prepared exactly like the other sprites (alpha under 12 cleared, cropped, fitted to 410 px on 512x512 with Lanczos 3, WebP quality 92, alpha quality 100). Raw files in D:/CoreWise/_artifacts/CoreWiseLearn/frog-pond-art/word-fountain/.",
+    "moreWords": "cw-cupcake, cw-bulldog, cw-mailbox, cw-goldfish, cw-snowman, cw-snowball, cw-sailboat, cw-toothbrush, cw-sunflower, cw-jellyfish, cw-pinecone, cw-beehive, cw-firefly and cw-raincoat, 2026-10-05: same Codex CLI 0.159.0 and image_gen, four runs. The animals (bulldog, goldfish, jellyfish, firefly) had creatures/crab, cw-catfish and cw-ladybug attached as style references and were allowed the same simple natural face as those (dark eyes with a white shine dot, pink cheeks, a small smile); the snowman was allowed a snowman face (coal eyes, carrot nose, coal-dot smile); everything else had creatures/crab, cw-baseball and cw-backpack attached and no faces. First attempt each, except cw-pinecone: the first had a green needle sprig on top that read as a pineapple, so the second asked for no green at all. Prepared exactly like the other sprites (alpha under 12 cleared, cropped, fitted to 410 px on 512x512 with Lanczos 3, WebP quality 92, alpha quality 100). Raw files, prompts (mw1 to mw5) and logs in D:/CoreWise/_artifacts/CoreWiseLearn/frog-pond-art/word-fountain/."
   }
 }

@@ -45,7 +45,7 @@ const ART = 'letter-train/';
 const WAGONS = ['wagon-red', 'wagon-yellow', 'wagon-green', 'wagon-blue'] as const;
 const BLOCKS = ['block-red', 'block-yellow', 'block-green', 'block-blue'] as const;
 const BLOCK_INK = ['#b3261e', '#9a6a00', '#2e7d32', '#1f5fa8'] as const;
-const BUTTON_PLAY = 'buttons/play-arrow.png', BUTTON_HOME = 'buttons/home.png';
+const BUTTON_PLAY = 'buttons/play-arrow.webp', BUTTON_HOME = 'buttons/home.webp';
 const sprite = (path: string) => `${GAME_ID}:${path}`;
 const passengerSticker = (i: number) => `${GAME_ID}-${PASSENGERS[i] ?? 'bunny'}`;
 /** Passenger art sits in a square with transparent padding so it fits the sticker book's slot; draw sizes are multiplied by this to keep the animal's size. */

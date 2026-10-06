@@ -26,7 +26,7 @@ export function avatarFor(name: string | Profile): AvatarName {
 
 /** Sprite path under public/art/. */
 export function avatarPath(name: string | Profile): string {
-  return `avatars/${avatarFor(name)}.png`;
+  return `avatars/${avatarFor(name)}.webp`;
 }
 
 /** Sprite-store name: `avatar:<animal>`. */

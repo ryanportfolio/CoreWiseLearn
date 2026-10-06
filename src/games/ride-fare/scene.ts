@@ -175,7 +175,7 @@ const toTier = (n: unknown): Tier => (n === 1 ? 1 : n === 2 ? 2 : 0);
 const spriteName = (path: string): string => path.replace(/\.\w+$/, '');
 
 function artList(): { name: string; path: string }[] {
-  const paths = [`${BG}.webp`, `${BASKET}.webp`, `${ENVELOPE}.webp`, `${FAREBOX}.webp`, `${PANEL}.webp`, `${STAND}.webp`, `${TRAY}.webp`, `${HAND}.webp`, `${BUTTON_PLAY}.png`, `${BUTTON_HOME}.png`, BOOK_ICON_PATH];
+  const paths = [`${BG}.webp`, `${BASKET}.webp`, `${ENVELOPE}.webp`, `${FAREBOX}.webp`, `${PANEL}.webp`, `${STAND}.webp`, `${TRAY}.webp`, `${HAND}.webp`, `${BUTTON_PLAY}.webp`, `${BUTTON_HOME}.webp`, BOOK_ICON_PATH];
   for (const pair of ANIMAL_NAMES) for (const n of pair) paths.push(`${n}.webp`);
   for (const pair of COIN_FACES) for (const n of pair) paths.push(`${n}.webp`);
   return [...paths.map(path => ({ name: spriteName(path), path })), ...STICKERS.filter(s => s.game === GAME_ID).map(s => ({ name: stickerSpriteName(s.id), path: s.path }))];

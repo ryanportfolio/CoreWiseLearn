@@ -1,5 +1,5 @@
 /**
- * Frog Pond learning content: rhyme families, lily-pad sentences and word-pot compound words. Data only, no drawing.
+ * Frog Pond learning content: rhyme families, lily-pad sentences and Word fountain compound words. Data only, no drawing.
  * Words come from the reader's known-word list plus simple decodable words; all are lower case except a
  * sentence's first word and "I". Every word here is real and kid-safe.
  */
@@ -133,7 +133,7 @@ export const SENTENCES: readonly Sentence[] = [
   s('Is the bug on the twig', '?', { who: 'bug', what: 'twig', where: 'on' }),
 ];
 
-// ---------------------------------------------------------------- Word pot
+// ---------------------------------------------------------------- Word fountain
 
 export interface Compound {
   word: string;
@@ -141,7 +141,7 @@ export interface Compound {
   parts: readonly [string, string];
 }
 
-/** Each has a picture, public/art/frog-pond/cw-<word>.webp. */
+/** The words Word fountain offers. Each has a picture, public/art/frog-pond/cw-<word>.webp, and a clip, make-<word>. */
 export const COMPOUNDS: readonly Compound[] = [
   { word: 'pancake', parts: ['pan', 'cake'] },
   { word: 'football', parts: ['foot', 'ball'] },
@@ -152,24 +152,52 @@ export const COMPOUNDS: readonly Compound[] = [
   { word: 'ladybug', parts: ['lady', 'bug'] },
   { word: 'hopscotch', parts: ['hop', 'scotch'] },
   { word: 'treetop', parts: ['tree', 'top'] },
-  { word: 'zipline', parts: ['zip', 'line'] },
-  { word: 'hairball', parts: ['hair', 'ball'] },
+  { word: 'popcorn', parts: ['pop', 'corn'] },
+  { word: 'backpack', parts: ['back', 'pack'] },
   { word: 'laptop', parts: ['lap', 'top'] },
   { word: 'pigpen', parts: ['pig', 'pen'] },
-  { word: 'bedbug', parts: ['bed', 'bug'] },
+  { word: 'rainbow', parts: ['rain', 'bow'] },
   { word: 'catfish', parts: ['cat', 'fish'] },
   { word: 'hotdog', parts: ['hot', 'dog'] },
   { word: 'sunset', parts: ['sun', 'set'] },
   { word: 'hilltop', parts: ['hill', 'top'] },
   { word: 'sandbox', parts: ['sand', 'box'] },
   { word: 'bathtub', parts: ['bath', 'tub'] },
+  { word: 'cupcake', parts: ['cup', 'cake'] },
+  { word: 'bulldog', parts: ['bull', 'dog'] },
+  { word: 'mailbox', parts: ['mail', 'box'] },
+  { word: 'goldfish', parts: ['gold', 'fish'] },
+  { word: 'snowman', parts: ['snow', 'man'] },
+  { word: 'snowball', parts: ['snow', 'ball'] },
+  { word: 'sailboat', parts: ['sail', 'boat'] },
+  { word: 'toothbrush', parts: ['tooth', 'brush'] },
+  { word: 'sunflower', parts: ['sun', 'flower'] },
+  { word: 'jellyfish', parts: ['jelly', 'fish'] },
+  { word: 'pinecone', parts: ['pine', 'cone'] },
+  { word: 'beehive', parts: ['bee', 'hive'] },
+  { word: 'firefly', parts: ['fire', 'fly'] },
+  { word: 'raincoat', parts: ['rain', 'coat'] },
 ];
 
 /**
- * Real one-word compounds that two halves from COMPOUNDS also make, with no picture. A pot that holds both halves of
- * one of these should either accept it as a word or (simpler) never hold both together. Rarer real words that the halves
- * make (panfish, sandfish, ladyfish, pigfish, sunbath, hotfoot, hotbox) are left out: a child will not try them on purpose,
- * and a bonk on them loses nothing.
+ * Words Word fountain offered before and offers no more. A child may have made them, so they stay valid in the saved
+ * collection and keep their pictures and clips: they still swim in the pond. BEDBUG's halves are both still offered
+ * (BEDTIME, LADYBUG), so the planner keeps them apart like an extra.
+ */
+export const RETIRED_COMPOUNDS: readonly Compound[] = [
+  { word: 'bedbug', parts: ['bed', 'bug'] },
+  { word: 'zipline', parts: ['zip', 'line'] },
+  { word: 'hairball', parts: ['hair', 'ball'] },
+];
+
+/**
+ * Real one-word compounds that two halves from COMPOUNDS also make, with no picture. A round whose bubbles hold both
+ * halves of one of these should either accept it as a word or (simpler) never hold both together. Rarer real words that the halves
+ * make (panfish, sandfish, ladyfish, pigfish, sunbath, hotfoot, hotbox, sunbow, seabow, poptop, cornball, corncake,
+ * sandpack, seaman, baseman, footman, boatman, bullpen, backfire, brushfire, firebug, firedog, firebox, flyball, sandfly,
+ * sundog, seadog, topcoat, snowpack, cornflower, coneflower) are left out: a child will not try them on purpose, and a
+ * bonk on them loses nothing. CAKEPOP, POPSTAR, DOGMAN, GOLDSTAR, SNOWCONE and PINETREE are usually written as two words
+ * but are kept apart anyway, since a child may know cake pops, pop stars, Dog Man, gold stars, snow cones and pine trees.
  */
 export const EXTRA_COMPOUNDS: readonly Compound[] = [
   { word: 'footbath', parts: ['foot', 'bath'] },
@@ -181,24 +209,40 @@ export const EXTRA_COMPOUNDS: readonly Compound[] = [
   { word: 'bedpan', parts: ['bed', 'pan'] },
   { word: 'hotcake', parts: ['hot', 'cake'] },
   { word: 'hotbed', parts: ['hot', 'bed'] },
-  { word: 'hotline', parts: ['hot', 'line'] },
   { word: 'dogfish', parts: ['dog', 'fish'] },
-  { word: 'treeline', parts: ['tree', 'line'] },
   { word: 'bathtime', parts: ['bath', 'time'] },
-  { word: 'hairline', parts: ['hair', 'line'] },
-  { word: 'baseline', parts: ['base', 'line'] },
-  { word: 'timeline', parts: ['time', 'line'] },
   { word: 'fishcake', parts: ['fish', 'cake'] },
-  { word: 'horsehair', parts: ['horse', 'hair'] },
   { word: 'horsebox', parts: ['horse', 'box'] },
   { word: 'sandhill', parts: ['sand', 'hill'] },
+  { word: 'corndog', parts: ['corn', 'dog'] },
+  { word: 'horseback', parts: ['horse', 'back'] },
+  { word: 'packhorse', parts: ['pack', 'horse'] },
+  { word: 'setback', parts: ['set', 'back'] },
+  { word: 'cakepop', parts: ['cake', 'pop'] },
+  { word: 'popstar', parts: ['pop', 'star'] },
+  { word: 'fireman', parts: ['fire', 'man'] },
+  { word: 'mailman', parts: ['mail', 'man'] },
+  { word: 'sandman', parts: ['sand', 'man'] },
+  { word: 'horseman', parts: ['horse', 'man'] },
+  { word: 'dogman', parts: ['dog', 'man'] },
+  { word: 'fireball', parts: ['fire', 'ball'] },
+  { word: 'fireboat', parts: ['fire', 'boat'] },
+  { word: 'sailfish', parts: ['sail', 'fish'] },
+  { word: 'horsefly', parts: ['horse', 'fly'] },
+  { word: 'flowerbed', parts: ['flower', 'bed'] },
+  { word: 'seastar', parts: ['sea', 'star'] },
+  { word: 'goldstar', parts: ['gold', 'star'] },
+  { word: 'snowcone', parts: ['snow', 'cone'] },
+  { word: 'pinetree', parts: ['pine', 'tree'] },
 ];
 
 /**
  * Bubbles that fit nothing: no decoy joins any COMPOUNDS half, or another decoy, in either order to make a real word.
- * Words that would (cup: cupcake; fan: fanbase; nap: catnap; net: netball; gum: gumball; bag: sandbag; tag: tagline;
- * pot: hotpot; red: redfish; bat: batfish; mop: moptop; log with jam: logjam) were left out on purpose.
+ * Words that would (cup: cupcake, now a half; fan: fanbase; nap: catnap; net: netball; gum: gumball; bag: sandbag,
+ * mailbag; tag: tagline; pot: hotpot; red: redfish; bat: batfish, batman; mop: moptop; log with jam: logjam; fox:
+ * firefox; jet: jetpack; tin: tinman; pin: pinball; tug: tugboat; men: firemen, mailmen) were left out on purpose.
+ * POPPET (pop and pet) is real but rare and left in.
  */
 export const DECOYS: readonly string[] = [
-  'pet', 'jug', 'hen', 'wig', 'lid', 'fox', 'mug', 'van', 'rug', 'jam', 'hug', 'kid', 'dip', 'bib',
+  'pet', 'jug', 'hen', 'wig', 'lid', 'twig', 'mug', 'van', 'rug', 'jam', 'hug', 'kid', 'dip', 'bib',
 ];
