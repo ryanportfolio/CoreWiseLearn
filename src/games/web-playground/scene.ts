@@ -1026,7 +1026,8 @@ export function createWebPlaygroundScene(services: AppServices, options: WebPlay
     const grow = homeLift > 0.01 ? 1 + 0.08 * homeLift : 1;
     if (grow !== 1) hoverRing(ctx, homeX, cornerY, cornerRadius * grow, homeLift);
     chunkyCircle(ctx, homeX, cornerY, cornerRadius * grow, '#a3c9c5', OUTLINE, 4);
-    drawSprite(ctx, sprites, BUTTON_HOME, homeX, cornerY, Math.round(cornerRadius * 1.3 * grow));
+    // Fixed sprite size, grown by the scale arguments: one cached bake however far the hover lift has got.
+    drawSprite(ctx, sprites, BUTTON_HOME, homeX, cornerY, Math.round(cornerRadius * 1.3), 0, grow, grow);
     soundButton.render(ctx, sprites);
     if (cornerFocus >= 0) focusRing(ctx, cornerFocus === 0 ? homeX : soundX, cornerY, cornerRadius);
   }

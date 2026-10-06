@@ -50,7 +50,7 @@ Owner (2026-10-05): a big custom cursor across the whole hub that animates on a 
 - Reduced motion: the cursor ignores `prefers-reduced-motion`, like the rest of the hub (owner decision above), and moves the same everywhere.
 - Hover cues are plain path draws (a ring or rounded square stroked each frame while something is hovered), not baked images: each is one stroke, and a bake per size and per object would add more code than it saves.
 - Touch and pen input draw no cursor. Keyboard play leaves it where the mouse last was.
-- Hover: buttons made with `src/ui/button.ts` report their own hover and draw a soft halo and a short wiggle. Every other clickable thing is reported by the scene's `hoverAt(x, y)` (see `docs/adding-a-game.md`), and the scene draws its own soft hover cue on that object.
+- Hover: buttons made with `src/ui/button.ts` report their own hover and draw a soft halo and a short wiggle. Only the top scene's buttons count: the break nudge drops any hover the covered scene's buttons report while it lets that scene finish its entry. Every other clickable thing is reported by the scene's `hoverAt(x, y)` (see `docs/adding-a-game.md`), and the scene draws its own soft hover cue on that object.
 
 ## Pull request checklist
 

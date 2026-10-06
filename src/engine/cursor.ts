@@ -60,6 +60,15 @@ export function markButtonHover(): void {
   buttonHover = true;
 }
 
+/**
+ * Forgets button hovers reported so far this step. A scene that updates a scene
+ * it covers (the break nudge) calls this afterwards, so only the top scene's
+ * buttons turn the cursor into the pointing hand.
+ */
+export function clearButtonHover(): void {
+  buttonHover = false;
+}
+
 /** Colour and outward growth for a pass: 0 white rim, 1 dark outline, 2 fill. */
 function passStyle(ctx: CanvasRenderingContext2D, pass: number): number {
   const color = pass === 0 ? RIM : pass === 1 ? OUTLINE : FILL;
