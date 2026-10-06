@@ -7,7 +7,7 @@ import { rewards, type AppServices } from '../../app/services';
 import { STICKERS, stickerSpriteName } from '../../app/stickers';
 import type { Tier } from '../../engine/difficulty';
 import { createParticleSystem, type ParticleSpawn } from '../../engine/particles';
-import type { Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
+import type { CursorHover, Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
 import { playSfx, prepareSfxStep, type SfxName, type SfxOptions, type SfxVariant } from '../../audio/sfx';
 import { startMusic, stopMusic } from '../../audio/music';
 import { ensureDisplayFont } from '../../app/font';
@@ -15,7 +15,7 @@ import { chunkyCircle, DISPLAY_FONT, drawSprite, groundShadow, OUTLINE, roundedR
 import { confettiBurst, drawStarRow, STAR_GAP_SECONDS, STAR_HIT_SECONDS } from '../../ui/celebrate';
 import { drawEnterFade } from '../../ui/motion';
 import { BOOK_GLIDE, BOOK_ICON_PATH, createStickerOffers, leaveAlpha, leaveDrop, onBook, PICK_FLY, PICK_LIFT, PICK_SECONDS, placeBook } from '../../ui/sticker-offer';
-import { clamp01, easeInOutSine, easeOutCubic, lerp } from '../../ui/tween';
+import { approach, clamp01, easeInOutSine, easeOutCubic, lerp } from '../../ui/tween';
 import { createSoundButton, soundArt, syncSoundIcon } from '../../scenes/hub/shared';
 import { defaultData, GAME_ID, MAX_STEP, sanitizePiggyData, type PendingRound, type PiggyData } from './data';
 import {
@@ -283,6 +283,9 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
   /** The first-time demonstration this round still owes (a bit of `data.demos`; 0 for none). */
   let demoBit = 0;
   let cornerRadius = 48, cornerY = 60, homeX = 60, soundX = 1306, cornerFocus = -1;
+  /** Mouse hover, eased 0 to 1: each piggy (a press there drops a coin) and the corner Home. */
+  const pigHover = new Float32Array(MAX_PIGGIES);
+  let homeHover = 0;
   let choiceSize = 0, choiceY = 0, restSize = 0, restY = 0, controlsY = 0, controlsRadius = 60;
   const offers = createStickerOffers(sprites), bookAt = new Float32Array(2);
   let bookH = 150, bookGlide = false;
@@ -1113,6 +1116,8 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
       if (pg.happyT > 0) happy = true;
       if (pg.wiggleT < 0.5) rot = Math.sin(pg.wiggleT * 30) * (1 - pg.wiggleT / 0.5) * 0.105;
       if (pg.bumpT < 0.3) { const b = Math.sin(pg.bumpT / 0.3 * Math.PI); sx += b * 0.05; sy -= b * 0.05; }
+      // Mouse hover: a slight swell from the feet.
+      if (mode === 0 && index < MAX_PIGGIES) { const hv = pigHover[index]! * 0.06; sx += hv; sy += hv; }
     }
     if (mode === 1) {
       happy = true;
@@ -1359,8 +1364,14 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
     }
   }
   function drawCorners(ctx: CanvasRenderingContext2D): void {
-    chunkyCircle(ctx, homeX, cornerY, cornerRadius, '#f7c26b', OUTLINE, 4);
-    drawSprite(ctx, sprites, BUTTON_HOME, homeX, cornerY, Math.round(cornerRadius * 1.3));
+    // Mouse hover: a slight swell and a soft cream ring; the icon keeps its baked size and scales by transform.
+    const hs = 1 + homeHover * 0.08, hr = cornerRadius * hs;
+    if (homeHover > 0.01) {
+      ctx.globalAlpha = 0.45 * homeHover; ctx.beginPath(); ctx.arc(homeX, cornerY, hr + 7, 0, Math.PI * 2);
+      ctx.lineWidth = 6; ctx.strokeStyle = '#fff8b2'; ctx.stroke(); ctx.globalAlpha = 1;
+    }
+    chunkyCircle(ctx, homeX, cornerY, hr, '#f7c26b', OUTLINE, 4);
+    drawSprite(ctx, sprites, BUTTON_HOME, homeX, cornerY, Math.round(cornerRadius * 1.3), 0, hs, hs);
     soundButton.render(ctx, sprites);
     if (cornerFocus >= 0) focusRing(ctx, cornerFocus === 0 ? homeX : soundX, cornerY, cornerRadius);
   }
@@ -1373,6 +1384,33 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
       if (choice ? Math.abs(dx) <= choiceSize / 2 && Math.abs(dy) <= choiceSize * 0.5 : Math.hypot(dx, dy) <= controlsRadius) return i;
     }
     return -1;
+  }
+
+  // ---------------------------------------------------------------- hover
+  const onHome = (x: number, y: number): boolean => Math.hypot(x - homeX, y - cornerY) <= cornerRadius;
+  /** What a press at x, y would do now, with the same gates as handleInput's pointerdown. */
+  function hoverAt(x: number, y: number): CursorHover {
+    if (soundButton.contains(x, y)) return null;
+    if (onHome(x, y)) return 'press';
+    if (phase === 'celebration') return celebrationLocked() ? null : 'press';
+    if (playable() && heldCoin() >= 0) return 'carry';
+    if (performance.now() < inputAfter) return null;
+    if (playable()) {
+      if (lineup.active) return lineup.skippable ? 'press' : null;
+      if (hand.mode === 1) return null;
+      if (coinAt(x, y) >= 0) return 'grab';
+      return piggyAt(x, y) >= 0 ? 'press' : null;
+    }
+    if (phase === 'choice' || phase === 'rest') return hoverMenu(x, y) >= 0 ? 'press' : null;
+    return null;
+  }
+  /** Ease the hover looks toward the mouse: a piggy a press would drop on, and the corner Home. */
+  function updateHover(dt: number): void {
+    const pt = input.pointer, mouse = pt.inside && pt.type === 'mouse';
+    const live = mouse && playable() && !lineup.active && hand.mode !== 1 && performance.now() >= inputAfter;
+    const p = live && !soundButton.contains(pt.x, pt.y) && !onHome(pt.x, pt.y) ? piggyAt(pt.x, pt.y) : -1;
+    for (let i = 0; i < MAX_PIGGIES; i++) pigHover[i] = approach(pigHover[i]!, i === p ? 1 : 0, 14, dt);
+    homeHover = approach(homeHover, mouse && onHome(pt.x, pt.y) && !soundButton.contains(pt.x, pt.y) ? 1 : 0, 14, dt);
   }
 
   // ---------------------------------------------------------------- input
@@ -1609,10 +1647,12 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
       releaseArt(); sprites.clearScaled(BG); bgCanvas = undefined; sizeKey = ''; madeName = '';
     },
     resize: layout,
+    hoverAt,
     update(dt) {
       const started = performance.now(); sceneT += dt;
       syncSoundIcon(soundButton, services); soundButton.update(dt, input.pointer.x, input.pointer.y);
       if (playable()) { updatePlay(dt); updateCoins(dt); } else updateResult(dt);
+      updateHover(dt);
       askIdle(); particles.update(dt);
       updateMs += performance.now() - started;
     },

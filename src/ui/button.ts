@@ -4,6 +4,7 @@
  */
 
 import type { SpriteStore } from '../engine/sprites';
+import { markButtonHover } from '../engine/cursor';
 import { chunkyCircle, drawSprite } from './draw';
 import { arriveAlpha, arriveScale, springStep } from './tween';
 
@@ -12,6 +13,10 @@ const SPRING_OMEGA = 38;
 const SPRING_ZETA = 0.55;
 /** Pop-in length in seconds; the spring lands in about 0.25 s and settles by the end. */
 const POP_SECONDS = 0.4;
+/** Hover wiggle: a quick damped twist when the pointer arrives, over in about 0.35 s. */
+const WIGGLE_SECONDS = 0.35;
+const WIGGLE_ANGLE = 0.07;
+const HALO = '#fff8b2';
 
 export const MIN_HIT = 48; // radius in logical px, so 96 px across
 
@@ -62,6 +67,7 @@ export function createButton(options: ButtonOptions): Button {
   let popT = 1;
   let popDelay = 0;
   let wobbleT = Math.random() * Math.PI * 2;
+  let wiggleT = WIGGLE_SECONDS;
   const iconScale = options.iconScale ?? 0.62;
 
   const button: Button = {
@@ -89,14 +95,24 @@ export function createButton(options: ButtonOptions): Button {
       } else if (popT < 1) {
         popT = Math.min(1, popT + dt / POP_SECONDS);
       }
+      const wasHovered = button.hovered;
       button.hovered = button.enabled && button.visible && button.contains(pointerX, pointerY);
+      if (button.hovered) {
+        markButtonHover();
+        if (!wasHovered) wiggleT = 0;
+      }
+      if (wiggleT < WIGGLE_SECONDS) wiggleT += dt;
       targetScale = pressed ? 0.9 : (button.hovered || button.focused) ? 1.1 : 1;
       springStep(spring, targetScale, SPRING_OMEGA, SPRING_ZETA, dt);
       if (options.wobble) wobbleT += dt * 2.4;
     },
     render(ctx, sprites) {
       if (!button.visible || popDelay > 0) return;
-      const wob = options.wobble ? Math.sin(wobbleT) * 0.04 : 0;
+      let wob = options.wobble ? Math.sin(wobbleT) * 0.04 : 0;
+      if (wiggleT < WIGGLE_SECONDS) {
+        const k = wiggleT / WIGGLE_SECONDS;
+        wob += WIGGLE_ANGLE * Math.sin(k * Math.PI * 3) * (1 - k) * (1 - k);
+      }
       const s = (spring[0] ?? 1) * arriveScale(popT);
       const alpha = arriveAlpha(popT);
       if (alpha <= 0) return;
@@ -105,6 +121,14 @@ export function createButton(options: ButtonOptions): Button {
       ctx.translate(button.x, button.y);
       if (wob !== 0) ctx.rotate(wob);
       ctx.scale(s, s);
+      if (button.hovered) {
+        // Soft halo outside the rim while the pointer is over the button.
+        const saved = ctx.globalAlpha;
+        ctx.globalAlpha = saved * 0.4;
+        ctx.beginPath(); ctx.arc(0, 0, button.radius + 9, 0, Math.PI * 2);
+        ctx.lineWidth = 12; ctx.strokeStyle = HALO; ctx.stroke();
+        ctx.globalAlpha = saved;
+      }
       chunkyCircle(ctx, 0, 0, button.radius, button.fill);
       if (button.focused || button.hovered) {
         ctx.beginPath(); ctx.arc(0, 0, Math.max(12, button.radius - 8), 0, Math.PI * 2);

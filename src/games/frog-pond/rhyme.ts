@@ -11,10 +11,11 @@
 import type { AppServices } from '../../app/services';
 import type { Tier } from '../../engine/difficulty';
 import { createParticleSystem } from '../../engine/particles';
+import type { CursorHover } from '../../engine/scene';
 import { voicePlayer } from '../../audio/voice-player';
 import { playSfx, type SfxName, type SfxOptions, type SfxVariant } from '../../audio/sfx';
 import { drawSprite, OUTLINE, roundedRect } from '../../ui/draw';
-import { clamp01, easeInCubic, easeInOutSine, easeOutBack, easeOutCubic, lerp } from '../../ui/tween';
+import { approach, clamp01, easeInCubic, easeInOutSine, easeOutBack, easeOutCubic, lerp } from '../../ui/tween';
 import { bakePadWord, WordCache, type WordArt } from './cards';
 import { keyIndexForDegree, tierParams, tuneDegree, type RhymePlan, type RhymeTier } from './rhyme-rules';
 import { sayWord } from './voice';
@@ -51,6 +52,8 @@ const HELP_DODGES = 3, HELP_PAUSE = 14;
 const DWELL_SECONDS = 0.45;
 const KEY_GAP_MS = 150;
 const TONGUE = '#ff7a9c', TONGUE_DARK = '#c94d72';
+/** The soft cream ring every Frog Pond activity draws round what the mouse is over (as the other games do). */
+export const HOVER_RING = '#fff8b2';
 const SPARKLE_HUES = [48, 330, 190, 90] as const;
 
 export interface BugInfo {
@@ -79,6 +82,10 @@ export interface RhymeSnack {
   drawFrog(ctx: CanvasRenderingContext2D, x: number, bottom: number, k: number, happy: number, time: number): void;
   pointerDown(x: number, y: number): void;
   pointerMove(x: number, y: number): void;
+  /** For the big cursor: what a press at x, y would act on now (pointerDown's own gates and hit tests). */
+  hoverAt(x: number, y: number): CursorHover;
+  /** Eases the hover cues toward the mouse at x, y; x < 0 when no mouse hover counts. */
+  hover(dt: number, x: number, y: number): void;
   key(code: string, shift: boolean): void;
   /** Stop speech-driven timers and the hand (the scene left or was covered). */
   stop(): void;
@@ -129,6 +136,9 @@ export function createRhymeSnack(services: AppServices): RhymeSnack {
   let focus = -1, keyMode = false, keyAfter = 0, hover = -1, dwellBug = -1, dwellT = 0, dwellSaid = false, pointerX = -1, pointerY = -1;
   // Helper hand.
   const hand = { mode: 0, t: 0, bug: -1, x: 0, y: 0 };
+  // Mouse hover, eased 0 to 1: each bug and the frog (a press says the target word). frogSwell is set only while play draws.
+  const bugHover = new Float32Array(MAX_BUGS);
+  let frogHover = 0, frogSwell = 0;
 
   // ---------------------------------------------------------------- layout
   const halfW = (i: number): number => Math.max(48, (cards[i]?.w ?? 0) / 2, bugSize * BUG_VISIBLE / 2);
@@ -185,7 +195,7 @@ export function createRhymeSnack(services: AppServices): RhymeSnack {
     finished = false; struggled = false; time = 0; idleT = 0; sinceCatch = 0; doneT = -1; sayT = 9; targetSaid = false; frogHop = 9;
     catches = dodges = caughtCount = 0; demoCatch = false; tune.length = 0;
     tongue = 0; tongueBug = -1; queued = -1; puffT = 9; focus = -1; keyMode = false; hover = -1; dwellBug = -1; dwellT = 0; dwellSaid = false;
-    hand.mode = 0; hand.bug = -1;
+    hand.mode = 0; hand.bug = -1; bugHover.fill(0); frogHover = 0;
     particles.clear();
     // Shuffle the words so rhymes and decoys mix; the order also sets which side each bug flies in from.
     // A small window holds fewer bugs: decoys are dropped (never rhymes, and never the last decoy) until the bugs
@@ -454,6 +464,8 @@ export function createRhymeSnack(services: AppServices): RhymeSnack {
       const squash = h < 0.15 ? 1 - h / 0.15 : h > 0.85 ? (h - 0.85) / 0.15 : 0;
       sx += 0.12 * squash - 0.05 * Math.sin(h * Math.PI); sy += -0.12 * squash + 0.08 * Math.sin(h * Math.PI);
     }
+    // Mouse hover during play: a slight swell from the feet.
+    if (frogSwell > 0.01) { sx += 0.05 * frogSwell; sy += 0.05 * frogSwell; }
     const breathe = 1 + Math.sin(t * 2.2) * 0.012;
     const lean = tongue === 1 && tongueBug >= 0 && happy < 0 ? Math.max(-0.12, Math.min(0.12, (bx[tongueBug]! - x) / (W * 2))) : 0;
     ctx.save();
@@ -495,8 +507,15 @@ export function createRhymeSnack(services: AppServices): RhymeSnack {
       rot = dodgeDir[i]! * easeInOutSine(k) * Math.PI * 2;
       cardRot = Math.sin(k * 30) * 0.25 * (1 - k);
     }
-    const scale = a * shrink;
+    const hv = caught ? 0 : bugHover[i]!;
+    const scale = a * shrink * (1 + 0.06 * hv);
     const cy = y + bob + hopY;
+    if (hv > 0.01) {
+      // Mouse hover: a soft cream ring round the bug and its card.
+      const w = halfW(i) * 2 + 10, y0 = hitTop(i) - 5 + bob + hopY, h = hitBottom(i) - hitTop(i) + 10;
+      ctx.globalAlpha = 0.5 * hv; roundedRect(ctx, x - w / 2, y0, w, h, 24);
+      ctx.lineWidth = 6 * u; ctx.strokeStyle = HOVER_RING; ctx.stroke(); ctx.globalAlpha = 1;
+    }
     // The word card hangs under the bug on two short threads.
     const card = cards[i];
     if (card && !caught) {
@@ -563,7 +582,15 @@ export function createRhymeSnack(services: AppServices): RhymeSnack {
   }
 
   function render(ctx: CanvasRenderingContext2D): void {
+    frogSwell = frogHover;
+    if (frogHover > 0.01) {
+      // Mouse hover: a soft cream ring round the frog.
+      const ry = (feetY - frogTop) / 2 + 10 * u;
+      ctx.globalAlpha = 0.5 * frogHover; ctx.beginPath(); ctx.ellipse(padCX, feetY - ry + 10 * u, padSize * 0.36, ry, 0, 0, Math.PI * 2);
+      ctx.lineWidth = 6 * u; ctx.strokeStyle = HOVER_RING; ctx.stroke(); ctx.globalAlpha = 1;
+    }
     drawFrog(ctx, padCX, padCY + padSize * PAD_BOTTOM, 1, -1, time);
+    frogSwell = 0;
     drawTongue(ctx);
     for (let i = 0; i < nBugs; i++) if (state[i] !== CAUGHT) drawBug(ctx, i);
     if (tongueBug >= 0) drawBug(ctx, tongueBug);
@@ -594,6 +621,15 @@ export function createRhymeSnack(services: AppServices): RhymeSnack {
     if (Math.hypot(x - pointerX, y - pointerY) < 12) return;
     // Moving the pointer about (looking at bugs, hearing their words with help on) is play, not a pause.
     pointerX = x; pointerY = y; keyMode = false; idleT = 0;
+  }
+  function hoverAt(x: number, y: number): CursorHover {
+    if (demoRunning() || doneT >= 0) return null;
+    return bugAt(x, y) >= 0 || onFrog(x, y) ? 'press' : null;
+  }
+  function easeHover(dt: number, x: number, y: number): void {
+    const live = x >= 0 && !demoRunning() && doneT < 0, b = live ? bugAt(x, y) : -1, frog = live && b < 0 && onFrog(x, y);
+    for (let i = 0; i < MAX_BUGS; i++) bugHover[i] = approach(bugHover[i]!, i === b ? 1 : 0, 14, dt);
+    frogHover = approach(frogHover, frog ? 1 : 0, 14, dt);
   }
   function moveFocus(code: string, shift: boolean): void {
     if (!focusable(focus)) { focus = nearestFlying(padCX, top, -1); return; }
@@ -652,7 +688,7 @@ export function createRhymeSnack(services: AppServices): RhymeSnack {
   };
 
   const snack: RhymeSnack = {
-    start, layout, update, render, drawFrog, pointerDown, pointerMove, key,
+    start, layout, update, render, drawFrog, pointerDown, pointerMove, hoverAt, hover: easeHover, key,
     stop() { hand.mode = hand.mode === HAND_DEMO ? HAND_DEMO : 0; dwellBug = -1; pointerX = -1; },
     get done() { return finished; },
     get target() { return plan.target; },
