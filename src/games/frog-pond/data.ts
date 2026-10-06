@@ -100,6 +100,6 @@ function sanitizePot(bag: Record<string, unknown>, protect: () => void): void {
     if (valid(p[key])) continue;
     protect();
     const v = p[key];
-    p[key] = Array.isArray(v) ? [...new Set(v.filter(w => typeof w === 'string' && COMPOUND_SET.has(w)))].slice(0, key === 'last' ? 4 : COMPOUNDS.length) : d[key as keyof PotData];
+    p[key] = (key === 'made' || key === 'last') && Array.isArray(v) ? [...new Set(v.filter(w => typeof w === 'string' && COMPOUND_SET.has(w)))].slice(0, key === 'last' ? 4 : COMPOUNDS.length) : d[key as keyof PotData];
   }
 }

@@ -40,6 +40,8 @@ const POT_FEET = 0.88, POT_MOUTH = 0.3, POT_TOP = 0.12, POT_HALF_W = 0.42;
 const RISE_SECONDS = 0.8, RISE_STAGGER = 0.16;
 /** Two pressed bubbles slam together in this long; a bonk wobbles for BONK_SECONDS. */
 const JOIN_SECONDS = 0.24, BONK_SECONDS = 0.6;
+/** A lifted bubble floats up LIFT units and grows by LIFT_GROW; its ease overshoots both by up to LIFT_PEAK. */
+const LIFT = 14, LIFT_GROW = 0.14, LIFT_PEAK = 1.1;
 /** A made word: its picture and card hold, then swim out into the pond. */
 const REVEAL_HOLD = 1.1, REVEAL_SWIM = 0.9;
 /** After the last word lands: the pot hops, then the round is done. */
@@ -183,7 +185,8 @@ export function createWordPot(services: AppServices): WordPot {
     }
     if (force || bakedCardH !== revealCardH) { bakedCardH = revealCardH; revealCards.clear(); }
     if (force || bakedLabelH !== labelH) { bakedLabelH = labelH; labelCards.clear(); }
-    for (const c of plan.compounds) revealCard(c);
+    // Every word the round can make gets its pond label now, so a first-time word bakes nothing in a frame.
+    for (const c of plan.compounds) { revealCard(c); labelCard(c.word); }
     for (let s = 0; s < nSwim; s++) labels[s] = labelCard(swimWord[s]!);
     for (let k = 0; k < MAX_REVEALS; k++) if (rT[k]! >= 0) rCard[k] = revealCards.get(rWord[k]!);
   }
@@ -209,10 +212,15 @@ export function createWordPot(services: AppServices): WordPot {
   }
 
   const radius = (i: number): number => arts[i]?.r ?? 52;
+  /**
+   * The highest a bubble's centre may go. The zone's top is just below the corner buttons, and the scene checks those
+   * first, so a bubble lifted and grown at its peak (plus the 2 px drift slack) must still end below that line.
+   */
+  const minY = (i: number): number => zoneT + radius(i) * (1 + LIFT_GROW * LIFT_PEAK) + LIFT * LIFT_PEAK * u + 2;
   function keepInside(i: number): void {
     const r = radius(i);
     bx[i] = Math.max(zoneL + r, Math.min(zoneR - r, bx[i]!));
-    by[i] = Math.max(zoneT + r, Math.min(zoneB - r, by[i]!));
+    by[i] = Math.max(minY(i), Math.min(zoneB - r, by[i]!));
   }
   function keepSwimmerInside(s: number): void {
     const hw = swimHW(s);
@@ -259,7 +267,8 @@ export function createWordPot(services: AppServices): WordPot {
     nSwim = 0;
     for (const w of collection) if (nSwim < MAX_SWIMMERS && !swimWord.slice(0, nSwim).includes(w)) addSwimmer(w, true);
     revealCards.clear(); bakedCardH = revealCardH;
-    for (const c of plan.compounds) revealCard(c);
+    // Bake the round's reveal cards and pond labels here, so making a word (in update) only looks them up.
+    for (const c of plan.compounds) { revealCard(c); labelCard(c.word); }
   }
   /** Where each bubble rises to: spread over the zone, the farthest of a few random spots from those already chosen. */
   function placeHomes(): void {
@@ -267,7 +276,7 @@ export function createWordPot(services: AppServices): WordPot {
       const r = radius(k);
       let best = 0, bestX = W / 2, bestY = (zoneT + zoneB) / 2;
       for (let n = 0; n < 14; n++) {
-        const x = lerp(zoneL + r, zoneR - r, random()), y = lerp(zoneT + r, Math.max(zoneT + r, zoneB - r), random());
+        const x = lerp(zoneL + r, zoneR - r, random()), y = lerp(minY(k), Math.max(minY(k), zoneB - r), random());
         let d = Math.min(x - zoneL, zoneR - x) * 2;
         for (let j = 0; j < k; j++) d = Math.min(d, Math.hypot(x - homeX[j]!, y - homeY[j]!) - radius(j));
         if (d > best) { best = d; bestX = x; bestY = y; }
@@ -485,10 +494,10 @@ export function createWordPot(services: AppServices): WordPot {
     const r = radius(i), c = Math.cos(heading[i]!), sn = Math.sin(heading[i]!);
     if (x < zoneL + r && c < 0) heading[i] = Math.PI - heading[i]!;
     if (x > zoneR - r && c > 0) heading[i] = Math.PI - heading[i]!;
-    if (y < zoneT + r && sn < 0) heading[i] = -heading[i]!;
+    if (y < minY(i) && sn < 0) heading[i] = -heading[i]!;
     if (y > zoneB - r && sn > 0) heading[i] = -heading[i]!;
     x = Math.max(zoneL + r - 2, Math.min(zoneR - r + 2, x));
-    y = Math.max(zoneT + r - 2, Math.min(zoneB - r + 2, y));
+    y = Math.max(minY(i) - 2, Math.min(zoneB - r + 2, y));
     bx[i] = x; by[i] = y;
   }
 
@@ -617,7 +626,7 @@ export function createWordPot(services: AppServices): WordPot {
 
   // ---------------------------------------------------------------- render
   /** How far a lifted bubble floats up. */
-  const liftOffset = (i: number): number => easeOutBack(liftK[i]!) * 14 * u;
+  const liftOffset = (i: number): number => easeOutBack(liftK[i]!) * LIFT * u;
 
   function drawPotAt(ctx: CanvasRenderingContext2D, x: number, cy: number, size: number, sxk: number, syk: number): void {
     drawSprite(ctx, sprites, POT, x, cy, size, 0, sxk, syk);
@@ -677,7 +686,7 @@ export function createWordPot(services: AppServices): WordPot {
     // Jelly wobble while drifting; a lifted bubble grows and floats up; a bonk squashes it against the other.
     const wob = Math.sin(time * 2.6 + s) * 0.03;
     let sxk = 1 + wob, syk = 1 - wob;
-    const grow = 1 + 0.14 * easeOutBack(liftK[i]!);
+    const grow = 1 + LIFT_GROW * easeOutBack(liftK[i]!);
     const arrive = rise < 1 ? 0.9 + 0.1 * easeOutBack(rise) : 1;
     if (bonkT[i]! < BONK_SECONDS) { const w = Math.exp(-5 * bonkT[i]!) * Math.cos(bonkT[i]! * 26); sxk -= 0.22 * w; syk += 0.16 * w; }
     if (state[i] === JOINING) { const k = easeInCubic(joinT[i]! / JOIN_SECONDS); sxk += 0.12 * k; syk -= 0.1 * k; }
@@ -723,7 +732,7 @@ export function createWordPot(services: AppServices): WordPot {
   function drawFocus(ctx: CanvasRenderingContext2D): void {
     const i = keyMode ? focus : -1;
     if (!pressable(i)) return;
-    const r = radius(i) * (1 + 0.14 * liftK[i]!) + 12, y = by[i]! - liftOffset(i);
+    const r = radius(i) * (1 + LIFT_GROW * liftK[i]!) + 12, y = by[i]! - liftOffset(i);
     ctx.beginPath(); ctx.arc(bx[i]!, y, r, 0, Math.PI * 2);
     ctx.strokeStyle = OUTLINE; ctx.lineWidth = 10; ctx.stroke();
     ctx.strokeStyle = '#fff8da'; ctx.lineWidth = 5; ctx.stroke();
