@@ -97,7 +97,10 @@ const U_MAX = 1.405;
 const SHIFT3 = [0, -1, 1] as const;
 const IDLE_WAIT_MS = 500;
 const IDLE_OPTIONS: IdleRequestOptions = { timeout: IDLE_WAIT_MS };
-const MAX_DISH = 16, MAX_PAW = 24, MAX_CUPS = 100, POOL = 24, PARTICLES = 240, MAX_SALES = 8;
+/** The paw keeps every piece of change: at most 99 (95 pennies at step 7; under 100 at step 9). */
+const MAX_DISH = 16, MAX_PAW = 100, MAX_CUPS = 100, POOL = 24, PARTICLES = 240, MAX_SALES = 8;
+/** The paw's newest pieces fan at full size; older ones settle into a column beside them under a card with their value. */
+const PAW_FAN = 4;
 /**
  * Closing the till at the round's end: the till rises and the slate drops in, each sale's tag flies out and its
  * amount pours into the slate's cups (dollars left, cents right; 100 cent cups trade for one dollar cup), the total
@@ -144,6 +147,8 @@ const TG_ITEM = 10, TG_PURSE = 11, TG_PAW = 12, TG_CUPS_UNLIT = 13, TG_CUPS_FULL
 const ACT_NONE = 0, ACT_HAND = 1, ACT_ASK = 2;
 /** Cup looks: empty socket, paid (yellow), paid past the price (orange-red), counted back as change (cream). */
 const CUP_UNLIT = 0, CUP_PAID = 1, CUP_OVER = 2, CUP_BACK = 3;
+/** The till count's dollar cup: deep ink with a mustard ring, drawn larger than a cent cup. */
+const CUP_DOLLAR = 4;
 
 interface Flight {
   active: boolean; mode: number; kind: number; idx: number; demo: boolean;
@@ -160,6 +165,8 @@ export interface MarketStallStats {
   /** The current task's numbers: price, payment (what is in the dish so far), owed change, change given so far and counted on the board. */
   readonly task: {
     content: number; countsFor: number; dollars: boolean; price: number; parts: number[]; payment: number; planned: number; owed: number; given: number; counter: number;
+    /** Pieces in the paw, how many of them sit in the settled column, and the value its card shows. */
+    pawPieces: number; pawSettled: number; pawSettledValue: number;
     decide: boolean; till: string[]; pay: string[]; topUp: string[]; merged: boolean;
   } | null;
   readonly coins: readonly { kind: string; face: 'heads' | 'tails'; x: number; y: number; d: number; where: string }[];
@@ -238,15 +245,19 @@ function bakeDot(d: number, ratio: number): HTMLCanvasElement {
   g.getImageData(0, 0, 1, 1);
   return c;
 }
-/** One cup, `d` across, in the linocut inks: a pale socket, mustard (paid), orange-red (paid past the price), cream (counted back). */
+/**
+ * One cup, `d` across, in the linocut inks: a pale socket, mustard (paid), orange-red (paid past the price), cream
+ * (counted back), or the till count's dollar cup (deep ink with a mustard ring).
+ */
 function bakeCup(d: number, ratio: number, look: number): HTMLCanvasElement {
   const size = d + 2, { c, g } = cpuCanvas(size * ratio, size * ratio); if (!g) return c;
   g.scale(ratio, ratio);
   const lw = Math.max(1.5, d * 0.13), r = d / 2 - lw / 2;
   g.beginPath(); g.arc(size / 2, size / 2, r, 0, Math.PI * 2);
-  g.fillStyle = look === CUP_PAID ? '#efb531' : look === CUP_OVER ? '#d9542c' : look === CUP_BACK ? CREAM : '#e9dcbc';
+  g.fillStyle = look === CUP_PAID ? '#efb531' : look === CUP_OVER ? '#d9542c' : look === CUP_BACK ? CREAM : look === CUP_DOLLAR ? INK : '#e9dcbc';
   g.fill();
-  g.lineWidth = lw; g.strokeStyle = look === CUP_UNLIT ? 'rgba(29, 52, 97, 0.45)' : look === CUP_BACK ? RED : INK; g.stroke();
+  g.lineWidth = look === CUP_DOLLAR ? lw * 1.4 : lw;
+  g.strokeStyle = look === CUP_UNLIT ? 'rgba(29, 52, 97, 0.45)' : look === CUP_BACK ? RED : look === CUP_DOLLAR ? '#efb531' : INK; g.stroke();
   g.getImageData(0, 0, 1, 1);
   return c;
 }
@@ -365,6 +376,8 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
   // ---- the till count at closing (each sale's price in its own unit; totals in whole dollars and cents)
   const salePrice = new Int32Array(MAX_SALES), saleDollars = new Uint8Array(MAX_SALES), saleCum = new Int32Array(MAX_SALES + 1), saleCumD = new Int32Array(MAX_SALES + 1);
   const closeCupD = new Float32Array(MAX_CUPS).fill(9), closeCupC = new Float32Array(MAX_CUPS).fill(9);
+  /** What the round's customers paid with: coin kinds and bill kinds (bit per kind), for the closing till tray. */
+  let takenCoins = 0, takenBills = 0;
   let salesN = 0, closeT = 0, closeSpeed = 1, closeDollars = 0, closeCents = 0, shownD = 0, shownC = 0, closeTotalAt = 0, closeBuyAt = 0, closeEndAt = 0, closePopped = false, closeStreamed = false, closeRevealed = false;
   // ---- round
   let phase: Phase = 'play', tier: Tier = 0, intro = false, introStage = 0, customerIndex = 0, customersTotal = 3, lastPrice = 0;
@@ -416,6 +429,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
   let inkBoard: Strip | undefined, redBoard: Strip | undefined, inkTag: Strip | undefined, inkClose: Strip | undefined;
   let shadowCanvas: HTMLCanvasElement | undefined, slateCanvas: HTMLCanvasElement | undefined, ctrayCanvas: HTMLCanvasElement | undefined;
   let bakedClose = 0, bakedSlate = '', bakedCtray = '', closeCupCanvas: HTMLCanvasElement | undefined, bakedCloseCup = 0;
+  let closeDollarCanvas: HTMLCanvasElement | undefined, bakedCloseDollar = 0;
   const boardCache = new Map<string, HTMLCanvasElement>(), trayCache = new Map<string, HTMLCanvasElement>(), boardQueue: number[] = [];
   let trayWant = '', trayWantW = 0, trayWantH = 0, boardQueued = '', boardPitchW = 20;
   let bakedCup = 0, bakedTray = '', bakedBoard = '', bakedBills = '', bakedNum = 0, bakedTag = 0, glowSize = 0, dotSize = 0;
@@ -573,6 +587,8 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     if (!inkTag || reratio || tagPx !== bakedTag) { bakedTag = tagPx; inkTag = bakeStrip(tagPx, artRatio, INK); }
     if (!inkClose || reratio || closePx !== bakedClose) { bakedClose = closePx; inkClose = bakeStrip(closePx, artRatio, INK); shadowCanvas = bakeShadow(64, artRatio); }
     if (!closeCupCanvas || reratio || closeCup !== bakedCloseCup) { bakedCloseCup = closeCup; closeCupCanvas = bakeCup(closeCup, artRatio, CUP_PAID); }
+    const dollarCup = dollarCupD(closePitch);
+    if (!closeDollarCanvas || reratio || dollarCup !== bakedCloseDollar) { bakedCloseDollar = dollarCup; closeDollarCanvas = bakeCup(dollarCup, artRatio, CUP_DOLLAR); }
     particles.bake(u, artRatio);
     if (L.till.w > 0) {
       const trayKey = `${Math.round(L.till.w)}x${Math.round(L.till.h)}@${artRatio}`;
@@ -622,6 +638,8 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     }
     return false;
   }
+  /** The till count's dollar cup: nearly the whole pitch, so it reads larger than a cent cup (0.9 of the pitch). */
+  const dollarCupD = (pitch: number): number => Math.max(MIN_CUP + 2, Math.floor(pitch * 0.98));
   const closingBaked = (): boolean => bakedSlate === slateKey() && bakedCtray === ctrayKey();
   /** The board's height for this many rows of cups at the current board width (as solve computes it). */
   function boardHeight(rows: number): number {
@@ -954,7 +972,9 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     assisted = intro; deliberate = true; actions = 0; bounced = false; bouncesHere = 0; decidedRight = false;
     custHop = 9; purseHop = 9; itemHop = 9; tagSwing = 0; boardPulse = 9; itemFly = 0; purseOpen = 0; tillUp = 0;
     idleT = 0; focus = 0; hand.mode = 0; carry.active = false;
-    pawHop = 9; carryT = 9; cheerT = -1; tillSounded = false; arrowedHere = false;
+    pawHop = 9; carryT = 9; cheerT = -1; tillSounded = false;
+    // An arrow pressed for the customer before does not make this customer's first key choice deliberate.
+    arrowedHere = false; lastArrowAt = -9999;
     for (const f of flights) if (f.mode !== F_RETURN) f.active = false;
   }
   /** The payment (or a top-up) drops from the customer's paw into the dish, one piece after another. */
@@ -1018,6 +1038,10 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
    */
   function served(): void {
     if (salesN < MAX_SALES) { salePrice[salesN] = plan.price; saleDollars[salesN] = plan.dollars ? 1 : 0; salesN++; }
+    for (let i = 0; i < dishN; i++) {
+      const k = dishKind[i]!;
+      if (plan.dollars) takenBills |= 1 << k; else if (k === K_DOLLAR) takenBills |= 1 << B1; else takenCoins |= 1 << k;
+    }
     if (crowdN < CROWD_MAX && !portrait) crowdAt[crowdN++] = roundT;
     if (buntN < 2) {
       const o = HARBOUR[OV_BUNTING + buntN]!;
@@ -1253,7 +1277,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     phase = 'play'; phaseT = time = idleT = 0;
     customersTotal = intro ? 3 : roundSize(data.step, tier);
     // Nothing of the harbour carries over: no bunting, no crowd, no improvement until this round's own end.
-    salesN = 0; buntN = 0; crowdN = 0; buy = -1; buyK = 0; roundT = 0; buntAt.fill(-1); crowdAt.fill(-1);
+    salesN = 0; takenCoins = 0; takenBills = 0; buntN = 0; crowdN = 0; buy = -1; buyK = 0; roundT = 0; buntAt.fill(-1); crowdAt.fill(-1);
     hits = misses = bounces = 0; stars = 1; starsPlayed = 0; roundCounted.length = 0; roundWho.length = 0; roundGoods.length = 0;
     carry.active = false; hand.mode = 0; cornerFocus = -1;
     particles.clear(); for (const f of flights) f.active = false;
@@ -1327,6 +1351,8 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     closePitch = Math.max(MIN_CUP / 0.9, Math.min(40 * u, closeRowsH / (rows + 0.3), L.slatePanel.w / (both ? 23.2 : 10.8)));
     const cup = Math.max(MIN_CUP, Math.floor(closePitch * 0.9));
     if (cup !== bakedCloseCup || !closeCupCanvas) { bakedCloseCup = closeCup = cup; closeCupCanvas = bakeCup(cup, artRatio, CUP_PAID); }
+    const dollarCup = dollarCupD(closePitch);
+    if (dollarCup !== bakedCloseDollar || !closeDollarCanvas) { bakedCloseDollar = dollarCup; closeDollarCanvas = bakeCup(dollarCup, artRatio, CUP_DOLLAR); }
     while (!closingBaked() && bakeClosing());
     play('till-drawer', 'A', 0, 0.8);
   }
@@ -1374,7 +1400,10 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
       // The takings fly to the harbour as a stream of mustard and cream chips.
       if (!closeStreamed) { closeStreamed = true; play('whoosh', 'C', 0, 0.6); }
       buyPoint();
-      const sx = L.slatePanel.x + L.slatePanel.w / 2 + (Math.random() - 0.5) * closePitch * 6, sy = L.slatePanel.y + L.slatePanel.h * 0.55, life = 0.45;
+      // From the total at the top of the slate, at the end of it nearest the harbour spot, so the stream never crosses the cups.
+      const panel = L.slatePanel, away = easeInCubic(clamp01((t - closeBuyAt - 0.2) / CLOSE_AWAY)), sdy = -away * (L.slate.y + L.slate.h + 20);
+      const sx = Math.min(panel.x + panel.w - closePitch * 2, Math.max(panel.x + closePitch * 2, pos.x)) + (Math.random() - 0.5) * closePitch * 3;
+      const sy = panel.y + closePx * 0.75 + sdy + (Math.random() - 0.5) * closePx * 0.4, life = 0.45;
       particles.spawn(Math.random() < 0.6 ? 2 : 3 + 4 * Math.floor(Math.random() * 3), sx, sy, (pos.x - sx) / life, (pos.y - sy) / life, life, 1, 0, 8, 0);
     }
     const revealAt = closeBuyAt + 0.45;
@@ -1774,12 +1803,17 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     const sw = tagSwing < 1.2 ? Math.sin(tagSwing * 9) * 0.25 * (1 - tagSwing / 1.2) : 0;
     if (alpha < 1) ctx.globalAlpha = alpha;
     ctx.save(); ctx.translate(t.x + t.w / 2, t.y + t.h * TAG_HOLE + dy); ctx.rotate(sw);
-    drawSprite(ctx, sprites, TAG, 0, t.h / 2 - t.h * TAG_HOLE, t.w); note(TAG, t.w, TAG_PX[0]);
+    // One cached size per customer (the largest tag it shows); a tag growing or shrinking scales it at draw time.
+    const base = plan.decide ? Math.max(L.tag.w, L.ftag.w) : Math.max(L.ftag.w, L.fmtag.w), k = t.w / (base || 1);
+    drawSprite(ctx, sprites, TAG, 0, t.h / 2 - t.h * TAG_HOLE, base, 0, k, k); note(TAG, t.w, TAG_PX[0]);
     if (inkTag) amount(ctx, inkTag, v, plan.dollars, t.w * ((TAG_IN[0] + TAG_IN[1]) / 2 - 0.5), t.h * ((TAG_IN[2] + TAG_IN[3]) / 2) - t.h * TAG_HOLE, t.h / (tagH0 || 1));
     ctx.restore(); ctx.globalAlpha = 1;
   }
-  /** One good in box b (lifted by dy); `e` > 0 glides it into the customer's arms as it leaves. */
-  function goodAt(ctx: CanvasRenderingContext2D, gi: number, b: Box, dy: number, e: number): void {
+  /**
+   * One good in box b (lifted by dy); `e` > 0 glides it into the customer's arms as it leaves. It is cached once at
+   * `base` (its largest size this customer) and scaled down at draw time while it moves between spots or glides.
+   */
+  function goodAt(ctx: CanvasRenderingContext2D, gi: number, b: Box, dy: number, e: number, base: number): void {
     const g = GOODS[gi]!, name = GOOD_NAMES[gi]!;
     let x = b.x + b.w / 2, y = b.y + b.h / 2 + dy, sc = 1;
     if (e > 0) {
@@ -1790,8 +1824,8 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
       const gs = Math.max(b.w, b.h) * 1.6 * (0.92 + Math.sin(time * 4) * 0.08); ctx.globalAlpha = 0.9;
       ctx.drawImage(glowCanvas, x - gs / 2, y - gs / 2, gs, gs); ctx.globalAlpha = 1;
     }
-    const size = Math.max(b.w, b.h) * sc;
-    drawSprite(ctx, sprites, name, x, y, size);
+    const size = Math.max(b.w, b.h) * sc, k = size / (base || 1);
+    drawSprite(ctx, sprites, name, x, y, base, 0, k, k);
     note(name, size * (itemHop < 0.3 ? 1.1 : 1), Math.max(g.w, g.h));
   }
   /**
@@ -1806,8 +1840,9 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     const hop = itemHop < 0.3 ? Math.sin(itemHop / 0.3 * Math.PI) * 10 * u : 0;
     const aside = !front && changeOn() && moment >= CHANGE && moment <= LEAVE ? easeInOutSine(tillUp) : 0;
     const ib = aside > 0 ? lerpBox(itemAt, L.item, L.front, aside) : front ? L.front : L.item;
-    goodAt(ctx, good, ib, dy - hop, e);
-    if (two()) goodAt(ctx, good2, L.front2, dy - hop, e);
+    const base = front ? Math.max(L.front.w, L.front.h) : Math.max(L.item.w, L.item.h, L.front.w, L.front.h);
+    goodAt(ctx, good, ib, dy - hop, e, base);
+    if (two()) goodAt(ctx, good2, L.front2, dy - hop, e, Math.max(L.front2.w, L.front2.h));
     if (gliding) return;
     if (!two()) { tagNow(0); if (aside > 0) lerpBox(tagAt, L.tag, L.ftag, aside); drawTag(ctx, tagAt, plan.price, dy - hop, 1); return; }
     const f = clamp01((mergeTagK() - 0.8) / 0.2);
@@ -1823,13 +1858,16 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     const fade = moment >= CHANGE && moment <= GLIDE ? 1 - tillUp : 1; if (fade <= 0) return;
     const b = L.purse, open = purseOpen > 0, hop = purseHop < 0.25 ? Math.sin(purseHop / 0.25 * Math.PI) : 0;
     const name = open ? PURSE_OPEN : PURSE_SHUT, px = PURSE_PX[open ? 1 : 0];
-    let size = b.w * Math.max(px[0], px[1]) / px[0] * (1 + hop * 0.1), rot = 0, lift = 0;
+    // Cached once per pose at its largest size (hop and tip), and scaled down at draw time.
+    const rest = b.w * Math.max(px[0], px[1]) / px[0], base = rest * 1.1 * (open ? 1.15 : 1);
+    let size = rest * (1 + hop * 0.1), rot = 0, lift = 0;
     if (open && purseEmpty) {
       const tip = easeOutCubic(clamp01((PURSE_SHOW + 0.3 - purseOpen) / 0.25));
       rot = Math.PI * 0.85 * tip + Math.sin(time * 28) * 0.1 * tip; lift = tip * b.h * 0.45; size *= 1 + tip * 0.15;
     }
     if (fade < 1) ctx.globalAlpha = fade;
-    drawSprite(ctx, sprites, name, b.x + b.w / 2, b.y + b.h - (b.w * px[1] / px[0]) / 2 - hop * 12 * u - lift, size, rot);
+    const k = size / base;
+    drawSprite(ctx, sprites, name, b.x + b.w / 2, b.y + b.h - (b.w * px[1] / px[0]) / 2 - hop * 12 * u - lift, base, rot, k, k);
     ctx.globalAlpha = 1;
     note(name, size, Math.max(px[0], px[1]));
   }
@@ -1876,25 +1914,55 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     ctx.fillStyle = HIGHLIGHT; ctx.fill(); ctx.lineWidth = 3 * u; ctx.strokeStyle = OUTLINE; ctx.stroke();
   }
   /**
-   * The change handed back so far, drawn over the till in the paw zone: the newest piece at the zone's centre, older
-   * ones stepping up and left (at most a third of a piece across in all), every piece at full size.
+   * Where paw piece i rests (before the customer's walk and hop), into pos. The newest PAW_FAN pieces fan from the
+   * stack's centre, each older one 0.12 of a piece up and left (bills half as far sideways). Older pieces settle in a
+   * column just left of the fan, oldest at the bottom, each 0.1 of a piece above the one before (closing up so the
+   * column rises at most 0.45 of a piece); a card over the column shows their value.
    */
+  function pawPiece(i: number): void {
+    const kind = pawKind[i]!, k = pawN - 1 - i, bills = plan.dollars;
+    if (k < PAW_FAN) {
+      if (bills) { pos.x = stackX - k * billW * 0.06; pos.y = stackY - k * billH * 0.12; }
+      else { pos.x = stackX - k * coinD[kind]! * 0.12; pos.y = stackY - k * coinD[kind]! * 0.08; }
+      return;
+    }
+    const settled = pawN - PAW_FAN, bigW = bills ? billW : coinD[QUARTER]!, bigH = bills ? billH : bigW;
+    const rise = Math.min(0.1, 0.45 / Math.max(1, settled - 1));
+    pos.x = Math.max(4 + bigW / 2, stackX - bigW * (bills ? 0.18 : 0.36) - bigW * 1.04);
+    pos.y = stackY - i * bigH * rise;
+  }
+  /**
+   * The change handed back so far, drawn over the till in the paw zone, every piece at full size: the newest fan out
+   * from the zone's centre, older ones settle in a column beside them under a cream card with their value, so the
+   * pieces drawn always add up to the change given.
+   */
+  function settledValue(): number { let v = 0; for (let i = 0; i < pawN - PAW_FAN; i++) v += value(pawKind[i]!); return v; }
   function renderPaw(ctx: CanvasRenderingContext2D): void {
     if (!changeOn() || moment < CHANGE || moment === MERGE) return;
-    const x = custNowX() + (stackX - custX), y = stackY - (custHop < 0.42 ? Math.sin(custHop / 0.42 * Math.PI) * 16 * u : 0);
+    const dx = custNowX() - custX, dy = -(custHop < 0.42 ? Math.sin(custHop / 0.42 * Math.PI) * 16 * u : 0), x = stackX + dx, y = stackY + dy;
     if (moment === CHANGE && committed < plan.change && glowCanvas && !(intro && introStage === 1)) {
       // The paw glows softly while change is owed, more while a piece is being carried to it.
       const g = Math.max(L.pawZone.w, L.pawZone.h) * (carry.active ? 1.5 : 1.3) * (0.92 + Math.sin(time * 4) * 0.08); ctx.globalAlpha = carry.active ? 0.95 : 0.7;
       ctx.drawImage(glowCanvas, x - g / 2, y - g / 2, g, g); ctx.globalAlpha = 1;
     }
-    const step = Math.min(0.12, 0.36 / Math.max(1, pawN - 1));
     // The newest piece lands with a squash that settles in 0.3 s.
     const land = pawHop < 0.3 ? Math.cos(pawHop / 0.3 * Math.PI * 1.5) * (1 - pawHop / 0.3) : 0, sy = 1 - 0.16 * land, sx = (1 + 0.12 * land) / sy;
     for (let i = 0; i < pawN; i++) {
-      const k = pawN - 1 - i, kind = pawKind[i]!, top = k === 0;
-      if (plan.dollars) bill(ctx, kind, x - k * billW * step * 0.5, y - k * billH * step + (top ? billH * (1 - sy) * 0.5 : 0), top ? sy : 1, 0, top ? sx : 1);
-      else coin(ctx, kind, 0, x - k * coinD[kind]! * step, y - k * coinD[kind]! * step * 0.67 + (top ? coinD[kind]! * (1 - sy) * 0.5 : 0), top ? sy : 1, 0, top ? sx : 1);
+      pawPiece(i);
+      const kind = pawKind[i]!, top = i === pawN - 1, px = pos.x + dx, py = pos.y + dy;
+      if (plan.dollars) bill(ctx, kind, px, py + (top ? billH * (1 - sy) * 0.5 : 0), top ? sy : 1, 0, top ? sx : 1);
+      else coin(ctx, kind, 0, px, py + (top ? coinD[kind]! * (1 - sy) * 0.5 : 0), top ? sy : 1, 0, top ? sx : 1);
     }
+    const settled = pawN - PAW_FAN, s = inkTag;
+    if (settled <= 0 || !s) return;
+    const v = settledValue();
+    pawPiece(settled - 1);
+    const bigH = plan.dollars ? billH : coinD[QUARTER]!, unit = plan.dollars ? s.w[G_DOLLAR]! * 0.72 : s.w[G_CENT]!;
+    const cw = digitsW(s, v) + unit + s.px * 0.7, ch = s.px * 1.45;
+    const cx = Math.min(W - 4 - cw / 2, Math.max(4 + cw / 2, pos.x + dx)), cy = Math.max(4 + ch / 2, pos.y + dy - bigH / 2 - 6 * u - ch / 2);
+    ctx.beginPath(); ctx.roundRect(cx - cw / 2, cy - ch / 2, cw, ch, ch * 0.3);
+    ctx.fillStyle = CREAM; ctx.fill(); ctx.lineWidth = Math.max(2, 3 * u); ctx.strokeStyle = INK; ctx.stroke();
+    amount(ctx, s, v, plan.dollars, cx, cy, 1);
   }
   /**
    * A piece that is too much shows its value as dots on a cream card just above it: ink dots in rows of ten (5, gap,
@@ -2045,8 +2113,15 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     const tb = L.ctill, rise = easeOutBack(clamp01(t / 0.35), 1.3), tdy = (1 - rise + away) * (H - tb.y + 20);
     if (ctrayCanvas) ctx.drawImage(ctrayCanvas, tb.x, tb.y + tdy, tb.w, tb.h);
     note(TRAY, trayK(tb.h), 1);
-    const cs = Math.min(1, (tb.h * 0.6) / coinD[QUARTER]!);
-    for (let k = 0; k < 4; k++) coin(ctx, k, 1, tb.x + tb.w * (0.2 + k * 0.2), tb.y + tb.h * 0.5 + tdy, cs);
+    // The tray holds what the round took: a coin of each kind and a bill of each kind the customers paid with.
+    let n = 0; for (let k = 0; k < 4; k++) n += ((takenCoins >> k) & 1) + ((takenBills >> k) & 1);
+    if (n > 0) {
+      const slot = tb.w * 0.84 / n, cy = tb.y + tb.h * 0.5 + tdy;
+      const cs = Math.min(1, (tb.h * 0.6) / coinD[QUARTER]!, slot * 1.1 / coinD[QUARTER]!), bs = Math.min(1, (tb.h * 0.62) / billH, slot * 1.5 / billW);
+      let j = 0;
+      for (let k = 0; k < 4; k++) if ((takenCoins >> k) & 1) coin(ctx, k, 1, tb.x + tb.w * 0.08 + slot * (j++ + 0.5), cy, cs);
+      for (let k = 0; k < 4; k++) if ((takenBills >> k) & 1) bill(ctx, k, tb.x + tb.w * 0.08 + slot * (j++ + 0.5), cy, bs);
+    }
     const sh = L.slate.y + L.slate.h + 20, sdy = -(1 - easeOutBack(clamp01(t / CLOSE_OPEN), 1.1)) * sh - away * sh;
     if (slateCanvas) { ctx.drawImage(slateCanvas, L.slate.x, L.slate.y + sdy, L.slate.w, L.slate.h); note(BOARD, closeKS, 1); }
     const showD = closeDollars > 0, showC = closeCentsShown(), labelY = L.slatePanel.y + closePx * 1.5 + closePx * 0.3 + sdy;
@@ -2056,7 +2131,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
       glyph(ctx, inkClose, g === 0 ? G_DOLLAR : G_CENT, cx - gw / 2 * 1.3, labelY, 0.78);
     }
     for (let g = 0; g < 2; g++) {
-      const n = g === 0 ? shownD : shownC, pulses = g === 0 ? closeCupD : closeCupC, img = closeCupCanvas; if (!img) break;
+      const n = g === 0 ? shownD : shownC, pulses = g === 0 ? closeCupD : closeCupC, img = g === 0 ? closeDollarCanvas : closeCupCanvas; if (!img) continue;
       for (let i = 0; i < n && i < MAX_CUPS; i++) {
         cupCentre(g === 0, i);
         const w = img.width / artRatio * popScale(pulses[i]!);
@@ -2118,16 +2193,16 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     for (const id of pending.choices) offers.warm(stickerNames.get(id) ?? '', Math.round(choiceSize * 0.78));
     offers.warmBook(bookH); offers.warmBook(restSize);
   }
-  /** The round's customers in a row along the quay, happy, each with its good, waving. */
+  /** The round's customers in a row along the quay, happy, each with its good, waving (standing still at rest). */
   function renderCrowd(ctx: CanvasRenderingContext2D, h: number, cy: number, feetClip: boolean): void {
     const n = Math.min(6, pending?.who.length ?? 0); if (!n) return;
     // The row stays in the middle of the window, so the harbour's boats and lighthouse stay in view.
     const gap = Math.min(W / (n + 0.5), h * 0.75, (W * 0.56) / n);
     for (let i = 0; i < n; i++) {
       const c = CUSTOMERS[pending!.who[i]!]!, name = CUST_NAMES[pending!.who[i]!]![1]!, x = W / 2 + (i - (n - 1) / 2) * gap;
-      const hh = h * c.hh / 760, bob = Math.abs(Math.sin(time * 4 + i * 1.3)) * 10 * u;
+      const still = phase === 'rest', hh = h * c.hh / 760, bob = still ? 0 : Math.abs(Math.sin(time * 4 + i * 1.3)) * 10 * u;
       if (feetClip) { ctx.save(); ctx.beginPath(); ctx.rect(-W, -H, W * 3, Yc + H); ctx.clip(); }
-      drawSprite(ctx, sprites, name, x, cy - bob, hh, Math.sin(time * 3 + i) * 0.05, c.mirror ? -1 : 1, 1);
+      drawSprite(ctx, sprites, name, x, cy - bob, hh, still ? 0 : Math.sin(time * 3 + i) * 0.05, c.mirror ? -1 : 1, 1);
       if (feetClip) ctx.restore();
       note(name, hh, c.hh);
       const gi = pending!.goods[i] ?? 0, g = GOODS[gi]!, gw = h * 0.3;
@@ -2293,6 +2368,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
       if (!playable()) return null;
       return {
         content: plan.content, countsFor: plan.step, dollars: plan.dollars, price: plan.price, parts: plan.parts.slice(), payment: payment(), planned: planned(), owed: plan.change, given, counter,
+        pawPieces: pawN, pawSettled: Math.max(0, pawN - PAW_FAN), pawSettledValue: settledValue(),
         decide: plan.decide, till: Array.from(tillKind.subarray(0, tillN), name), pay: plan.pay.map(name), topUp: plan.topUp.map(name), merged: mergeK() >= 1,
       };
     },
@@ -2301,7 +2377,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
       if (!playable() || plan.dollars) return out;
       if (dishShown()) for (let i = 0; i < dishLanded; i++) if (!isBill(dishKind[i]!)) out.push({ kind: COIN_NAMES[dishKind[i]!]!, face: 'heads', x: dishPx[i]!, y: dishPy[i]!, d: coinD[dishKind[i]!]!, where: 'dish' });
       if (tillShown()) for (let i = 0; i < tillN; i++) out.push({ kind: COIN_NAMES[tillKind[i]!]!, face: 'heads', x: wellX[i]!, y: wellY[i]!, d: coinD[tillKind[i]!]!, where: 'till' });
-      for (let i = 0; i < pawN; i++) out.push({ kind: COIN_NAMES[pawKind[i]!]!, face: 'heads', x: stackX, y: stackY, d: coinD[pawKind[i]!]!, where: 'paw' });
+      for (let i = 0; i < pawN; i++) { pawPiece(i); out.push({ kind: COIN_NAMES[pawKind[i]!]!, face: 'heads', x: pos.x, y: pos.y, d: coinD[pawKind[i]!]!, where: 'paw' }); }
       return out;
     },
     get bills() {
@@ -2311,7 +2387,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
       if (dishShown()) for (let i = 0; i < dishLanded; i++) if (isBill(dishKind[i]!)) out.push({ value: v(dishKind[i]!), x: dishPx[i]!, y: dishPy[i]!, w: billW, h: billH, where: 'dish' });
       if (!plan.dollars) return out;
       if (tillShown()) for (let i = 0; i < tillN; i++) out.push({ value: BILL_VALUE[tillKind[i]!]!, x: wellX[i]!, y: wellY[i]!, w: billW, h: billH, where: 'till' });
-      for (let i = 0; i < pawN; i++) out.push({ value: BILL_VALUE[pawKind[i]!]!, x: stackX, y: stackY, w: billW, h: billH, where: 'paw' });
+      for (let i = 0; i < pawN; i++) { pawPiece(i); out.push({ value: BILL_VALUE[pawKind[i]!]!, x: pos.x, y: pos.y, w: billW, h: billH, where: 'paw' }); }
       return out;
     },
     get targets() {
