@@ -28,7 +28,7 @@ import {
   applyLearning, applyMotor, BILL1, BILL20, BILL_VALUE, CENTS, COIN_MM, COIN_NAMES, COIN_VALUE, DIME, DIME_MM, DISH_ORDER, DOLLARS, fewestTakes, introTask,
   lockTakes, MIN_DIME_PX, NICKEL, PENNY, PIECE_NAMES, planTask, QUARTER, recordTask, ROUND_STARS, roundTasks, taskStep, TIERS, type TaskPlan, type TierParams,
 } from './rules';
-import { playVoice, preloadVoice, voiceRemaining, voiceSeconds, type VoiceClip } from './voice';
+import { playVoice, preloadVoice, stopVoice, voiceRemaining, voiceSeconds, type VoiceClip } from './voice';
 
 export { GAME_ID };
 const ART = 'coin-vault/';
@@ -2800,7 +2800,7 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
       if (services.debug.enabled) (window as unknown as { __coinVault?: CoinVaultStats }).__coinVault = stats;
     },
     pause() {
-      stopMusic(audio); stopIdle();
+      stopMusic(audio); stopIdle(); stopVoice();
       if (carry.active) returnCarry(input.pointer.x, input.pointer.y);
       services.save.flush();
     },
@@ -2809,7 +2809,7 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
       startMusic(audio, 'coin-vault');
     },
     exit() {
-      stopMusic(audio); stopIdle(); offers.cancel(); closeFinishedRound(); services.save.flush();
+      stopMusic(audio); stopIdle(); stopVoice(); offers.cancel(); closeFinishedRound(); services.save.flush();
       releaseArt(); sprites.clearScaled(BG); bgCanvas = undefined; sizeKey = ''; madeName = ''; bakedMat = ''; matCanvas = undefined;
     },
     resize: layout,

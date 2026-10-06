@@ -23,7 +23,7 @@ import {
   goalCustomer, K_DOLLAR, K_FIVE, MIN_BILL_PX, MIN_DIME_PX, nextPiece, NICKEL, paid, PENNY, planCustomer, QUARTER, recordCustomer, ROUND_STARS, roundSize, taughtCustomer, TIERS,
   valueOf, type CustomerPlan, type TierParams,
 } from './rules';
-import { playVoice, preloadVoice, voiceRemaining, type VoiceClip } from './voice';
+import { playVoice, preloadVoice, stopVoice, voiceRemaining, type VoiceClip } from './voice';
 
 export { GAME_ID };
 const ART = 'market-stall/';
@@ -2621,7 +2621,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
       if (services.debug.enabled) (window as unknown as { __marketStall?: MarketStallStats }).__marketStall = stats;
     },
     pause() {
-      stopMusic(audio); stopIdle();
+      stopMusic(audio); stopIdle(); stopVoice();
       if (carry.active) { carry.active = false; launch(F_RETURN, carry.kind, carry.well, input.pointer.x, input.pointer.y, wellX[carry.well]!, wellY[carry.well]!, RETURN_SECONDS); }
       services.save.flush();
     },
@@ -2630,7 +2630,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
       startMusic(audio, 'market-stall');
     },
     exit() {
-      stopMusic(audio); stopIdle(); offers.cancel(); closeFinishedRound(); services.save.flush();
+      stopMusic(audio); stopIdle(); stopVoice(); offers.cancel(); closeFinishedRound(); services.save.flush();
       releaseArt(); sprites.clearScaled(BG); bgCanvas = undefined; sizeKey = ''; madeN = 0; bakedTray = ''; bakedBoard = ''; bakedBills = '';
       trayCanvas = undefined; boardCanvas = undefined; billCanvas.fill(undefined);
     },

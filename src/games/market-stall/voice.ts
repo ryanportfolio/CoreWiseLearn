@@ -48,6 +48,12 @@ export function playVoice(audio: Audio, name: VoiceClip): void {
   speechEnds = speaking ? audio.context.currentTime + buffer.duration : 0;
 }
 
+/** Stop the clip playing, if any. The scene calls this on pause and exit, so speech never runs on into the hub. */
+export function stopVoice(): void {
+  if (speaking) { try { speaking.stop(); } catch { /* already ended */ } }
+  speaking = undefined; speechEnds = 0;
+}
+
 /** Seconds until the clips already playing have finished (0 when none is). */
 export function voiceRemaining(audio: Audio): number {
   return audio.context && !audio.muted ? Math.max(0, speechEnds - audio.context.currentTime) : 0;
