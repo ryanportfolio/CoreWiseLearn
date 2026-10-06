@@ -1,10 +1,10 @@
 /**
  * Frog Pond: a reading game on a pond. The pond shows one spot per activity (with a single activity the game would go
- * straight into it). Each round ends like every round game: stars, the shared sticker
- * offer, then a still rest screen with Again and Home.
+ * straight into it). Each round ends like every round game: stars, the shared sticker offer, then a still rest screen
+ * with Again and Home.
  *
  * This file is the shell: background, corner buttons, the activity chooser, the round end and the save bag. The
- * activities live in rhyme.ts (Rhyme snack) and pot.ts (Word pot).
+ * activities live in rhyme.ts (Rhyme snack), pot.ts (Word pot) and sentences.ts (Lily-pad sentences).
  */
 import { rewards, type AppServices } from '../../app/services';
 import { STICKERS, stickerSpriteName } from '../../app/stickers';
@@ -22,6 +22,8 @@ import { createSoundButton, soundArt, syncSoundIcon } from '../../scenes/hub/sha
 import { ACTIVITY_IDS, defaultData, GAME_ID, sanitizeFrogPondData, toTier, type ActivityId, type FrogPondData, type PendingRound } from './data';
 import { createRhymeSnack, FROG_SIT, PAD, RHYME_ART, type BugInfo } from './rhyme';
 import { planRhyme, ROUND_STARS, tierParams } from './rhyme-rules';
+import { planSentence, sentenceTier } from './sentence-rules';
+import { createLilySentences, SENTENCE_ART, WORD_PAD, type LilySentences } from './sentences';
 import { preloadFrogVoice, stopFrogVoice } from './voice';
 import { createWordPot, POT, POT_ART, type WordPot } from './pot';
 import { planPot, potParams } from './pot-rules';
@@ -51,12 +53,14 @@ export interface FrogPondStats {
   readonly targets: readonly { kind: string; x: number; y: number; w: number; h: number }[];
   readonly workMean: number; readonly workMax: number; readonly workP95: number;
   resetWork(): void;
+  /** Lily-pad sentences' play state (pads, reading, picture). */
+  readonly sentences: LilySentences['stats'];
 }
 export interface FrogPondScene extends Scene { readonly stats: FrogPondStats }
 
 const spriteName = (path: string): string => path.replace(/\.\w+$/, '');
 function artList(): { name: string; path: string }[] {
-  const paths = [`${BG}.webp`, ...RHYME_ART.map(n => `${n}.webp`), ...POT_ART.map(n => `${n}.webp`), `${BUTTON_PLAY}.png`, `${BUTTON_HOME}.png`, BOOK_ICON_PATH];
+  const paths = [`${BG}.webp`, ...[...new Set([...RHYME_ART, ...POT_ART, ...SENTENCE_ART])].map(n => `${n}.webp`), `${BUTTON_PLAY}.png`, `${BUTTON_HOME}.png`, BOOK_ICON_PATH];
   return [...paths.map(path => ({ name: spriteName(path), path })), ...STICKERS.filter(s => s.game === GAME_ID).map(s => ({ name: stickerSpriteName(s.id), path: s.path }))];
 }
 export async function loadFrogPondArt(services: AppServices): Promise<string[]> {
@@ -82,6 +86,10 @@ export function createFrogPondScene(services: AppServices): FrogPondScene {
   pot.onAttempt = hit => { if (!intro && services.debug.tier === undefined) potAdaptive.record({ hit }); };
   // Every word made joins the pond at once, so a reload mid-round keeps it.
   pot.onMade = word => { if (!data.pot.made.includes(word)) { data.pot.made.push(word); services.save.save(); } };
+  // Lily-pad sentences keeps its own hidden tier, so a reader strong at rhymes still starts on short sentences.
+  const lily = createLilySentences(services);
+  const sentAdaptive = createAdaptiveTier({ windowSize: 10, minAttempts: 6, cooldownAttempts: 4, promoteAccuracy: 0.85, demoteAccuracy: 0.5 });
+  lily.onAttempt = hit => { if (!intro && services.debug.tier === undefined) sentAdaptive.record({ hit }); };
   const work = new Float32Array(240), workSorted = new Float32Array(240);
   const sfx: SfxOptions = { index: 0, volume: 1, variant: 'A' };
   let data: FrogPondData = defaultData();
@@ -99,12 +107,13 @@ export function createFrogPondScene(services: AppServices): FrogPondScene {
   let bookH = 150, bookGlide = false;
   const stickerNames = new Map(STICKERS.map(s => [s.id, stickerSpriteName(s.id)]));
   const forcePond = services.debug.enabled && new URLSearchParams(location.search).has('pond');
+  const debugSentence = services.debug.enabled ? Number(new URLSearchParams(location.search).get('sentence') ?? -1) : -1;
 
   const play = (name: SfxName, variant: SfxVariant, index = 0, volume = 1): void => {
     sfx.index = index; sfx.volume = volume; sfx.variant = variant; playSfx(audio, name, sfx);
   };
   const playable = (): boolean => phase === 'play';
-  const current = (): typeof snack | WordPot => (activity === 'pot' ? pot : snack);
+  const current = (): typeof snack | WordPot | LilySentences => (activity === 'pot' ? pot : activity === 'sentences' ? lily : snack);
 
   // ---------------------------------------------------------------- layout
   function layout(width: number, height: number): void {
@@ -119,6 +128,7 @@ export function createFrogPondScene(services: AppServices): FrogPondScene {
     soundButton.x = soundX; soundButton.y = cornerY; soundButton.radius = cornerRadius;
     snack.layout(W, H, u, cornerY + cornerRadius + 10, artRatio);
     pot.layout(W, H, u, cornerY + cornerRadius + 10, artRatio);
+    lily.layout(W, H, u, cornerY + cornerRadius + 10, artRatio);
     const headerScale = Math.min(1.25, Math.max(0.6, Math.min(W / 1366, H / 768)));
     starR = 34 * headerScale; starY = 70 * headerScale;
     choiceSize = Math.round(Math.max(110, Math.min(300 * Math.min(1.25, H / 768), (W - 60) / 2)));
@@ -147,18 +157,21 @@ export function createFrogPondScene(services: AppServices): FrogPondScene {
   }
   function startRound(): void {
     pending = null; data.pending = null; bookGlide = false;
-    const potRound = activity === 'pot';
-    tier = services.debug.tier ?? toTier(potRound ? data.pot.tier : data.tier);
+    const potRound = activity === 'pot', sentences = activity === 'sentences', bag = data.sentences;
+    tier = services.debug.tier ?? toTier(potRound ? data.pot.tier : sentences ? bag.tier : data.tier);
     // Only a changed tier resets the attempt window; resetting it every round would stop the tier ever moving.
-    const tracker = potRound ? potAdaptive : adaptive;
+    const tracker = potRound ? potAdaptive : sentences ? sentAdaptive : adaptive;
     if (tracker.tier !== tier) tracker.setTier(tier);
-    // data.rounds counts every activity; Rhyme snack's own rounds are those Word pot did not play.
-    intro = potRound ? data.pot.rounds === 0 : data.rounds - data.pot.rounds <= 0;
+    // data.rounds counts every activity; Rhyme snack's own rounds are those the other activities did not play.
+    intro = potRound ? data.pot.rounds === 0 : sentences ? bag.rounds === 0 : data.rounds - data.pot.rounds - bag.rounds <= 0;
     phase = 'play'; phaseT = time = 0; stars = ROUND_STARS; starsPlayed = 0; cornerFocus = -1;
     particles.clear();
     if (potRound) {
       roundRime = '';
       pot.start(planPot(potParams(tier, intro), data.pot.made, data.pot.last, random), tier, intro, data.pot.assist === 1, data.pot.made);
+    } else if (sentences) {
+      const plan = planSentence(sentenceTier(tier, intro), bag.last, random, intro, debugSentence);
+      lily.start(plan, tier, intro, bag.assist === 1);
     } else {
       const plan = planRhyme(tierParams(tier, intro), data.lastRime, random, intro ? INTRO_RIME : undefined);
       roundRime = plan.rime;
@@ -185,6 +198,12 @@ export function createFrogPondScene(services: AppServices): FrogPondScene {
       // Word help: on after a round with several bonks or a long pause, off after a round with no bonk at all.
       data.pot.assist = result.struggled ? 1 : result.bonks === 0 ? 0 : data.pot.assist;
       data.pot.rounds++; data.pot.last = pot.stats.words.slice();
+    } else if (activity === 'sentences') {
+      const result = lily.result(), bag = data.sentences;
+      if (!intro && services.debug.tier === undefined) bag.tier = sentAdaptive.tier;
+      // Word help: on after a round with several out-of-order presses or a long pause, off after a round with none.
+      bag.assist = result.struggled ? 1 : result.misses === 0 ? 0 : bag.assist;
+      bag.last = lily.stats.index + 1; bag.rounds++;
     } else {
       const result = snack.result();
       if (!intro && services.debug.tier === undefined) data.tier = adaptive.tier;
@@ -284,8 +303,11 @@ export function createFrogPondScene(services: AppServices): FrogPondScene {
   /** The activity's own picture for the celebration and the rest screen: the frog on its pad, or the pot with a word's picture. */
   function drawHero(ctx: CanvasRenderingContext2D, x: number, bottom: number, rest: boolean, happy: number, t: number): void {
     if (activity === 'pot') pot.drawPot(ctx, x, bottom, rest ? restSize : Math.round(Math.min(H * 0.72, 560 * u)), happy, t, pending?.target ?? pot.target);
+    else if (activity === 'sentences') lily.drawPadFrog(ctx, x, bottom, padWidth() * (rest ? restFrogK() : 1), happy);
     else snack.drawFrog(ctx, x, bottom, rest ? restFrogK() : 1, happy, t);
   }
+  /** Rhyme snack's lily pad width, for the frog Lily-pad sentences shows at the round's end. */
+  const padWidth = (): number => Math.round(Math.min(440 * u, W * 0.5, H * 0.62));
   function gift(ctx: CanvasRenderingContext2D, index: number, id: string, x: number, y: number, size: number, focused: boolean, alpha = 1, sticker = true): void {
     if (focused) {
       ctx.beginPath(); ctx.ellipse(x, y, size * 0.55 + 8, size * 0.55 + 8, 0, 0, Math.PI * 2);
@@ -352,6 +374,10 @@ export function createFrogPondScene(services: AppServices): FrogPondScene {
       if (ACTIVITY_IDS[i] === 'pot') {
         // Word pot's spot: the bubbling pot, wobbling gently.
         drawSprite(ctx, sprites, POT, x, y, spotR * 2.1, 0, 1 + Math.sin(time * 2.6) * 0.02, 1 - Math.sin(time * 2.6) * 0.02);
+      } else if (ACTIVITY_IDS[i] === 'sentences') {
+        // Lily-pad sentences' spot: a row of three word pads bobbing in turn, a small frog on the first.
+        for (let k = 0; k < 3; k++) drawSprite(ctx, sprites, WORD_PAD, x + (k - 1) * spotR * 0.7, y + spotR * (0.45 - k * 0.16) + Math.sin(time * 2.2 + k) * 3 * u, spotR * 1.3);
+        drawSprite(ctx, sprites, FROG_SIT, x - spotR * 0.7, y - spotR * 0.05, spotR * 1.05);
       } else {
         // Rhyme snack's spot: the frog on a lily pad.
         drawSprite(ctx, sprites, PAD, x, y + spotR * 0.45, spotR * 2.4);
@@ -395,6 +421,7 @@ export function createFrogPondScene(services: AppServices): FrogPondScene {
     get targets() {
       const out: { kind: string; x: number; y: number; w: number; h: number }[] = [];
       if (phase === 'pond') for (let i = 0; i < ACTIVITY_IDS.length; i++) out.push({ kind: `spot:${ACTIVITY_IDS[i]}`, x: spotX(i) - spotR, y: spotY() - spotR, w: spotR * 2, h: spotR * 2 });
+      if (phase === 'play' && activity === 'sentences') for (const p of lily.stats.pads) if (p.state === 'float') out.push({ kind: `pad:${p.text}`, ...p.hit });
       if (phase === 'choice' && pending) for (let i = 0; i < pending.choices.length; i++) out.push({ kind: `sticker:${pending.choices[i]}`, x: controlX(i, true) - choiceSize / 2, y: choiceY - choiceSize / 2, w: choiceSize, h: choiceSize });
       if (phase === 'rest') for (let i = 0; i < 2; i++) out.push({ kind: i === 0 ? 'again' : 'home', x: controlX(i, false) - controlsRadius, y: controlsY - controlsRadius, w: controlsRadius * 2, h: controlsRadius * 2 });
       out.push({ kind: 'corner-home', x: homeX - cornerRadius, y: cornerY - cornerRadius, w: cornerRadius * 2, h: cornerRadius * 2 });
@@ -409,17 +436,21 @@ export function createFrogPondScene(services: AppServices): FrogPondScene {
       return s[Math.max(0, Math.ceil(workCount * 0.95) - 1)]!;
     },
     resetWork() { workHead = workCount = 0; },
+    get sentences() { return lily.stats; },
   };
 
   function applyDebug(): void {
     if (!services.debug.enabled || debugApplied) return;
     debugApplied = true;
     const params = new URLSearchParams(location.search), rounds = Number(params.get('rounds')), help = params.get('help');
-    if (params.has('rounds') && Number.isSafeInteger(rounds) && rounds >= 0) { data.rounds = rounds * 2; data.pot.rounds = rounds; data.pending = null; } // rounds of each activity
+    if (params.has('rounds') && Number.isSafeInteger(rounds) && rounds >= 0) {
+      // Each activity gets that many rounds of its own (data.rounds counts all three), so rounds=0 replays every introduction.
+      data.rounds = rounds * 3; data.pot.rounds = rounds; data.sentences.rounds = rounds; data.pending = null;
+    }
     // made=N fills Word pot's pond with the first N compound words (a big collection, for frame timing).
     const made = Number(params.get('made'));
     if (params.has('made') && Number.isSafeInteger(made) && made >= 0) data.pot.made = POT_ART.slice(1, 1 + made).map(n => n.slice(n.lastIndexOf('/cw-') + 4));
-    if (help === '0' || help === '1') { data.assist = Number(help); data.pot.assist = Number(help); }
+    if (help === '0' || help === '1') { data.assist = Number(help); data.pot.assist = Number(help); data.sentences.assist = Number(help); }
   }
 
   return {
@@ -444,7 +475,7 @@ export function createFrogPondScene(services: AppServices): FrogPondScene {
       if (services.debug.enabled) (window as unknown as { __frogPond?: FrogPondStats }).__frogPond = stats;
     },
     pause() {
-      stopMusic(audio); stopIdle(); stopFrogVoice(audio); snack.stop(); pot.stop();
+      stopMusic(audio); stopIdle(); stopFrogVoice(audio); snack.stop(); pot.stop(); lily.stop();
       services.save.flush();
     },
     resume() {
@@ -452,7 +483,7 @@ export function createFrogPondScene(services: AppServices): FrogPondScene {
       startMusic(audio, 'frog-pond');
     },
     exit() {
-      stopMusic(audio); stopIdle(); stopFrogVoice(audio); snack.stop(); pot.stop(); offers.cancel(); closeFinishedRound(); services.save.flush();
+      stopMusic(audio); stopIdle(); stopFrogVoice(audio); snack.stop(); pot.stop(); lily.stop(); offers.cancel(); closeFinishedRound(); services.save.flush();
       sprites.clearScaled(BG); bgCanvas = undefined;
     },
     resize: layout,

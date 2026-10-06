@@ -74,6 +74,17 @@ One JSON file per clip folder, in `scripts/voice/lines/`:
 
 Run `npm run build` after a run so the game and the offline cache pick up the new clips.
 
+## Word timings for sentence clips
+
+Frog Pond's Lily-pad sentences lights each word as the postman reads it, from a table of when each word starts in each `read-` clip (`src/games/frog-pond/read-timing.ts`). After rendering or re-rendering sentence clips, measure them again:
+
+```
+uv venv .tmp/asr && uv pip install --python .tmp/asr/Scripts/python.exe faster-whisper
+.tmp/asr/Scripts/python.exe scripts/voice/word-onsets.py scripts/voice/lines/frog-pond-sentences.json src/games/frog-pond/read-timing.ts
+```
+
+`word-onsets.py` needs ffmpeg and the faster-whisper speech recogniser (a dev tool installed in a scratch environment, not a dependency of the game; its small.en model, about 480 MB, downloads on first use, into `WHISPER_MODELS` when that is set). It combines Whisper's word timings with the clip's loudness, because the postman pauses between words and Whisper's boundaries fall somewhere inside the pauses; the script's header gives the rule. A clip whose transcript does not match its words is reported and left out, and the game then lights its words at an even pace. Loudness alone was tried first and failed: some readings run words together and others split a word around a pause. The chat model's own word timestamps were seconds off.
+
 ## Reviewing clips
 
 Each run writes a listening page to `D:\screenshots\CoreWiseLearn\voice-review\<folder>\index.html` (or `.tmp/voice-review/` in the repo when the D drive is missing or read-only; the run says so). It lists every clip rendered for that folder with a play button, the text, what the check heard, the length and the longest pause inside the clip, and has a button to play them all in order. Clips from earlier runs stay on the page; the ones from the latest run are marked "new". A line that failed shows in red with its last take, so you can hear what went wrong. A long pause can mean an extra sound the check did not write down, so listen to those. The owner listens to every new clip there before it is committed.

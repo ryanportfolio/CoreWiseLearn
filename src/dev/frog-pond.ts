@@ -1,4 +1,7 @@
-/** Frog Pond dev page: ?debug&tier=0..2&rounds=N&help=0|1&seed=N&pond (rounds=0 replays the introduction; pond shows the activity chooser). */
+/**
+ * Frog Pond dev page: ?debug&tier=0..2&rounds=N&help=0|1&seed=N&pond&sentence=N (rounds=0 replays every activity's
+ * introduction; pond shows the activity chooser; sentence picks Lily-pad sentences' sentence by its index in SENTENCES).
+ */
 import { bootApp } from '../app/boot';
 import { createFrogPondScene, loadFrogPondArt, type FrogPondStats } from '../games/frog-pond/scene';
 
