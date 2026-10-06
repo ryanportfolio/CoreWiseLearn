@@ -26,7 +26,7 @@ Check Windows display scaling and measure targets on the actual laptop. If repea
 - `npm run typecheck`: strict TypeScript compilation check.
 - `npm run build`: production build, then a check that fails if any public file is missing from the precache and prints the total precache size. There is no size cap.
 - `npm run check:precache`: inspect an existing production build.
-- `node scripts/prepare-art.mjs input.png output.png --palette`: indexed-PNG preparation for flat art. Omit `--palette` for true-color art.
+- `node scripts/prepare-art.mjs input.png output.webp`: resize art and write it as WebP (quality 92, alpha quality 100), the format the game ships. A `.png` output writes PNG instead, with `--palette` for 256 colors.
 
 See [the design](docs/design.md), [v1.1 implementation](docs/plans/v1.1-implementation.md), [verification evidence and limits](docs/v1.1-verification.md), [shared style](docs/style-bible.md), [future worlds](docs/design/future-worlds.md), and [adding a game](docs/adding-a-game.md).
 

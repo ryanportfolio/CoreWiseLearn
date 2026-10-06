@@ -70,16 +70,16 @@ export function drawMascotAt(
 
 /**
  * Talking frames that exist at build time, by pose name. Some poses are drawn
- * with the mouth open (cheer, wave, yawn) and have a `<pose>-closed.png`; the
+ * with the mouth open (cheer, wave, yawn) and have a `<pose>-closed.webp`; the
  * others are drawn with a closed smile (idle, point) and have a
- * `<pose>-open.png`. 'mascot/idle' maps to 'mascot/idle-open', for example.
+ * `<pose>-open.webp`. 'mascot/idle' maps to 'mascot/idle-open', for example.
  * Every frame is 768x768 and matches its pose outside the mouth, so it shares
  * the pose's feet. A pose with neither frame only wobbles while talking.
  */
 const OPEN = new Map<string, string>();
 const CLOSED = new Map<string, string>();
-for (const path of Object.keys(import.meta.glob('/public/art/mascot/*-{open,closed}.png', { query: '?url', import: 'default' }))) {
-  const name = `mascot/${path.slice(path.lastIndexOf('/') + 1).replace(/\.png$/, '')}`;
+for (const path of Object.keys(import.meta.glob('/public/art/mascot/*-{open,closed}.webp', { query: '?url', import: 'default' }))) {
+  const name = `mascot/${path.slice(path.lastIndexOf('/') + 1).replace(/\.webp$/, '')}`;
   if (name.endsWith('-open')) OPEN.set(name.slice(0, -'-open'.length), name);
   else CLOSED.set(name.slice(0, -'-closed'.length), name);
 }
@@ -89,7 +89,7 @@ export function loadMascotMouths(services: AppServices, poses: readonly string[]
   const loads: Promise<unknown>[] = [];
   for (const pose of poses) {
     for (const name of [OPEN.get(pose), CLOSED.get(pose)]) {
-      if (name) loads.push(services.sprites.load(name, services.art(`${name}.png`)).catch(() => undefined));
+      if (name) loads.push(services.sprites.load(name, services.art(`${name}.webp`)).catch(() => undefined));
     }
   }
   return Promise.all(loads).then(() => undefined);

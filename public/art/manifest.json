@@ -2,487 +2,487 @@
   "style": "Flat chunky vector, thick dark outlines, flat saturated fills, single soft highlight, no text. Sprites are 512x512 RGBA (mascot poses 768x768) with the subject centred and fitted to 80 percent of the canvas; backgrounds are 1920x1080 opaque WebP.",
   "generatedWith": "OpenAI image_gen through Codex CLI (gpt-6-astra agent), downscaled with the project scratch script .tmp/art/png.mjs",
   "count": 131,
-  "totalBytes": 6684807,
+  "totalBytes": 4501884,
   "files": [
     {
-      "file": "art/mascot/cheer.png",
+      "file": "art/mascot/cheer.webp",
       "group": "mascot",
       "name": "cheer",
       "use": "Mascot celebrating a win or a completed round (confetti drawn in code)",
       "width": 768,
       "height": 768,
       "transparent": true,
-      "bytes": 135487
+      "bytes": 42668
     },
     {
-      "file": "art/mascot/idle.png",
+      "file": "art/mascot/idle.webp",
       "group": "mascot",
       "name": "idle",
       "use": "Mascot resting pose for the hub and idle moments",
       "width": 768,
       "height": 768,
       "transparent": true,
-      "bytes": 128982
+      "bytes": 37684
     },
     {
-      "file": "art/mascot/point.png",
+      "file": "art/mascot/point.webp",
       "group": "mascot",
       "name": "point",
       "use": "Mascot pointing right to direct attention at a tile or button",
       "width": 768,
       "height": 768,
       "transparent": true,
-      "bytes": 114191
+      "bytes": 33580
     },
     {
-      "file": "art/mascot/wave.png",
+      "file": "art/mascot/wave.webp",
       "group": "mascot",
       "name": "wave",
       "use": "Mascot waving hello on the name-entry and welcome screens",
       "width": 768,
       "height": 768,
       "transparent": true,
-      "bytes": 120108
+      "bytes": 36138
     },
     {
-      "file": "art/mascot/yawn.png",
+      "file": "art/mascot/yawn.webp",
       "group": "mascot",
       "name": "yawn",
       "use": "Mascot yawning for the bedtime or inactivity prompt",
       "width": 768,
       "height": 768,
       "transparent": true,
-      "bytes": 159600
+      "bytes": 36960
     },
     {
-      "file": "art/mascot/cheer-closed.png",
+      "file": "art/mascot/cheer-closed.webp",
       "group": "mascot",
       "name": "cheer-closed",
       "use": "Mascot cheer pose with the mouth closed, swapped with the open pose while Wibble talks",
       "width": 768,
       "height": 768,
       "transparent": true,
-      "bytes": 136683
+      "bytes": 40220
     },
     {
-      "file": "art/mascot/wave-closed.png",
+      "file": "art/mascot/wave-closed.webp",
       "group": "mascot",
       "name": "wave-closed",
       "use": "Mascot wave pose with the mouth closed, swapped with the open pose while Wibble talks",
       "width": 768,
       "height": 768,
       "transparent": true,
-      "bytes": 122110
+      "bytes": 34850
     },
     {
-      "file": "art/mascot/yawn-closed.png",
+      "file": "art/mascot/yawn-closed.webp",
       "group": "mascot",
       "name": "yawn-closed",
       "use": "Mascot yawn pose with the mouth closed, swapped with the open pose while Wibble talks",
       "width": 768,
       "height": 768,
       "transparent": true,
-      "bytes": 160674
+      "bytes": 33910
     },
     {
-      "file": "art/mascot/idle-open.png",
+      "file": "art/mascot/idle-open.webp",
       "group": "mascot",
       "name": "idle-open",
       "use": "Mascot idle pose with the mouth open, swapped with the closed pose while Wibble talks",
       "width": 768,
       "height": 768,
       "transparent": true,
-      "bytes": 130957
+      "bytes": 39094
     },
     {
-      "file": "art/mascot/point-open.png",
+      "file": "art/mascot/point-open.webp",
       "group": "mascot",
       "name": "point-open",
       "use": "Mascot point pose with the mouth open, swapped with the closed pose while Wibble talks",
       "width": 768,
       "height": 768,
       "transparent": true,
-      "bytes": 115583
+      "bytes": 34932
     },
     {
-      "file": "art/tiles/candy-rainbow.png",
+      "file": "art/tiles/candy-rainbow.webp",
       "group": "tiles",
       "name": "candy-rainbow",
       "use": "Hub tile icon for a future candy game",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 40687
+      "bytes": 25834
     },
     {
-      "file": "art/tiles/dino-green.png",
+      "file": "art/tiles/dino-green.webp",
       "group": "tiles",
       "name": "dino-green",
       "use": "Hub tile icon for a future dinosaur game",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 56110
+      "bytes": 31422
     },
     {
-      "file": "art/tiles/ocean-octopus.png",
+      "file": "art/tiles/ocean-octopus.webp",
       "group": "tiles",
       "name": "ocean-octopus",
       "use": "Hub tile icon for the ocean bubble-pop game (active)",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 72085
+      "bytes": 42896
     },
     {
-      "file": "art/tiles/rocket-red.png",
+      "file": "art/tiles/rocket-red.webp",
       "group": "tiles",
       "name": "rocket-red",
       "use": "Hub tile icon for a future rocket game",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 47966
+      "bytes": 21822
     },
     {
-      "file": "art/tiles/unicorn-rainbow.png",
+      "file": "art/tiles/unicorn-rainbow.webp",
       "group": "tiles",
       "name": "unicorn-rainbow",
       "use": "Hub tile icon for a future unicorn game",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 48455
+      "bytes": 35944
     },
     {
-      "file": "art/buttons/avatar-silhouette.png",
+      "file": "art/buttons/avatar-silhouette.webp",
       "group": "buttons",
       "name": "avatar-silhouette",
       "use": "Placeholder profile icon before an avatar is chosen",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 67257
+      "bytes": 13374
     },
     {
-      "file": "art/buttons/backspace.png",
+      "file": "art/buttons/backspace.webp",
       "group": "buttons",
       "name": "backspace",
       "use": "Delete-letter key on the name-entry keyboard",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 42879
+      "bytes": 8612
     },
     {
-      "file": "art/buttons/home.png",
+      "file": "art/buttons/home.webp",
       "group": "buttons",
       "name": "home",
       "use": "Back-to-hub button icon",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 61044
+      "bytes": 21704
     },
     {
-      "file": "art/buttons/play-arrow.png",
+      "file": "art/buttons/play-arrow.webp",
       "group": "buttons",
       "name": "play-arrow",
       "use": "Start or play button icon",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 59548
+      "bytes": 11106
     },
     {
-      "file": "art/buttons/sound-off.png",
+      "file": "art/buttons/sound-off.webp",
       "group": "buttons",
       "name": "sound-off",
       "use": "Sound toggle icon, sound muted",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 71813
+      "bytes": 17364
     },
     {
-      "file": "art/buttons/sound-on.png",
+      "file": "art/buttons/sound-on.webp",
       "group": "buttons",
       "name": "sound-on",
       "use": "Sound toggle icon, sound on",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 54157
+      "bytes": 15138
     },
     {
-      "file": "art/buttons/stars-empty.png",
+      "file": "art/buttons/stars-empty.webp",
       "group": "buttons",
       "name": "stars-empty",
       "use": "Unearned rating star",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 57939
+      "bytes": 12434
     },
     {
-      "file": "art/buttons/stars-filled.png",
+      "file": "art/buttons/stars-filled.webp",
       "group": "buttons",
       "name": "stars-filled",
       "use": "Earned rating star",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 58707
+      "bytes": 17072
     },
     {
-      "file": "art/buttons/sticker-star.png",
+      "file": "art/buttons/sticker-star.webp",
       "group": "buttons",
       "name": "sticker-star",
       "use": "Sticker book button icon",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 62468
+      "bytes": 16960
     },
     {
-      "file": "art/creatures/clownfish.png",
+      "file": "art/creatures/clownfish.webp",
       "group": "creatures",
       "name": "clownfish",
       "use": "Pop-game bubble creature",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 60060
+      "bytes": 34370
     },
     {
-      "file": "art/creatures/crab.png",
+      "file": "art/creatures/crab.webp",
       "group": "creatures",
       "name": "crab",
       "use": "Pop-game bubble creature",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 63638
+      "bytes": 35794
     },
     {
-      "file": "art/creatures/dolphin.png",
+      "file": "art/creatures/dolphin.webp",
       "group": "creatures",
       "name": "dolphin",
       "use": "Pop-game bubble creature",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 55892
+      "bytes": 21450
     },
     {
-      "file": "art/creatures/jellyfish.png",
+      "file": "art/creatures/jellyfish.webp",
       "group": "creatures",
       "name": "jellyfish",
       "use": "Pop-game bubble creature",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 58624
+      "bytes": 29192
     },
     {
-      "file": "art/creatures/octopus-purple.png",
+      "file": "art/creatures/octopus-purple.webp",
       "group": "creatures",
       "name": "octopus-purple",
       "use": "Pop-game bubble creature",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 66554
+      "bytes": 39342
     },
     {
-      "file": "art/creatures/pufferfish.png",
+      "file": "art/creatures/pufferfish.webp",
       "group": "creatures",
       "name": "pufferfish",
       "use": "Pop-game bubble creature",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 58199
+      "bytes": 31392
     },
     {
-      "file": "art/creatures/seahorse.png",
+      "file": "art/creatures/seahorse.webp",
       "group": "creatures",
       "name": "seahorse",
       "use": "Pop-game bubble creature",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 37420
+      "bytes": 23924
     },
     {
-      "file": "art/creatures/starfish.png",
+      "file": "art/creatures/starfish.webp",
       "group": "creatures",
       "name": "starfish",
       "use": "Pop-game bubble creature",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 57250
+      "bytes": 23400
     },
     {
-      "file": "art/creatures/turtle.png",
+      "file": "art/creatures/turtle.webp",
       "group": "creatures",
       "name": "turtle",
       "use": "Pop-game bubble creature",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 53283
+      "bytes": 30676
     },
     {
-      "file": "art/creatures/whale-small.png",
+      "file": "art/creatures/whale-small.webp",
       "group": "creatures",
       "name": "whale-small",
       "use": "Pop-game bubble creature",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 51432
+      "bytes": 21618
     },
     {
-      "file": "art/decoys/seaweed-clump.png",
+      "file": "art/decoys/seaweed-clump.webp",
       "group": "decoys",
       "name": "seaweed-clump",
       "use": "Pop-game decoy or floor dressing",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 50772
+      "bytes": 26906
     },
     {
-      "file": "art/decoys/urchin-grumpy.png",
+      "file": "art/decoys/urchin-grumpy.webp",
       "group": "decoys",
       "name": "urchin-grumpy",
       "use": "Pop-game decoy: do not pop",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 75078
+      "bytes": 33768
     },
     {
-      "file": "art/effects/bubble-ring.png",
+      "file": "art/effects/bubble-ring.webp",
       "group": "effects",
       "name": "bubble-ring",
       "use": "Bubble overlay drawn over a creature; inside is transparent",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 62418
+      "bytes": 39692
     },
     {
-      "file": "art/effects/confetti-piece-set.png",
+      "file": "art/effects/confetti-piece-set.webp",
       "group": "effects",
       "name": "confetti-piece-set",
       "use": "Six confetti shapes on a 3 by 2 grid, cropped in code (3 columns by 2 rows, cells about 170 by 256 px)",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 34144
+      "bytes": 21086
     },
     {
-      "file": "art/effects/pop-burst.png",
+      "file": "art/effects/pop-burst.webp",
       "group": "effects",
       "name": "pop-burst",
       "use": "Burst overlay shown when a bubble pops; centre is transparent",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 50196
+      "bytes": 41192
     },
     {
-      "file": "art/effects/sparkle.png",
+      "file": "art/effects/sparkle.webp",
       "group": "effects",
       "name": "sparkle",
       "use": "Four-point sparkle for rewards and the sticker book",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 29109
+      "bytes": 14332
     },
     {
-      "file": "art/avatars/bunny.png",
+      "file": "art/avatars/bunny.webp",
       "group": "avatars",
       "name": "bunny",
       "use": "Child profile avatar",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 56126
+      "bytes": 27616
     },
     {
-      "file": "art/avatars/fox.png",
+      "file": "art/avatars/fox.webp",
       "group": "avatars",
       "name": "fox",
       "use": "Child profile avatar",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 73154
+      "bytes": 35290
     },
     {
-      "file": "art/avatars/frog.png",
+      "file": "art/avatars/frog.webp",
       "group": "avatars",
       "name": "frog",
       "use": "Child profile avatar",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 80600
+      "bytes": 26622
     },
     {
-      "file": "art/avatars/koala.png",
+      "file": "art/avatars/koala.webp",
       "group": "avatars",
       "name": "koala",
       "use": "Child profile avatar",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 58341
+      "bytes": 23708
     },
     {
-      "file": "art/avatars/lion.png",
+      "file": "art/avatars/lion.webp",
       "group": "avatars",
       "name": "lion",
       "use": "Child profile avatar",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 74092
+      "bytes": 32230
     },
     {
-      "file": "art/avatars/owl.png",
+      "file": "art/avatars/owl.webp",
       "group": "avatars",
       "name": "owl",
       "use": "Child profile avatar",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 75258
+      "bytes": 37944
     },
     {
-      "file": "art/avatars/panda.png",
+      "file": "art/avatars/panda.webp",
       "group": "avatars",
       "name": "panda",
       "use": "Child profile avatar",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 73117
+      "bytes": 24166
     },
     {
-      "file": "art/avatars/penguin.png",
+      "file": "art/avatars/penguin.webp",
       "group": "avatars",
       "name": "penguin",
       "use": "Child profile avatar",
       "width": 512,
       "height": 512,
       "transparent": true,
-      "bytes": 63536
+      "bytes": 23432
     },
     {
       "file": "art/backgrounds/hub-meadow-beach.webp",
@@ -1319,7 +1319,8 @@
     "date": "2026-10-02",
     "tool": "scripts/prepare-art.mjs with sharp",
     "settings": "PNG palette 256 colors, dither 0.5; backgrounds fit within 1366x768; alpha preserved",
-    "originals": "D:/CoreWise/_artifacts/CoreWiseLearn/v1.1-original-art/art"
+    "originals": "D:/CoreWise/_artifacts/CoreWiseLearn/v1.1-original-art/art",
+    "webp": "On 2026-10-05 the 48 prepared PNGs were re-encoded as WebP with sharp (quality 92, alpha quality 100, effort 6, the sprites' setting), same size and alpha; 3,543,783 bytes became 1,360,860. The prepared PNGs are kept in D:/CoreWise/_artifacts/CoreWiseLearn/png-before-webp and in git history."
   },
   "rewardArt": {
     "generatedWith": "OpenAI image_gen; model identifier not exposed",
@@ -1361,11 +1362,11 @@
     "generatedWith": "Codex CLI 0.159.0 (codex exec -m gpt-6-astra, reasoning effort medium) using its built-in image_gen tool, editing the attached original; the backend picks the image model and the log does not name it",
     "date": "2026-10-03",
     "files": [
-      "art/mascot/cheer.png",
-      "art/mascot/idle.png",
-      "art/mascot/point.png",
-      "art/mascot/wave.png",
-      "art/mascot/yawn.png",
+      "art/mascot/cheer.webp",
+      "art/mascot/idle.webp",
+      "art/mascot/point.webp",
+      "art/mascot/wave.webp",
+      "art/mascot/yawn.webp",
       "art/rewards/shell-coral.webp",
       "art/rewards/shell-mint.webp",
       "art/rewards/counting-tray.webp",

@@ -33,11 +33,11 @@ const SHAPES: TestShape[] = [
   { id: 'wide-3x1', w: 900, h: 300, color: '#ef4444' },
   { id: 'tall-1x3', w: 300, h: 900, color: '#22c55e' },
   { id: 'square-full', w: 512, h: 512, color: '#3b82f6' },
-  { id: 'owl', w: 512, h: 512, color: '#ffffff', path: 'avatars/owl.png' },
+  { id: 'owl', w: 512, h: 512, color: '#ffffff', path: 'avatars/owl.webp' },
   { id: 'wide-2x1', w: 800, h: 400, color: '#f97316' },
   { id: 'tall-1x2', w: 400, h: 800, color: '#a855f7' },
   { id: 'square-round', w: 512, h: 512, color: '#eab308' },
-  { id: 'crab', w: 512, h: 512, color: '#ffffff', path: 'creatures/crab.png' },
+  { id: 'crab', w: 512, h: 512, color: '#ffffff', path: 'creatures/crab.webp' },
 ];
 
 /** Test art: a filled rounded box with an outline and two windows, filling its whole image. */

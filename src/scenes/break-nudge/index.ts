@@ -70,7 +70,7 @@ const SLEEPY_GAP = 0.45;
 /** Load (or finish loading) the nudge's art. Never rejects. */
 export function loadBreakNudgeAssets(services: AppServices): Promise<void> {
   return Promise.all([
-    loadAllArt(services, [artRequest(services, `${YAWN}.png`, 'blob', '#3b9bff'), artRequest(services, `${PLAY}.png`, 'play', '#ffffff'), artRequest(services, 'buttons/home.png', 'home', '#ffffff'), ...soundArt(services)]),
+    loadAllArt(services, [artRequest(services, `${YAWN}.webp`, 'blob', '#3b9bff'), artRequest(services, `${PLAY}.webp`, 'play', '#ffffff'), artRequest(services, 'buttons/home.webp', 'home', '#ffffff'), ...soundArt(services)]),
     loadMascotMouths(services, [YAWN]),
   ]).then(() => undefined);
 }
