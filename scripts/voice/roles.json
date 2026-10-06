@@ -1,0 +1,27 @@
+{
+  "model": "google/gemini-3.8-flash-tts",
+  "checkModel": "google/gemini-3.8-flash",
+  "style": "Talking to a five-year-old who is learning to read: slow, clear, every sound crisp, smiling.",
+  "roles": {
+    "wibble": {
+      "voice": "Zephyr",
+      "notes": "Accent: Yorkshire, northern England.\nCharacter: Wibble, a small, round, wobbly blue jelly creature; giggly, warm, curious, delighted by everything. Voice: small, bright, giggly."
+    },
+    "postman": {
+      "voice": "Achird",
+      "notes": "Accent: broad Yorkshire, northern England.\nCharacter: a kindly village postman in his fifties, gentle, unhurried, twinkly."
+    },
+    "teacher": {
+      "voice": "Vindemiatrix",
+      "notes": "Accent: soft Scottish, Highlands.\nCharacter: a gentle, encouraging primary-school teacher."
+    },
+    "narrator": {
+      "voice": "Charon",
+      "notes": "Accent: warm, received pronunciation, southern England.\nCharacter: a children's television narrator, amused, cosy, a little posh."
+    },
+    "londoner": {
+      "voice": "Puck",
+      "notes": "Accent: friendly London, light cockney.\nCharacter: a cheeky, upbeat young market-stall lad."
+    }
+  }
+}

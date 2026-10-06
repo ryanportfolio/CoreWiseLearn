@@ -1,0 +1,17 @@
+{
+  "folder": "dino-picnic",
+  "role": "teacher",
+  "lines": [
+    { "file": "number-1", "text": "One." },
+    { "file": "number-2", "text": "Two." },
+    { "file": "number-3", "text": "Three." },
+    { "file": "number-4", "text": "Four." },
+    { "file": "number-5", "text": "Five." },
+    { "file": "number-6", "text": "Six." },
+    { "file": "number-7", "text": "Seven." },
+    { "file": "number-8", "text": "Eight." },
+    { "file": "number-9", "text": "Nine." },
+    { "file": "number-10", "text": "Ten." },
+    { "file": "more", "text": "More!" }
+  ]
+}

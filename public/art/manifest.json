@@ -1,8 +1,8 @@
 {
   "style": "Flat chunky vector, thick dark outlines, flat saturated fills, single soft highlight, no text. Sprites are 512x512 RGBA (mascot poses 768x768) with the subject centred and fitted to 80 percent of the canvas; backgrounds are 1920x1080 opaque WebP.",
   "generatedWith": "OpenAI image_gen through Codex CLI (gpt-6-astra agent), downscaled with the project scratch script .tmp/art/png.mjs",
-  "count": 59,
-  "totalBytes": 3731712,
+  "count": 114,
+  "totalBytes": 6091953,
   "files": [
     {
       "file": "art/mascot/cheer.png",
@@ -53,6 +53,56 @@
       "height": 768,
       "transparent": true,
       "bytes": 159600
+    },
+    {
+      "file": "art/mascot/cheer-closed.png",
+      "group": "mascot",
+      "name": "cheer-closed",
+      "use": "Mascot cheer pose with the mouth closed, swapped with the open pose while Wibble talks",
+      "width": 768,
+      "height": 768,
+      "transparent": true,
+      "bytes": 136683
+    },
+    {
+      "file": "art/mascot/wave-closed.png",
+      "group": "mascot",
+      "name": "wave-closed",
+      "use": "Mascot wave pose with the mouth closed, swapped with the open pose while Wibble talks",
+      "width": 768,
+      "height": 768,
+      "transparent": true,
+      "bytes": 122110
+    },
+    {
+      "file": "art/mascot/yawn-closed.png",
+      "group": "mascot",
+      "name": "yawn-closed",
+      "use": "Mascot yawn pose with the mouth closed, swapped with the open pose while Wibble talks",
+      "width": 768,
+      "height": 768,
+      "transparent": true,
+      "bytes": 160674
+    },
+    {
+      "file": "art/mascot/idle-open.png",
+      "group": "mascot",
+      "name": "idle-open",
+      "use": "Mascot idle pose with the mouth open, swapped with the closed pose while Wibble talks",
+      "width": 768,
+      "height": 768,
+      "transparent": true,
+      "bytes": 130957
+    },
+    {
+      "file": "art/mascot/point-open.png",
+      "group": "mascot",
+      "name": "point-open",
+      "use": "Mascot point pose with the mouth open, swapped with the closed pose while Wibble talks",
+      "width": 768,
+      "height": 768,
+      "transparent": true,
+      "bytes": 115583
     },
     {
       "file": "art/tiles/candy-rainbow.png",
@@ -593,6 +643,506 @@
       "height": 529,
       "transparent": true,
       "bytes": 27984
+    },
+    {
+      "file": "art/frog-pond/frog-sit.webp",
+      "group": "frog-pond",
+      "name": "frog-sit",
+      "use": "Frog Pond: the frog sitting with its mouth closed (rhyme snack, sentence hops)",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 38042
+    },
+    {
+      "file": "art/frog-pond/frog-open.webp",
+      "group": "frog-pond",
+      "name": "frog-open",
+      "use": "Frog Pond: the same frog with its mouth open, drawn while its tongue (drawn in code) catches a bug; same scale and foot line as frog-sit",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 39780
+    },
+    {
+      "file": "art/frog-pond/frog-puff.webp",
+      "group": "frog-pond",
+      "name": "frog-puff",
+      "use": "Frog Pond: the same frog puffed up and delighted after a catch; same scale and foot line as frog-sit",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 42058
+    },
+    {
+      "file": "art/frog-pond/lily-pad.webp",
+      "group": "frog-pond",
+      "name": "lily-pad",
+      "use": "Frog Pond rhyme snack: the frog's large lily pad, plain flat centre for the target word",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 20308
+    },
+    {
+      "file": "art/frog-pond/leaf.webp",
+      "group": "frog-pond",
+      "name": "leaf",
+      "use": "Frog Pond rhyme snack: floating leaf that flips to show a hidden bug",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 26788
+    },
+    {
+      "file": "art/frog-pond/bug-ladybird.webp",
+      "group": "frog-pond",
+      "name": "bug-ladybird",
+      "use": "Frog Pond rhyme snack: flying ladybird carrying a word; also the bug in sentence pictures",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 33514
+    },
+    {
+      "file": "art/frog-pond/bug-bee.webp",
+      "group": "frog-pond",
+      "name": "bug-bee",
+      "use": "Frog Pond rhyme snack: friendly flying bee carrying a word",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 36718
+    },
+    {
+      "file": "art/frog-pond/bug-dragonfly.webp",
+      "group": "frog-pond",
+      "name": "bug-dragonfly",
+      "use": "Frog Pond rhyme snack: flying dragonfly carrying a word",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 28588
+    },
+    {
+      "file": "art/frog-pond/pond.webp",
+      "group": "frog-pond",
+      "name": "pond",
+      "use": "Frog Pond background: calm pond with open water in the middle and a clear bottom centre for the frog",
+      "width": 1920,
+      "height": 1080,
+      "transparent": false,
+      "bytes": 177870
+    },
+    {
+      "file": "art/frog-pond/tile.webp",
+      "group": "frog-pond",
+      "name": "tile",
+      "use": "Hub tile icon for Frog Pond: the frog on its lily pad smiling up at a ladybird",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 47608
+    },
+    {
+      "file": "art/frog-pond/word-pad.webp",
+      "group": "frog-pond",
+      "name": "word-pad",
+      "use": "Frog Pond sentences: wide lily pad with a plain flat top for one word; the period and question pads are drawn in code from it",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 14424
+    },
+    {
+      "file": "art/frog-pond/pig.webp",
+      "group": "frog-pond",
+      "name": "pig",
+      "use": "Frog Pond sentence picture: pig",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 29782
+    },
+    {
+      "file": "art/frog-pond/cat.webp",
+      "group": "frog-pond",
+      "name": "cat",
+      "use": "Frog Pond sentence picture: cat",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 44036
+    },
+    {
+      "file": "art/frog-pond/dog.webp",
+      "group": "frog-pond",
+      "name": "dog",
+      "use": "Frog Pond sentence picture: dog",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 37422
+    },
+    {
+      "file": "art/frog-pond/hen.webp",
+      "group": "frog-pond",
+      "name": "hen",
+      "use": "Frog Pond sentence picture: hen",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 32210
+    },
+    {
+      "file": "art/frog-pond/fox.webp",
+      "group": "frog-pond",
+      "name": "fox",
+      "use": "Frog Pond sentence picture: fox",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 40104
+    },
+    {
+      "file": "art/frog-pond/bat.webp",
+      "group": "frog-pond",
+      "name": "bat",
+      "use": "Frog Pond sentence picture: bat",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 25600
+    },
+    {
+      "file": "art/frog-pond/jet.webp",
+      "group": "frog-pond",
+      "name": "jet",
+      "use": "Frog Pond sentence picture: jet",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 30100
+    },
+    {
+      "file": "art/frog-pond/van.webp",
+      "group": "frog-pond",
+      "name": "van",
+      "use": "Frog Pond sentence picture: van",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 31298
+    },
+    {
+      "file": "art/frog-pond/box.webp",
+      "group": "frog-pond",
+      "name": "box",
+      "use": "Frog Pond sentence picture: box",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 18888
+    },
+    {
+      "file": "art/frog-pond/log.webp",
+      "group": "frog-pond",
+      "name": "log",
+      "use": "Frog Pond sentence picture: log",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 30234
+    },
+    {
+      "file": "art/frog-pond/hat.webp",
+      "group": "frog-pond",
+      "name": "hat",
+      "use": "Frog Pond sentence picture: hat",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 20648
+    },
+    {
+      "file": "art/frog-pond/cap.webp",
+      "group": "frog-pond",
+      "name": "cap",
+      "use": "Frog Pond sentence picture: cap",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 21532
+    },
+    {
+      "file": "art/frog-pond/bag.webp",
+      "group": "frog-pond",
+      "name": "bag",
+      "use": "Frog Pond sentence picture: bag",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 28232
+    },
+    {
+      "file": "art/frog-pond/ball.webp",
+      "group": "frog-pond",
+      "name": "ball",
+      "use": "Frog Pond sentence picture: ball",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 24600
+    },
+    {
+      "file": "art/frog-pond/pen.webp",
+      "group": "frog-pond",
+      "name": "pen",
+      "use": "Frog Pond sentence picture: pen",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 23652
+    },
+    {
+      "file": "art/frog-pond/lid.webp",
+      "group": "frog-pond",
+      "name": "lid",
+      "use": "Frog Pond sentence picture: lid",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 17128
+    },
+    {
+      "file": "art/frog-pond/rock.webp",
+      "group": "frog-pond",
+      "name": "rock",
+      "use": "Frog Pond sentence picture: rock",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 14896
+    },
+    {
+      "file": "art/frog-pond/twig.webp",
+      "group": "frog-pond",
+      "name": "twig",
+      "use": "Frog Pond sentence picture: twig",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 28792
+    },
+    {
+      "file": "art/frog-pond/pot.webp",
+      "group": "frog-pond",
+      "name": "pot",
+      "use": "Frog Pond word pot: friendly bubbling pot holding the word bubbles",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 35920
+    },
+    {
+      "file": "art/frog-pond/cw-pancake.webp",
+      "group": "frog-pond",
+      "name": "cw-pancake",
+      "use": "Frog Pond word pot: picture of the compound word pancake",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 38774
+    },
+    {
+      "file": "art/frog-pond/cw-football.webp",
+      "group": "frog-pond",
+      "name": "cw-football",
+      "use": "Frog Pond word pot: picture of the compound word football",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 28006
+    },
+    {
+      "file": "art/frog-pond/cw-starfish.webp",
+      "group": "frog-pond",
+      "name": "cw-starfish",
+      "use": "Frog Pond word pot: picture of the compound word starfish",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 28052
+    },
+    {
+      "file": "art/frog-pond/cw-bedtime.webp",
+      "group": "frog-pond",
+      "name": "cw-bedtime",
+      "use": "Frog Pond word pot: picture of the compound word bedtime",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 39436
+    },
+    {
+      "file": "art/frog-pond/cw-seahorse.webp",
+      "group": "frog-pond",
+      "name": "cw-seahorse",
+      "use": "Frog Pond word pot: picture of the compound word seahorse",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 29264
+    },
+    {
+      "file": "art/frog-pond/cw-baseball.webp",
+      "group": "frog-pond",
+      "name": "cw-baseball",
+      "use": "Frog Pond word pot: picture of the compound word baseball",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 32608
+    },
+    {
+      "file": "art/frog-pond/cw-ladybug.webp",
+      "group": "frog-pond",
+      "name": "cw-ladybug",
+      "use": "Frog Pond word pot: picture of the compound word ladybug",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 31098
+    },
+    {
+      "file": "art/frog-pond/cw-hopscotch.webp",
+      "group": "frog-pond",
+      "name": "cw-hopscotch",
+      "use": "Frog Pond word pot: picture of the compound word hopscotch",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 24370
+    },
+    {
+      "file": "art/frog-pond/cw-treetop.webp",
+      "group": "frog-pond",
+      "name": "cw-treetop",
+      "use": "Frog Pond word pot: picture of the compound word treetop",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 32248
+    },
+    {
+      "file": "art/frog-pond/cw-zipline.webp",
+      "group": "frog-pond",
+      "name": "cw-zipline",
+      "use": "Frog Pond word pot: picture of the compound word zipline",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 31184
+    },
+    {
+      "file": "art/frog-pond/cw-hairball.webp",
+      "group": "frog-pond",
+      "name": "cw-hairball",
+      "use": "Frog Pond word pot: picture of the compound word hairball",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 35992
+    },
+    {
+      "file": "art/frog-pond/cw-laptop.webp",
+      "group": "frog-pond",
+      "name": "cw-laptop",
+      "use": "Frog Pond word pot: picture of the compound word laptop",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 35178
+    },
+    {
+      "file": "art/frog-pond/cw-pigpen.webp",
+      "group": "frog-pond",
+      "name": "cw-pigpen",
+      "use": "Frog Pond word pot: picture of the compound word pigpen",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 49432
+    },
+    {
+      "file": "art/frog-pond/cw-bedbug.webp",
+      "group": "frog-pond",
+      "name": "cw-bedbug",
+      "use": "Frog Pond word pot: picture of the compound word bedbug",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 42188
+    },
+    {
+      "file": "art/frog-pond/cw-catfish.webp",
+      "group": "frog-pond",
+      "name": "cw-catfish",
+      "use": "Frog Pond word pot: picture of the compound word catfish",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 28128
+    },
+    {
+      "file": "art/frog-pond/cw-hotdog.webp",
+      "group": "frog-pond",
+      "name": "cw-hotdog",
+      "use": "Frog Pond word pot: picture of the compound word hotdog",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 27542
+    },
+    {
+      "file": "art/frog-pond/cw-sunset.webp",
+      "group": "frog-pond",
+      "name": "cw-sunset",
+      "use": "Frog Pond word pot: picture of the compound word sunset",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 34818
+    },
+    {
+      "file": "art/frog-pond/cw-hilltop.webp",
+      "group": "frog-pond",
+      "name": "cw-hilltop",
+      "use": "Frog Pond word pot: picture of the compound word hilltop",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 25554
+    },
+    {
+      "file": "art/frog-pond/cw-sandbox.webp",
+      "group": "frog-pond",
+      "name": "cw-sandbox",
+      "use": "Frog Pond word pot: picture of the compound word sandbox",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 27560
+    },
+    {
+      "file": "art/frog-pond/cw-bathtub.webp",
+      "group": "frog-pond",
+      "name": "cw-bathtub",
+      "use": "Frog Pond word pot: picture of the compound word bathtub",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 32030
     }
   ],
   "prepared": {
@@ -657,5 +1207,15 @@
     "prompt": "Make a faithful higher-resolution version of exactly the attached sprite on a transparent background: same framing and share of the canvas, silhouette, pose, expression, every part and its count, outline weight, colours and lighting; improve only crisp edges and fine surface detail; no added, removed, moved or restyled parts, no text, background, ground, shadow, glow or frame. Each file named its subject and the style of its set (flat chunky vector mascot with an even dark navy outline; glossy iridescent scallop shells; a scalloped shell dish with a gold rim and a pearly bowl).",
     "source": "Raw PNGs (1254x1254, 1024x1024 for yawn, 1536x1024 for the tray), prompts, Codex logs and the processing scripts retained outside public in D:/CoreWise/_artifacts/CoreWiseLearn/hd-everything-r2 (raw/<name>-1.png; one attempt each was kept)",
     "preparation": "Alpha under 12 and specks removed; each result laid over its original by the scale and offset that match it most closely, then scaled per axis so its outline meets the original edges exactly (the mascot keeps its feet where FEET in src/ui/mascot.ts expects them, within 1 of 512 units vertically); resized there with Lanczos 3; each colour channel matched to the original mean and spread. Mascot 768x768 PNG, 256-colour palette, dither 0.5; shells (coral 514x529, mint 507x526) and tray (767x296) WebP quality 80 with alpha quality 50."
+  },
+  "frogPondArt": {
+    "generatedWith": "Codex CLI 0.159.0 (codex exec -m gpt-6-astra, reasoning effort medium) using its built-in image_gen tool; the backend picks the image model and the log does not name it",
+    "date": "2026-10-05",
+    "reference": "Sprites attached creatures/crab.png and avatars/frog.png as style references; frog-open and frog-puff also attached the chosen frog-sit so all three are one character; pond attached backgrounds/meadow-sky.webp.",
+    "prompt": "Every sprite prompt locked the house style (flat chunky vector, thick even dark navy outline, flat saturated fills, one soft highlight per part, simple faces with dark eyes, a white shine dot and pink cheeks), a fully transparent square canvas, one centred subject filling about 80 percent, and no text, letters, numbers or logos; the lily pads asked for a plain flat centre for a word, the hopscotch for blank squares, the laptop for blank keys. The pond asked for an opaque 16:9 calm pond with mostly empty open water in the middle and a clear bottom centre.",
+    "attempts": "One attempt each, except: frog-open (the first, frog-tongue, had a long tongue sticking up and a smaller frog; replaced by an open mouth so the game draws the tongue), cw-zipline (the first was thin and hard to read when small).",
+    "source": "Raw 1254x1254 RGBA PNGs (frog-sit 1024x1024; pond 1672x941 opaque) and prompts retained outside public in D:/CoreWise/_artifacts/CoreWiseLearn/frog-pond-art",
+    "preparation": "Sprites: alpha under 12 cleared, cropped to the alpha bounds, longest side fitted to 410 px (80 percent) centred on a 512x512 transparent canvas with Lanczos 3; frog-open and frog-puff instead take frog-sit's scale and foot line, matched by the width of the feet, so swapping poses does not shift the frog. Pond: cover-fit to 1920x1080 with Lanczos 3, opaque. WebP quality 92 with alpha quality 100 for sprites, quality 95 for the pond. Done with a scratch sharp script in place of scripts/prepare-art.mjs, which writes PNG and fits backgrounds within 1366x768.",
+    "tile": "tile.webp, 2026-10-05, same Codex CLI and image_gen as the sprites, first attempt, with frog-sit, lily-pad and bug-ladybird attached as style references. Prompt: the same happy frog on its round lily pad looking up and to the right at a small ladybird flying above its head, mouth open in a delighted smile, a few water ripple lines, compact silhouette filling about 80 percent, no text, background, frame, tongue or extra frogs; 1024x1024 transparent PNG. Prepared like the sprites (alpha under 12 cleared, cropped, fitted to 410 px on a 512x512 canvas, WebP quality 92, alpha quality 100). Raw file in D:/CoreWise/_artifacts/CoreWiseLearn/frog-pond-art/raw/tile-raw.png."
   }
 }

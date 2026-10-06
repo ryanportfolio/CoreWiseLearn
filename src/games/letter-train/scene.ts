@@ -37,6 +37,8 @@ const ARRIVE_SECONDS = 1.6, BLOCK_APPEAR = 0.15, BLOCK_STAGGER = 0.08, TOOT_SECO
 const CELEBRATION_SECONDS = 4, CELEBRATION_LOCK = 1.5, CHOICE_LOCK = 1.2, REST_LOCK = 1.2, FOCUS_HOLD_MS = 250;
 const IDLE_FIRST = 6, IDLE_REPEAT = 8, HINT_SECONDS = 2.4, DEMO_SECONDS = 3.2;
 const CLICK_SLOP = 12;
+/** A press released within CLICK_MS and CLICK_PX is a click: the block it lifted is carried, following the pointer, until the next press. */
+const CLICK_MS = 300, CLICK_PX = 24;
 /** A key pressed sooner than this after the previous key is mashing: it still plays but is never learning evidence. */
 const KEY_CALM = 0.6;
 const ART = 'letter-train/';
@@ -160,7 +162,11 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
   let starsEarned = 0, starFlight = -1, chuffT = 0, tootSquash = 9, departFrom = 0;
   /** `placements`: blocks the child (not the demonstration) put on cars this round, by any input. */
   let hits = 0, misses = 0, motorHits = 0, motorMisses = 0, placements = 0;
-  let held = -1, selectedBlock = -1, downX = 0, downY = 0, grabX = 0, grabY = 0, moved = false;
+  /**
+   * `held`: the block a pressed button drags. `selectedBlock`: the block a click picked up, carried with no button held
+   * (it follows the pointer until the next press places it or sends it home).
+   */
+  let held = -1, selectedBlock = -1, downX = 0, downY = 0, downAt = 0, grabX = 0, grabY = 0, moved = false;
   /** Keyboard highlights show only after keyboard input; pointer input hides them again. */
   let kbActive = false;
   /**
@@ -286,11 +292,10 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     const n = nCars, spacing = Math.min(B * 1.4, (W - 24) / Math.max(1, n)), edge = B * 0.54;
     for (let i = 0; i < n; i++) {
       const b = blocks[i]!; b.homeX = W / 2 + (i - (n - 1) / 2) * spacing; b.homeY = platformY;
-      // After a resize every block that is not flying stays in view: a selected block moves to its new home (it still
-      // draws lifted there), a held block is kept inside the view until the pointer moves it, and a returning block
-      // starts its arc from inside the view (its arc rises 0.35 block widths).
-      if (b.state === 'idle' || b.state === 'hidden' || b.state === 'selected') { b.x = b.homeX; b.y = b.homeY; }
-      else if (b.state === 'held') { b.x = Math.min(W - edge, Math.max(edge, b.x)); b.y = Math.min(H - edge, Math.max(edge, b.y)); }
+      // After a resize every block that is not flying stays in view: a held or carried block is kept inside the view
+      // until the pointer moves it, and a returning block starts its arc from inside the view (its arc rises 0.35 block widths).
+      if (b.state === 'idle' || b.state === 'hidden') { b.x = b.homeX; b.y = b.homeY; }
+      else if (b.state === 'held' || b.state === 'selected') { b.x = Math.min(W - edge, Math.max(edge, b.x)); b.y = Math.min(H - edge, Math.max(edge, b.y)); }
       else if (b.state === 'return') { b.fromX = Math.min(W - edge, Math.max(edge, b.fromX)); b.fromY = Math.min(H - edge, Math.max(edge + B * 0.35, b.fromY)); }
     }
   }
@@ -480,8 +485,8 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     ensureKb();
     if (allFilled()) { toot(); return; }
     // The demonstration runs on the very first train, unless the child already started on their own while it pulled in
-    // (is dragging a block or has placed one). A block only selected (clicked) during the arrival does not stop it.
-    let touched = held >= 0;
+    // (is dragging or carrying a block, or has placed one).
+    let touched = held >= 0 || selectedBlock >= 0;
     for (let i = 0; i < nCars; i++) if (cars[i]!.filled) touched = true;
     if (touched || data.rounds !== 0 || trainIndex !== 0) return;
     if (!services.debug.enabled || new URLSearchParams(location.search).has('demo')) startDemo();
@@ -696,10 +701,10 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     // A train filled while still pulling in toots once it has stopped (beginPlay).
     if (allFilled() && phase === 'play') toot();
   }
-  function blockAt(x: number, y: number): number {
+  function blockAt(x: number, y: number, skip = -1): number {
     let best = -1, distance = Infinity;
     for (let i = 0; i < nCars; i++) {
-      const b = blocks[i]!; if (!onPlatform(b)) continue;
+      const b = blocks[i]!; if (i === skip || !onPlatform(b)) continue;
       const half = Math.max(48, B * 0.56), dx = Math.abs(x - b.x), dy = Math.abs(y - b.y);
       if (dx <= half && dy <= half && dx + dy < distance) { best = i; distance = dx + dy; }
     }
@@ -756,19 +761,24 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     idleT = 0; nextHintAt = IDLE_FIRST; hintT = -1; kbActive = false;
     if (demoT >= 0) endDemo();
     if (phase !== 'play' && phase !== 'arrive') { tapBurst(x, y); return; }
-    const hitBlock = blockAt(x, y);
+    // The carried block follows the pointer, so it is under every press: look for another block beneath it.
+    const hitBlock = blockAt(x, y, selectedBlock);
     if (selectedBlock >= 0) {
-      const car = carAt(x, y, pullRadius());
-      if (car >= 0) { motorHits++; attempt(selectedBlock, car, 'pointer'); return; }
-      if (hitBlock === selectedBlock) { sendHome(blocks[selectedBlock]!); selectedBlock = -1; return; }
-      if (hitBlock < 0) { sendHome(blocks[selectedBlock]!); selectedBlock = -1; return; }
+      // A block carried after a click: this press puts it down where it is, by the same rules as a drag let go there.
+      const index = selectedBlock, b = blocks[index]!;
+      b.x = x + grabX; b.y = y + grabY;
+      const car = carAt(b.x, b.y, pullRadius());
+      if (b.y < platformTop) { if (car >= 0) motorHits++; else motorMisses++; }
+      if (car >= 0) { attempt(index, car, 'pointer'); return; }
+      sendHome(b); selectedBlock = -1;
+      // On itself or on empty space it only goes home; on another block, that block is picked up instead.
+      if (hitBlock < 0) return;
     }
     if (hitBlock >= 0) {
       const b = blocks[hitBlock]!;
-      if (selectedBlock >= 0 && selectedBlock !== hitBlock) { sendHome(blocks[selectedBlock]!); selectedBlock = -1; }
       // A second touch, or a press after a pointerup that never arrived: the block held so far goes home first.
       releaseHeld();
-      held = hitBlock; b.state = 'held'; moved = false; downX = x; downY = y; grabX = b.x - x; grabY = b.y - y; pairWith(hitBlock);
+      held = hitBlock; b.state = 'held'; moved = false; downX = x; downY = y; downAt = performance.now(); grabX = b.x - x; grabY = b.y - y; pairWith(hitBlock);
       keyOpt.index = Math.max(0, letterIndex(b.letter)); playSfx(audio, 'key', keyOpt);
       return;
     }
@@ -783,18 +793,20 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     if (b && b.state === 'held') sendHome(b);
   }
   function pointerMove(x: number, y: number): void {
-    if (held < 0 || demoT >= 0) return;
-    const b = blocks[held]!;
-    if (Math.hypot(x - downX, y - downY) > CLICK_SLOP) moved = true;
+    if (demoT >= 0) return;
+    const carried = held < 0;
+    const b = blocks[carried ? selectedBlock : held];
+    if (!b || (carried && b.state !== 'selected')) return;
+    if (!carried && Math.hypot(x - downX, y - downY) > CLICK_SLOP) moved = true;
     let tx = x + grabX, ty = y + grabY;
-    const car = moved ? carAt(tx, ty, pullRadius()) : -1;
+    const car = moved || carried ? carAt(tx, ty, pullRadius()) : -1;
     if (car >= 0) { tx = lerp(tx, slotX(car), 0.45); ty = lerp(ty, slotY(), 0.45); }
     b.x = tx; b.y = ty;
   }
   function pointerUp(): void {
     if (held < 0 || demoT >= 0) return;
     const index = held, b = blocks[index]!; held = -1;
-    if (!moved) { select(index); return; }
+    if (performance.now() - downAt < CLICK_MS && Math.hypot(input.pointer.x - downX, input.pointer.y - downY) < CLICK_PX) { select(index); return; }
     const car = carAt(b.x, b.y, pullRadius());
     if (b.y < platformTop) { if (car >= 0) motorHits++; else motorMisses++; }
     if (car >= 0) attempt(index, car, 'pointer'); else sendHome(b);
@@ -879,8 +891,7 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     if (demoT < 0) return;
     demoT += dt;
     const b = blocks[demoBlock]!;
-    // A block the child selected during the arrival is still a platform block: the hand takes it like an idle one.
-    if (demoT >= 0.9 && demoT < 2.2 && (b.state === 'idle' || b.state === 'selected')) { if (selectedBlock === demoBlock) selectedBlock = -1; b.state = 'held'; held = demoBlock; keyOpt.index = Math.max(0, letterIndex(b.letter)); playSfx(audio, 'key', keyOpt); }
+    if (demoT >= 0.9 && demoT < 2.2 && b.state === 'idle') { b.state = 'held'; held = demoBlock; keyOpt.index = Math.max(0, letterIndex(b.letter)); playSfx(audio, 'key', keyOpt); }
     if (b.state === 'held' && demoT < 2.2) {
       const k = easeInOutSine((demoT - 1.1) / 1.0);
       b.x = lerp(b.homeX, slotX(demoCar), k); b.y = lerp(b.homeY, slotY(), k) - Math.sin(clamp01((demoT - 1.1) / 1.0) * Math.PI) * B * 0.4;
@@ -912,7 +923,7 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
       if (chuffT <= 0 && k < 0.97) { chuffT = 0.3 + k * 0.25; chuffOpt.volume = 0.3 * (1 - k * 0.6); playSfx(audio, 'tick', chuffOpt); puff(1); }
       if (phaseT >= ARRIVE_SECONDS) beginPlay();
     } else if (phase === 'play') {
-      // Idle time runs while a block is only selected (a click without a drag), and pauses while one is held.
+      // Idle time runs while a block is carried after a click, and pauses while one is held with a pressed button.
       if (held < 0 && demoT < 0) idleT += dt;
       if (hintT < 0 && idleT >= nextHintAt) { hintTarget(); if (hintBlock >= 0) { hintT = 0; nextHintAt = idleT + IDLE_REPEAT; } }
       if (hintT >= 0) {
@@ -1034,24 +1045,27 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
   function renderPlatform(ctx: CanvasRenderingContext2D): void {
     for (let i = 0; i < nCars; i++) {
       const b = blocks[i]!;
-      if (b.state === 'hidden' || b.state === 'placed' || b.state === 'held' || b.state === 'fly') continue;
+      // A carried block draws on top, lifted like a dragged one (render).
+      if (b.state === 'hidden' || b.state === 'placed' || b.state === 'held' || b.state === 'fly' || b.state === 'selected') continue;
       let scale = 1, y = b.y;
       if (b.state === 'idle' && b.t < 0.4) scale = 0.3 + 0.7 * easeOutBack(b.t / 0.4);
-      if (b.state === 'selected') { y -= B * 0.22 + Math.sin(time * 5) * 4 * u; scale = 1.06; }
       if (hintT >= 0 && i === hintBlock && hintT > 0.55 && hintT < 0.9) y -= Math.sin(((hintT - 0.55) / 0.35) * Math.PI) * B * 0.15;
       ctx.globalAlpha = 0.22; ctx.fillStyle = '#4a2c12';
       ctx.beginPath(); ctx.ellipse(b.homeX, b.homeY + B * 0.52, B * 0.46, B * 0.09, 0, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
       drawBlock(ctx, b, b.x, y, scale);
-      if (kbActive && (phase === 'play' || phase === 'arrive') && i === kbBlock) {
-        roundedRect(ctx, b.x - B / 2 - 9, y - B / 2 - 9, B + 18, B + 18, B * 0.2);
-        ctx.lineWidth = 10; ctx.strokeStyle = OUTLINE; ctx.stroke(); ctx.lineWidth = 5; ctx.strokeStyle = '#ffe066'; ctx.stroke();
-      }
+      if (i === kbBlock) kbRing(ctx, b.x, y);
     }
     if (kbActive && (phase === 'play' || phase === 'arrive') && kbCar >= 0 && kbBlock >= 0) {
       const x = slotX(kbCar), y = slotY() - C / 2 - 16 - Math.abs(Math.sin(time * 3)) * 6 * u, s = Math.max(14, 20 * u);
       ctx.beginPath(); ctx.moveTo(x - s, y - s * 1.2); ctx.lineTo(x + s, y - s * 1.2); ctx.lineTo(x, y); ctx.closePath();
       ctx.fillStyle = '#ffe066'; ctx.fill(); ctx.lineWidth = 4; ctx.strokeStyle = OUTLINE; ctx.stroke();
     }
+  }
+  /** The keyboard highlight around the highlighted block, shown only while the child plays with keys. */
+  function kbRing(ctx: CanvasRenderingContext2D, x: number, y: number): void {
+    if (!kbActive || (phase !== 'play' && phase !== 'arrive')) return;
+    roundedRect(ctx, x - B / 2 - 9, y - B / 2 - 9, B + 18, B + 18, B * 0.2);
+    ctx.lineWidth = 10; ctx.strokeStyle = OUTLINE; ctx.stroke(); ctx.lineWidth = 5; ctx.strokeStyle = '#ffe066'; ctx.stroke();
   }
   function drawHand(ctx: CanvasRenderingContext2D, tipX: number, tipY: number, press: number, alpha: number): void {
     // The hand art is square with the fingertip at its top-left corner (8, 6 of 256 px).
@@ -1072,8 +1086,8 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     }
     if (hintT >= 0 && hintBlock >= 0 && hintCar >= 0) {
       const b = blocks[hintBlock]!;
-      // A selected block draws lifted (renderPlatform), so the hand starts where it shows.
-      const sel = b.state === 'selected', bx = sel ? b.x : b.homeX, by = sel ? b.y - B * 0.22 : b.homeY;
+      // A carried block is wherever the pointer left it, so the hand starts where it shows.
+      const sel = b.state === 'selected', bx = sel ? b.x : b.homeX, by = sel ? b.y : b.homeY;
       let tx: number, ty: number, alpha = 1;
       if (hintT < 0.55) { const k = easeOutCubic(hintT / 0.55); tx = lerp(bx + W * 0.12, bx, k); ty = lerp(H + 40, by, k); alpha = clamp01(hintT / 0.25); }
       else if (hintT < 0.9) { tx = bx; ty = by; }
@@ -1307,6 +1321,8 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
         renderStarRow(ctx); renderTrain(ctx); particles.render(ctx); renderPlatform(ctx);
         const b = blocks[held];
         if (held >= 0 && b) drawBlock(ctx, b, b.x, b.y, 1.08);
+        const c = blocks[selectedBlock];
+        if (selectedBlock >= 0 && c && c.state === 'selected') { drawBlock(ctx, c, c.x, c.y, 1.08); if (selectedBlock === kbBlock) kbRing(ctx, c.x, c.y); }
         for (let i = 0; i < nCars; i++) { const f = blocks[i]!; if (f.state === 'fly') drawBlock(ctx, f, f.x, f.y, lerp(1, C / B, clamp01(f.t / 0.2))); }
         renderHelpers(ctx);
       } else { renderResult(ctx); particles.render(ctx); }
