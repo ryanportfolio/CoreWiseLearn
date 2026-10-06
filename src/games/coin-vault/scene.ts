@@ -13,7 +13,7 @@ import { rewards, type AppServices } from '../../app/services';
 import { ensureDisplayFont } from '../../app/font';
 import { STICKERS, stickerSpriteName } from '../../app/stickers';
 import type { Tier } from '../../engine/difficulty';
-import type { Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
+import type { CursorHover, Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
 import { playSfx, prepareSfxStep, type SfxName, type SfxOptions, type SfxVariant } from '../../audio/sfx';
 import { startMusic, stopMusic } from '../../audio/music';
 import { chunkyCircle, DISPLAY_FONT, drawSprite, OUTLINE } from '../../ui/draw';
@@ -21,7 +21,7 @@ import { drawStarRow, STAR_GAP_SECONDS, STAR_HIT_SECONDS } from '../../ui/celebr
 import { bakeDial, bakeJarFill, bakeShadow, createBits, DUST, GLINT, LEAF, SHAVING } from './fx';
 import { drawEnterFade } from '../../ui/motion';
 import { BOOK_GLIDE, BOOK_ICON_PATH, createStickerOffers, leaveAlpha, leaveDrop, onBook, PICK_FLY, PICK_LIFT, PICK_SECONDS, placeBook } from '../../ui/sticker-offer';
-import { clamp01, easeInCubic, easeInOutSine, easeOutBack, easeOutCubic, lerp } from '../../ui/tween';
+import { approach, clamp01, easeInCubic, easeInOutSine, easeOutBack, easeOutCubic, lerp } from '../../ui/tween';
 import { createSoundButton, soundArt, syncSoundIcon } from '../../scenes/hub/shared';
 import { defaultData, GAME_ID, sanitizeVaultData, TOP_STEP, type PendingRound, type VaultData } from './data';
 import {
@@ -126,7 +126,7 @@ const GOAL_HOLD = 0.8, INTRO_HAND_AT = 0.35;
 /** Helper hand timeline: rise to the coin, press it, carry it, then fade. */
 const HAND_PRESS_AT = 0.5, HAND_CARRY_AT = 0.7, HAND_DROP_AT = 1.4, HAND_FADE = 0.5;
 const FANFARE: SfxOptions = { variant: 'D' };
-const HIGHLIGHT = '#fff6a3', INK = '#4a2f1c', CREAM = '#fff8e6';
+const HIGHLIGHT = '#fff6a3', INK = '#4a2f1c', CREAM = '#fff8e6', HOVER = '#fff8b2';
 const NUMBER_CLIPS: readonly VoiceClip[] = Array.from({ length: 101 }, (_, n) => `number-${n}` as const);
 
 type Phase = 'play' | 'celebration' | 'choice' | 'sticker' | 'rest';
@@ -344,6 +344,9 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
   const pKind: number[] = [], pCount: number[] = [], pUnlimited: boolean[] = [];
   const pFace = new Uint8Array(MAX_PLACES), pRot = new Float32Array(MAX_PLACES), pNx = new Float32Array(MAX_PLACES), pNy = new Float32Array(MAX_PLACES);
   const pHop = new Float32Array(MAX_PLACES).fill(9), pX = new Float32Array(MAX_PLACES), pY = new Float32Array(MAX_PLACES);
+  /** Mouse hover, eased 0 to 1: each row place (a piece to pick up), each tag, each symbol block; the mat under a carried piece; the corner Home. */
+  const placeHover = new Float32Array(MAX_PLACES), tagHover = new Float32Array(3), blockHover = new Float32Array(2);
+  let matHover = 0, homeHover = 0;
   // Each place's hit half-width (a pile packs places closer) and the order places are drawn in (a pile overlaps).
   const pHW = new Float32Array(MAX_PLACES), pOrder = new Uint8Array(MAX_PLACES);
   let nPlaces = 0, pile = false;
@@ -1885,6 +1888,8 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
   }
   function renderMat(ctx: CanvasRenderingContext2D): void {
     if (matCanvas) ctx.drawImage(matCanvas, matX, matY, matW, matH);
+    // Mouse hover while carrying: a soft cream frame inside the mat when letting go here would count the piece.
+    if (matHover > 0.01) hoverRect(ctx, matX + matW / 2, matY + matH / 2, matW - 28 * u, matH - 28 * u, matHover);
     renderTargetGlow(ctx);
     if (isLock() && introStage !== 1) { renderLocks(ctx); return; }
     if (plan.unit === DOLLARS && introStage !== 1) {
@@ -1997,17 +2002,21 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     const kind = pKind[p]!, hopK = pHop[p]! < 0.35 ? Math.sin(pHop[p]! / 0.35 * Math.PI) : 0;
     const x = pX[p]! + pNx[p]!, y = pY[p]! + pNy[p]! - hopK * 14 * u;
     const under = Math.min(4, n - 1);
+    // Mouse hover: a soft cream ring and a slight swell on the piece a press would pick up (scaled by transform).
+    const hv = placeHover[p]!, hs = 1 + hv * 0.06;
     if (isBill(kind)) {
       // A stack (only where the row has too few places): the bills below peek out up and to the right.
       for (let k = under; k >= 1; k--) drawBill(ctx, kind, x + k * billW * 0.1, y - k * billH * 0.22, 1, 0);
       if (focused) focusRect(ctx, x, y, billW, billH);
-      drawBill(ctx, kind, x, y, 1, 0);
+      if (hv > 0.01) hoverRect(ctx, x, y, billW * hs, billH * hs, hv);
+      drawBill(ctx, kind, x, y, hs, 0);
       return;
     }
     const d = coinD[kind]!;
     for (let k = under; k >= 1; k--) coin(ctx, kind, pFace[p]!, x + k * 3 * u, y + k * 5 * u, 1, pRot[p]!, 1);
     if (focused) focusMark(ctx, x, y, d * 0.5);
-    coin(ctx, kind, pFace[p]!, x, y, 1, pRot[p]!, 1);
+    if (hv > 0.01) hoverRing(ctx, x, y, d * 0.5 * hs, hv);
+    coin(ctx, kind, pFace[p]!, x, y, hs, pRot[p]!, 1);
   }
   /** The keyboard highlight: a warm ring and a bobbing arrow above. */
   function focusMark(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
@@ -2022,6 +2031,16 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     ctx.beginPath(); ctx.roundRect(x - w / 2 - 9 * u, y - h / 2 - 9 * u, w + 18 * u, h + 18 * u, 16 * u);
     ctx.lineWidth = 9 * u; ctx.strokeStyle = OUTLINE; ctx.stroke(); ctx.lineWidth = 5 * u; ctx.strokeStyle = HIGHLIGHT; ctx.stroke();
     focusArrow(ctx, x, y - h / 2 - 16 * u - bob);
+  }
+  /** The mouse hover cue: a soft cream ring round a coin or a round button, `k` (0 to 1) of its full strength. */
+  function hoverRing(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, k: number): void {
+    ctx.globalAlpha = 0.5 * k; ctx.beginPath(); ctx.arc(x, y, r + 7 * u, 0, Math.PI * 2);
+    ctx.lineWidth = 6 * u; ctx.strokeStyle = HOVER; ctx.stroke(); ctx.globalAlpha = 1;
+  }
+  /** The mouse hover cue round a bill, tag, block or the mat: a soft cream rounded frame. */
+  function hoverRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, k: number): void {
+    ctx.globalAlpha = 0.5 * k; ctx.beginPath(); ctx.roundRect(x - w / 2 - 7 * u, y - h / 2 - 7 * u, w + 14 * u, h + 14 * u, 16 * u);
+    ctx.lineWidth = 6 * u; ctx.strokeStyle = HOVER; ctx.stroke(); ctx.globalAlpha = 1;
   }
   function focusArrow(ctx: CanvasRenderingContext2D, x: number, ty: number): void {
     ctx.beginPath(); ctx.moveTo(x - 15 * u, ty - 20 * u); ctx.lineTo(x + 15 * u, ty - 20 * u); ctx.lineTo(x, ty); ctx.closePath();
@@ -2047,6 +2066,9 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
         if (k >= 1) continue;
       }
       if (a <= 0) continue;
+      // Mouse hover: a soft cream frame and a slight swell (by transform) on the tag a press would pick.
+      const hv = st === 0 ? tagHover[i]! : 0;
+      if (hv > 0.01) { s = 1 + hv * 0.05; hoverRect(ctx, x, y, tagW * s, tagH * s, hv); }
       if (taskPhase === 'tags' && st === 0 && i === tagFocus) {
         ctx.beginPath(); ctx.roundRect(x - tagW / 2 - 8, y - tagH / 2 - 8, tagW + 16, tagH + 16, 18 * u);
         ctx.lineWidth = 9 * u; ctx.strokeStyle = OUTLINE; ctx.stroke(); ctx.lineWidth = 5 * u; ctx.strokeStyle = HIGHLIGHT; ctx.stroke();
@@ -2080,6 +2102,9 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
         }
       }
       if (st === 0 && i === blockFocus && rise >= 1 && hand.mode !== HAND_BLOCK) focusRect(ctx, x, y, blockS, blockS);
+      // Mouse hover: a soft cream frame and a slight swell (by transform) on the block a press would send.
+      const hv = st === 0 ? blockHover[i]! : 0;
+      if (hv > 0.01) { s = 1 + hv * 0.06; hoverRect(ctx, x, y, blockS * s, blockS * s, hv); }
       sprite(ctx, SYMBOL, x, y, blockS, 0, s, s);
       glyph1(ctx, symStrip, blockSym[i]!, x, y, s * blockS * 0.6 / (symStrip.px || 1));
     }
@@ -2429,8 +2454,11 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     }
   }
   function drawCorners(ctx: CanvasRenderingContext2D): void {
-    chunkyCircle(ctx, homeX, cornerY, cornerRadius, '#a8d58f', OUTLINE, 4);
-    drawSprite(ctx, sprites, BUTTON_HOME, homeX, cornerY, Math.round(cornerRadius * 1.3));
+    // Mouse hover: a slight swell and a soft cream ring; the icon keeps its baked size and scales by transform.
+    const hs = 1 + homeHover * 0.08, hr = cornerRadius * hs;
+    if (homeHover > 0.01) { ctx.globalAlpha = 0.45 * homeHover; ctx.beginPath(); ctx.arc(homeX, cornerY, hr + 7, 0, Math.PI * 2); ctx.lineWidth = 6; ctx.strokeStyle = HOVER; ctx.stroke(); ctx.globalAlpha = 1; }
+    chunkyCircle(ctx, homeX, cornerY, hr, '#a8d58f', OUTLINE, 4);
+    drawSprite(ctx, sprites, BUTTON_HOME, homeX, cornerY, Math.round(cornerRadius * 1.3), 0, hs, hs);
     soundButton.render(ctx, sprites);
     if (cornerFocus >= 0) focusRing(ctx, cornerFocus === 0 ? homeX : soundX, cornerY, cornerRadius);
   }
@@ -2532,6 +2560,48 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     // no button held until the next press puts it down (release), as letting go of a drag there would.
     if (quick) { carry.sticky = true; return; }
     release(x, y);
+  }
+  // ---------------------------------------------------------------- hover (the app's cursor and the hover cues)
+  const onHome = (x: number, y: number): boolean => Math.hypot(x - homeX, y - cornerY) <= cornerRadius;
+  /** Whether a press on row place p would pick its piece up now (pointerDown's gates). */
+  const grabbable = (p: number): boolean => p >= 0 && coinPhase() && !busy() && available(p);
+  /** Whether a press on tag i (from onTag) would pick it now (pickTag's gates). */
+  const tagLive = (i: number): boolean => i >= 0 && taskPhase === 'tags' && tagsT >= TAG_RISE;
+  /** Whether a press on block i (from onBlock) would send it now (pointerDown's and chooseBlock's gates). */
+  const blockLive = (i: number): boolean => i >= 0 && taskPhase === 'symbol' && hand.mode !== HAND_BLOCK && blockState[i] === 0 && placedSym < 0
+    && tagsT >= TAG_RISE && blockState[0] !== 3 && blockState[1] !== 3;
+  /** What a press at x, y would do now, with the same gates as handleInput and pointerDown. */
+  function hoverAt(x: number, y: number): CursorHover {
+    if (soundButton.contains(x, y)) return null;
+    if (onHome(x, y)) return 'press';
+    if (phase === 'celebration') return celebrationLocked() ? null : 'press';
+    if (playable() && carry.active) return 'carry';
+    if (performance.now() < inputAfter) return null;
+    if (playable()) {
+      if (taskPhase === 'tags') return tagLive(onTag(x, y)) ? 'press' : null;
+      if (taskPhase === 'symbol') return blockLive(onBlock(x, y)) ? 'press' : null;
+      // Any press during a task's end hurries the rest of it, once (the goal-first introduction is never hurried).
+      if (taskPhase === 'done') return introStage !== 1 && seqSpeed !== HURRY ? 'press' : null;
+      // A press on a piece that has to wait, on the mat or on the purse only makes something hop: nothing to act on.
+      return grabbable(placeAt(x, y)) ? 'grab' : null;
+    }
+    if (phase === 'choice' || phase === 'rest') return hoverMenu(x, y) >= 0 ? 'press' : null;
+    return null;
+  }
+  /** Ease the hover cues toward the mouse: the piece a press would pick up, the tag or block it would choose, the mat under a carried piece, Home. */
+  function updateHover(dt: number): void {
+    const pt = input.pointer, mouse = pt.inside && pt.type === 'mouse' && !soundButton.contains(pt.x, pt.y);
+    const home = mouse && onHome(pt.x, pt.y), inPlay = mouse && !home && playable();
+    const live = inPlay && !carry.active && performance.now() >= inputAfter;
+    const at = live && coinPhase() ? placeAt(pt.x, pt.y) : -1, p = grabbable(at) ? at : -1;
+    const ti = live && taskPhase === 'tags' ? onTag(pt.x, pt.y) : -1, t = tagLive(ti) ? ti : -1;
+    const bi = live && taskPhase === 'symbol' ? onBlock(pt.x, pt.y) : -1, b = blockLive(bi) ? bi : -1;
+    const mat = inPlay && carry.active && !carry.keyed && onMat(pt.x, pt.y);
+    for (let i = 0; i < MAX_PLACES; i++) placeHover[i] = approach(placeHover[i]!, i === p ? 1 : 0, 14, dt);
+    for (let i = 0; i < 3; i++) tagHover[i] = approach(tagHover[i]!, i === t ? 1 : 0, 14, dt);
+    for (let i = 0; i < 2; i++) blockHover[i] = approach(blockHover[i]!, i === b ? 1 : 0, 14, dt);
+    matHover = approach(matHover, mat ? 1 : 0, 14, dt);
+    homeHover = approach(homeHover, home ? 1 : 0, 14, dt);
   }
   function keyPlay(code: string): void {
     idleT = 0; interruptHand();
@@ -2735,9 +2805,11 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
       releaseArt(); sprites.clearScaled(BG); bgCanvas = undefined; sizeKey = ''; madeName = ''; bakedMat = ''; matCanvas = undefined;
     },
     resize: layout,
+    hoverAt,
     update(dt) {
       const started = performance.now(); sceneT += dt;
       syncSoundIcon(soundButton, services); soundButton.update(dt, input.pointer.x, input.pointer.y);
+      updateHover(dt);
       // Hurried: the rest of a finished task's sequence plays HURRY times faster.
       if (playable() && taskPhase === 'done') dt *= seqSpeed;
       if (playable()) updatePlay(dt); else updateResult(dt);
