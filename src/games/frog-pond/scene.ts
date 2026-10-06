@@ -217,12 +217,12 @@ export function createFrogPondScene(services: AppServices): FrogPondScene {
     if (roundRime) data.lastRime = roundRime;
     data.rounds++;
     // Every round earns its star at once, so leaving mid-set loses nothing. The place in the set comes from the saved
-    // round count, which tabs playing at once add up, so no tab loses another's round.
+    // round count, read after the flush has merged in rounds another tab played at the same time, so no tab loses one.
     const bag = rewards(services); bag.rounds[GAME_ID] = (bag.rounds[GAME_ID] ?? 0) + 1;
     if (services.config.rewardsEnabled) bag.stars++;
-    setDone = bag.rounds[GAME_ID] % SET_ROUNDS;
+    services.save.flush();
+    setDone = (rewards(services).rounds[GAME_ID] ?? 0) % SET_ROUNDS;
     if (setDone > 0) {
-      services.save.flush();
       phase = 'between'; phaseT = 0; starsPlayed = 0; cornerFocus = -1;
       return;
     }

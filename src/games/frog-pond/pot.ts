@@ -242,10 +242,20 @@ export function createWordPot(services: AppServices): WordPot {
    */
   const WARM_MAX = MAX_SWIMMERS + 2 * 8;
   const warmNames: string[] = new Array<string>(WARM_MAX).fill(''), warmSizes = new Float32Array(WARM_MAX);
-  let warmCount = 0, warmHandle = 0, warmStopped = false;
-  /** A slow laptop may never leave 6 ms idle; after this wait one picture is scaled anyway, so swaps never stall. */
-  const WARM_OPTIONS: IdleRequestOptions = { timeout: 1000 };
-  function scheduleWarm(): void { if (!warmHandle && !warmStopped && warmCount > 0) warmHandle = requestIdleCallback(warmIdle, WARM_OPTIONS); }
+  let warmCount = 0, warmHandle = 0, warmStopped = false, warmWaitFrom = -1;
+  /**
+   * A slow laptop may never leave 6 ms idle: one picture is scaled anyway once the queue has waited this long since its
+   * last progress, counted across callbacks (each callback's timeout is what is left of it), so swaps never stall.
+   */
+  const WARM_WAIT_MS = 1000;
+  const WARM_OPTIONS: IdleRequestOptions = { timeout: WARM_WAIT_MS };
+  function scheduleWarm(): void {
+    if (warmHandle || warmStopped || warmCount === 0) return;
+    const now = performance.now();
+    if (warmWaitFrom < 0) warmWaitFrom = now;
+    WARM_OPTIONS.timeout = Math.max(1, WARM_WAIT_MS - (now - warmWaitFrom));
+    warmHandle = requestIdleCallback(warmIdle, WARM_OPTIONS);
+  }
   /** Paused or left: no picture work in the background. update() and start() pick the queue up again. */
   function stopWarm(): void { warmStopped = true; if (warmHandle) cancelIdleCallback(warmHandle); warmHandle = 0; }
   function queueWarm(name: string, size: number): void {
@@ -257,8 +267,10 @@ export function createWordPot(services: AppServices): WordPot {
   }
   function warmIdle(deadline: IdleDeadline): void {
     warmHandle = 0;
-    if (warmCount > 0 && (deadline.didTimeout || deadline.timeRemaining() >= 6)) {
+    const overdue = deadline.didTimeout || (warmWaitFrom >= 0 && performance.now() - warmWaitFrom >= WARM_WAIT_MS);
+    if (warmCount > 0 && (overdue || deadline.timeRemaining() >= 6)) {
       warmScaled(warmNames[0]!, warmSizes[0]!);
+      warmWaitFrom = -1;
       warmCount--;
       for (let k = 0; k < warmCount; k++) { warmNames[k] = warmNames[k + 1]!; warmSizes[k] = warmSizes[k + 1]!; }
     }
