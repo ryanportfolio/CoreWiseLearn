@@ -1,12 +1,12 @@
 # Frog Pond
 
-A round game for an early reader (first to second grade) on a pond. A frog sits on its lily pad and bugs fly over the water carrying words. This first pull request builds the game's shell and its first activity, **Rhyme snack**: the frog eats the bugs whose word rhymes with the word on its pad. **Word pot** (below) joins the halves of compound words into words whose pictures stay in the pond. Lily-pad sentences follows in a later pull request (`docs/specs/2026-10-05-wibble-voice-and-frog-pond-design.md`). Learning tags: `words` and `sounds`.
+A round game for an early reader (first to second grade) on a pond. A frog sits on its lily pad and bugs fly over the water carrying words. The first pull request built the game's shell and its first activity, **Rhyme snack**: the frog eats the bugs whose word rhymes with the word on its pad. **Word pot** (below) joins the halves of compound words into words whose pictures stay in the pond. **Lily-pad sentences** (below) has the child build a sentence about a picture by pressing its words in order, then pick its end mark (`docs/specs/2026-10-05-wibble-voice-and-frog-pond-design.md`). Learning tags: `words` and `sounds`.
 
 The hub also serves a 4 and a 5 year old who cannot read. Nothing in Frog Pond needs reading to get around: the words are play material, every word is spoken by the time it matters, and the controls are the familiar Home, sound, Again and Home.
 
 ## The pond and its activities
 
-Frog Pond opens on the pond with one spot per activity, each shown by a picture: Rhyme snack's is the frog on its lily pad, Word pot's the bubbling pot, wobbling gently. With a single activity the game would skip the pond and open straight into it. The list of activities is `ACTIVITY_IDS` in `src/games/frog-pond/data.ts`; adding an activity adds its id there and a spot appears. Again replays the same activity; with more than one activity it returns to the pond. On the pond a press on a spot opens it, and pointing at a spot shows the focus ring on it; with keys, the first key shows focus, arrows and Tab move it, and any other key opens the spot.
+Frog Pond opens on the pond with one spot per activity, each shown by a picture: Rhyme snack's is the frog on its lily pad, Word pot's the bubbling pot, wobbling gently, Lily-pad sentences' a small frog on the first of three word pads in a row, bobbing in turn. With a single activity the game would skip the pond and open straight into it. The list of activities is `ACTIVITY_IDS` in `src/games/frog-pond/data.ts`; adding an activity adds its id there and a spot appears. Again returns to the pond. On the pond a press on a spot opens it (each spot's press area is a circle 240 px across at 1366x768), and pointing at a spot shows the focus ring on it; with keys, the first key shows focus, arrows and Tab move it, and any other key opens the spot.
 
 ## Rhyme snack: the action and its response
 
@@ -87,6 +87,8 @@ The fanfare is prepared ahead with `prepareSfxStep` in idle periods, as in Ride 
 ## Voice clips
 
 330 clips in `public/voice/frog-pond/`, three per word: `say-<word>` (Scottish teacher), `catch-<word>` (northern postman) and `dodge-<word>` (London lad), rendered by `scripts/voice/generate.mjs` from `scripts/voice/lines/frog-pond.json`. The folder's README lists when each plays. They play on the shared voice channel (`src/audio/voice-player.ts`), so a new word stops the one before; the scene stops speech when it is left or covered. Wibble names the game on the hub with `public/voice/wibble/game-frog-pond.mp3`.
+
+Lily-pad sentences adds 79 clips from `scripts/voice/lines/frog-pond-sentences.json`: `read-<the-words>` (46, the northern postman reading each sentence, its end mark in the text, so a question rises on its own) and `say-<word>` (33, the Scottish teacher, for sentence words neither other activity has, such as `say-the`, `say-under`, `say-i`). The other 30 sentence words reuse Rhyme snack's and Word pot's `say-` clips (ball, box and fox were rendered by both branches with the same text and voice; Word pot's files are kept). Ten lines needed a second or third render. Two accepted transcripts were added, both words that sound the same: "two" for `say-to` and "bye" for `say-by` (each heard that way on all three renders). The postman's pace varies a lot between sentences (1.5 s for "What is in the bag?", 7.3 s for "I like to jog with my dog.", with pauses of up to a second between words); listen for that on the review page.
 
 Accepted transcripts in the clip check (real accent variants or same-sounding spellings, each heard on every render): "finn" for fin (two voices), "caught" for cot (all three voices), "peg" for the teacher's pig and "when" for her win (the Highland short i), and for the Yorkshire postman's short u, which sounds like the u in "put": "shot" or "shoot" for shut, "boog" or "bog" for bug, "jog" for jug, "took" or "tog" for tug, "boon" or "bon" for bun. Four lines changed punctuation to get past the check: `catch-cut` and `catch-hid` say "Cut." and "Hid." (the exclamation made the model add whole sentences), `dodge-shut` and `dodge-rid` say "Shut!" and "Rid!" (the question was heard as "Shot?" and "Red?"). The owner approves every clip on the listening page before merge: `D:/screenshots/CoreWiseLearn/voice-review/frog-pond/index.html`.
 
@@ -182,10 +184,79 @@ Stickers: `frog-pond-frog` (the puffed frog), `frog-pond-ladybird`, `frog-pond-b
 
 Word pot's pot and its 20 pictures (`cw-<word>.webp`) were generated with the other Frog Pond sprites; the bubbles, cards, labels, halo and ripples are drawn in code.
 
+## Lily-pad sentences
+
+A picture at the top of the pond shows a scene: a pig in a box, a cat wearing a hat, a dog beside a jet. The words of one sentence about it float on lily pads below, in a scrambled order. The child presses them in reading order and the frog hops along a row of pads as the sentence builds. The last step is a choice between a full stop pad and a question mark pad. Then the postman reads the sentence, each word lighting up as he says it, and the picture acts it out. The sentences, their pictures and their length tags are `SENTENCES` in `content.ts`; the activity is `sentences.ts` and its round planning `sentence-rules.ts`.
+
+### The screen
+
+- **The picture** sits at the top centre between the corner buttons: a cream-edged panel with sky and grass, 230u tall and 1.6 times as wide (at most 0.3 of the window's height), baked once per size. It is built from the scene sprites (pig, frog, bug, bat, cat, dog, hen, fox, jet, van, box, log, hat, bag, cap, ball, pen, lid, rock, twig) and the sentence's relation: alone, `by` (side by side), `on` (standing on top), `in` (inside a box or bag, or a hat turned upside down like a bowl: the container is drawn, then what is in it, then the container's front again below its rim), `under` (peeking out from behind and below), and `with` (a hat or cap worn on the head, anything else held beside). Pressing the picture makes its main character do a small hop.
+- **The row** runs across the pond under the picture: the frog's own plain pad on the left, then one faint empty pad per word and one for the end mark, so the row shows how long the sentence is. Row pads hug their word (at least 1.5 times as wide as tall) and the row shrinks to fit the window, so a seven-word sentence stays readable at 800x600.
+- **The floating pads** bob over the open water below the row, one per word, in a grid of up to four across and two down (the second row offset half a cell). Each drifts gently from side to side and bobs a few pixels, every pad on its own phase. The words are drawn in the case the sentence uses: the first word starts with a capital, which shows where a sentence starts. Each word is baked once on the plain word pad sprite (`frog-pond/word-pad.webp`, stretched sideways to fit), and so are the full stop pad (a round dot) and the question mark pad; nothing draws text in a frame.
+
+### The action and its response
+
+- **The right word.** Its pad glides into its place in the row in 0.32 s, turning from the wide floating pad into the narrower row pad on the way, and settles with a small swell. The frog hops onto it, the Scottish teacher says the word and a marimba note plays, one step higher for each word. When two pads show the same word ("the" twice), either one is right.
+- **A word out of order.** The pad lifts a little toward the row, wobbles and floats back to its place with a giggly "boing". Nothing is lost and no pad leaves.
+- **The end mark.** When the last word lands, a full stop pad and a question mark pad rise from the water (in random order, left and right). The words decide which is right: a sentence that starts with a question word (`QUESTION_STARTERS`: Do, What, Where, Is, Can) ends with a question mark, every other one with a full stop. The wrong mark wobbles back like a wrong word. The right one joins the row with a sparkle and the other sinks away.
+- **The reading.** The frog hops back to its own pad, then the northern postman reads the whole sentence. Each word's pad glows pale yellow and swells as he says it, and the frog hops onto it; the end mark lights as his voice ends.
+- **The act-out.** Then the picture plays the sentence for 1.6 s: something in, on or by another thing hops out to the side and back in with a big hop, landing squashed; a rock, log or lid lifts to show what is under it and drops back; a worn hat jumps off and spins back onto the head; a van drives off and back, a jet flies a loop, anything else hops twice. The frog puffs up happily, a chime plays with a sparkle, and the round ends 0.7 s later.
+
+### Hearing words
+
+A word is spoken when it is used: the teacher says each word as its pad joins the row, and the postman reads the finished sentence. Nothing is said when the round starts, so the child reads the picture and the words first.
+
+**Word help** turns on in a round after 3 out-of-order presses, or after 14 s without a right press (not counting the introduction's demonstration). While it is on, a press on a pad out of order also says that pad's word, so pressing pads is a way to hear them. It carries into the next sentence round after a round with 3 such presses or a long pause, and switches off after a round with none. It is stored in the sentence bag (`sentences.assist`).
+
+### How the words light up in time
+
+The postman's sentence is one clip, so it sounds like natural speech; per-word clips played one after another sounded choppy. A table of when each word starts in each clip (`READ_TIMING` in `read-timing.ts`) is measured once, offline, by `scripts/voice/word-onsets.py`. That script runs the Whisper speech recogniser (faster-whisper, model small.en, on the CPU) for its word timings and the clip's loudness in 10 ms steps for the exact starts, because the postman often pauses between words and Whisper puts its word boundaries somewhere in those pauses (see the script for the rule). In the game, the scene reads how far the clip has played from the voice player's audio clock (`voicePlayer(audio).elapsed()`, output latency allowed for) every frame and lights each word once that time passes its start. In the checks the lights came 0 to 20 ms after each measured start, one or two frames. With the sound off, or if the clip does not start within 1.2 s, the same table runs on the game's own clock, and a sentence missing from the table lights a word every 0.45 s.
+
+### Discovery without words
+
+The first sentence round ever is an introduction: "Pigs sit on logs" (a pig standing on a log), with the pads drifting least. 1.6 s in, the cartoon glove comes down from above to the "Pigs" pad and presses it; the pad joins the row with the full response. Every press and key waits until that press, so an early press cannot skip it. The glove then taps the next right pad until the child does anything. The demonstrated press records nothing. In every later round, after 8 s without a press or a pointer movement, the see-through glove taps the next right pad (or the right end mark) for 2.4 s, and again after another quiet 8 s.
+
+### Hidden tier and rounds
+
+| Tier | Sentences | Side drift (px at 1366x768) |
+| --- | --- | --- |
+| Introduction | "Pigs sit on logs" | 6 |
+| 0 | difficulty 1: three or four words (14 sentences, 5 of them questions) | 8 |
+| 1 | difficulty 2: five words (13 sentences, 6 questions) | 12 |
+| 2 | difficulty 3: six or seven words (19 sentences, 6 questions) | 16 |
+
+A round picks a sentence of its tier other than the last round's, and scrambles its pads so the first pad on the water is never the sentence's first word. Each right press is a hit and each out-of-order press (words or marks) a miss for its own adaptive tier (`createAdaptiveTier`, the same settings as Rhyme snack). Lily-pad sentences keeps its own tier, round count, word help and last sentence in the save bag's `sentences` field, so a reader strong at rhymes still starts on short sentences, and its own tracker, whose attempts add up across rounds until the tier moves. The tier reached is saved at the round's end and used from the next round; the introduction and a forced debug tier record nothing. Misses only ease it.
+
+Round end, stars and the sticker offer work as in Rhyme snack (see Round flow): every finished round earns 3 stars and offers this game's stickers. With no gift, the rest screen shows the frog on a plain lily pad. `rounds` in the save bag still counts every activity, so Rhyme snack's introduction checks its own count (`rounds` less Word pot's and the sentence rounds).
+
+### Keyboard-only and mouse-only play
+
+Mouse: press a pad, the picture or the water; any button. Keyboard: the first key in a round shows a focus ring on the pad nearest the top middle of the water and does nothing else. Arrows then move focus to the nearest pad in that direction (wrapping round when there is none), Tab and Shift+Tab step through the pads, and any other key presses the focused pad, at most once every 150 ms. A pad that has joined the row, or an end mark still rising (its first 0.25 s), cannot take focus or be pressed. Moving the mouse hides the ring until the next key.
+
+### Layout and targets
+
+Word pads are 96u tall (at least 72 px), the frog 116u (at least 84 px), all scaled with `u` like Rhyme snack. A floating pad's press area is the pad, at least 96 px on each side: measured 166x96 px at 800x600, and 112 px tall and about 230 px wide (wider for longer words) at 1366x768. The floating pads keep 44u clear of the bottom edge and never overlap (checked at 800x600 with seven pads). The frog stands on the back edge of its pad so the word stays in view. Everything sits below the corner buttons except the picture, which sits between them.
+
+### Sound
+
+| Moment | Sound |
+| --- | --- |
+| Right press | `key` A, one note higher per word, and the teacher's word |
+| Pad lands in the row | `pop` B, quiet |
+| Out-of-order press | `button` C, and the teacher's word while word help is on |
+| End marks rise | `whoosh` A, quiet |
+| Right end mark lands | `pop-big` A with a sparkle |
+| Act-out starts and ends | `whoosh` A; `go` A with a sparkle |
+| Press on the picture | `button` A, quiet |
+
+### Measured
+
+1366x768 on the dev box (100 Hz panel, muted headed Chrome off screen, `?debug` dev page), whole rounds from the first press through the reading into the act-out, with wrong presses and the wrong end mark: scene `workMean` 0.13 to 0.23 ms and `workP95` 0.2 to 0.6 ms over eight rounds at tiers 0 to 2 (mouse and keyboard); loop `workMean` 0.16 to 0.27 ms, `workP95` 0.3 to 0.7 ms; the longest frame of work 2.2 ms. Delivered frames: 95th percentile 10.1 to 10.2 ms, longest 11.3 ms. No console errors.
+
 ## Files
 
-- `src/games/frog-pond/`: `index.ts` (definition and save validator), `scene.ts` (the shell: pond chooser, round end, save bag, corner buttons), `rhyme.ts` (Rhyme snack), `rhyme-rules.ts` (tiers, round plans, the tune), `pot.ts` (Word pot), `pot-rules.ts` (its tiers, pot plans and `joinWord`), `pot-cards.ts` (baked bubbles and two-colour cards), `cards.ts` (baked words), `voice.ts` (clip names), `data.ts` (save bag: tier, rounds, word help, last family, pending round, Word pot's `pot` part, and its validator), `content.ts` (words for all three activities).
+- `src/games/frog-pond/`: `index.ts` (definition and save validator), `scene.ts` (the shell: pond chooser, round end, save bag, corner buttons), `rhyme.ts` (Rhyme snack), `rhyme-rules.ts` (tiers, round plans, the tune), `pot.ts` (Word pot), `pot-rules.ts` (its tiers, pot plans and `joinWord`), `pot-cards.ts` (baked bubbles and two-colour cards), `sentences.ts` (Lily-pad sentences), `sentence-rules.ts` (its tiers, round plans and clip names), `read-timing.ts` (when each word starts in the sentence clips; generated), `cards.ts` (baked words and word pads), `voice.ts` (clip names), `data.ts` (save bag: tier, rounds, word help, last family, pending round, Word pot's `pot` part, Lily-pad sentences' `sentences` part, and its validator), `content.ts` (words for all three activities).
 - `dev/frog-pond.html`, `src/dev/frog-pond.ts`: isolated dev page.
-- Debug (only with `?debug`): `?debug&tier=0..2&rounds=N&help=0|1&seed=N&made=N&pond` forces the tier, the round count of both activities (`rounds=0` replays the introductions), word help in both, the random seed, fills Word pot's pond with the first N compound words (`made=20` for frame timing with a full pond), and shows the pond chooser. `window.__frogPond` is a read-only stats object: phase, activity, tier (and the live adaptive tier), rounds, the target, word help, the bugs with their words, states and press rectangles, keyboard focus, the hand and tongue states, catches, dodges, the notes played, the frog's box, the targets on screen (pond spots, sticker choices, Again, Home, corner buttons) and frame work (`workMean`, `workP95`, `workMax`, `resetWork()`). `__frogPond.pot` has Word pot's bubbles (word, state, half or decoy, press circle), swimmers, the lifted bubble, focus, word help, the hand, words made, bonks, the pot's words and the reveals running.
+- Debug (only with `?debug`): `?debug&tier=0..2&rounds=N&help=0|1&seed=N&made=N&pond&sentence=N` forces the tier, the round count of each activity (`rounds=0` replays all three introductions), word help in all three, the random seed, fills Word pot's pond with the first N compound words (`made=20` for frame timing with a full pond), shows the pond chooser, and picks Lily-pad sentences' sentence by its index in `SENTENCES`. `window.__frogPond` is a read-only stats object: phase, activity, tier (and the live adaptive tier), rounds, the target, word help, the bugs with their words, states and press rectangles, keyboard focus, the hand and tongue states, catches, dodges, the notes played, the frog's box, the targets on screen (pond spots, sticker choices, Again, Home, corner buttons) and frame work (`workMean`, `workP95`, `workMax`, `resetWork()`). `__frogPond.pot` has Word pot's bubbles (word, state, half or decoy, press circle), swimmers, the lifted bubble, focus, word help, the hand, words made, bonks, the pot's words and the reveals running. `__frogPond.sentences` holds that activity's state: the sentence and its end mark, the pads with their words, states and press rectangles, the next word, the step (play, back, read, act, done), the word lit and a log of when each lit in clip time, whether the clip started, keyboard focus, word help, the hand, misses, the frog and the picture's rectangle. `window.__frogPond` is a read-only stats object: phase, activity, tier (and the live adaptive tier), rounds, the target, word help, the bugs with their words, states and press rectangles, keyboard focus, the hand and tongue states, catches, dodges, the notes played, the frog's box, the targets on screen (pond spots, sticker choices, Again, Home, corner buttons) and frame work (`workMean`, `workP95`, `workMax`, `resetWork()`).
 - `scripts/voice/lines/frog-pond-words.json`: Word pot's clips.
-- Shared edits: one registry entry after Ride Fare, six stickers appended to `STICKERS`, one music track name, Wibble's `game-frog-pond` line.
+- Shared edits: one registry entry after Ride Fare, six stickers appended to `STICKERS`, one music track name, Wibble's `game-frog-pond` line. Lily-pad sentences adds one method to the shared voice player, `elapsed()` (seconds of the current clip heard), in `src/audio/voice-player.ts`.

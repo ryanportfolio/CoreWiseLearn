@@ -5,7 +5,7 @@ import { COMPOUNDS } from './content';
 
 export const GAME_ID = 'frog-pond';
 /** The activities that exist. Each later activity adds its id here and a spot on the pond. */
-export const ACTIVITY_IDS = ['rhyme', 'pot'] as const;
+export const ACTIVITY_IDS = ['rhyme', 'pot', 'sentences'] as const;
 export type ActivityId = (typeof ACTIVITY_IDS)[number];
 
 export interface PendingRound {
@@ -30,6 +30,8 @@ export interface FrogPondData extends Record<string, unknown> {
   pending: PendingRound | null;
   /** Word pot's own progress, kept apart from Rhyme snack's. */
   pot: PotData;
+  /** Lily-pad sentences' own hidden tier, round count, word help and last sentence. */
+  sentences: SentenceBag;
 }
 
 /** Word pot's part of the bag. A bag from before Word pot gets the default on load (the validator adds it). */
@@ -48,7 +50,19 @@ export interface PotData {
 
 export const defaultPot = (): PotData => ({ tier: 0, rounds: 0, assist: 0, made: [], last: [] });
 
-export const defaultData = (): FrogPondData => ({ tier: 0, rounds: 0, assist: 0, lastRime: '', pending: null, pot: defaultPot() });
+export interface SentenceBag extends Record<string, number> {
+  /** Hidden tier 0..2: sentences of difficulty 1, 2 or 3. */
+  tier: number;
+  /** Finished Lily-pad sentences rounds. 0 means its next round is the introduction. */
+  rounds: number;
+  /** 1 while pressing a pad says its word (after a long pause or several out-of-order presses). */
+  assist: number;
+  /** Index into SENTENCES of the last round's sentence plus one (0: none), so the next round picks another. */
+  last: number;
+}
+export const defaultSentenceBag = (): SentenceBag => ({ tier: 0, rounds: 0, assist: 0, last: 0 });
+
+export const defaultData = (): FrogPondData => ({ tier: 0, rounds: 0, assist: 0, lastRime: '', pending: null, pot: defaultPot(), sentences: defaultSentenceBag() });
 
 const count = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0;
 const range = (v: unknown, max: number): v is number => count(v) && v <= max;
@@ -69,6 +83,7 @@ export function sanitizeFrogPondData(bag: Record<string, unknown>, protect: () =
     if (!valid(bag[key])) { protect(); bag[key] = d[key]; }
   }
   sanitizePot(bag, protect);
+  sanitizeSentenceBag(bag, protect);
   if (!('pending' in bag)) bag.pending = null;
   const p = bag.pending;
   if (p === null) return;
@@ -101,5 +116,18 @@ function sanitizePot(bag: Record<string, unknown>, protect: () => void): void {
     protect();
     const v = p[key];
     p[key] = (key === 'made' || key === 'last') && Array.isArray(v) ? [...new Set(v.filter(w => typeof w === 'string' && COMPOUND_SET.has(w)))].slice(0, key === 'last' ? 4 : COMPOUNDS.length) : d[key as keyof PotData];
+  }
+}
+
+/** Repair Lily-pad sentences' fields the same way: a missing bag or field takes its default, a malformed one protects. */
+function sanitizeSentenceBag(bag: Record<string, unknown>, protect: () => void): void {
+  if (!('sentences' in bag)) { bag.sentences = defaultSentenceBag(); return; }
+  const b = bag.sentences;
+  if (!record(b)) { protect(); bag.sentences = defaultSentenceBag(); return; }
+  const d = defaultSentenceBag();
+  const checks: Record<string, (v: unknown) => boolean> = { tier: v => range(v, 2), rounds: count, assist: v => range(v, 1), last: v => range(v, 999) };
+  for (const [key, valid] of Object.entries(checks)) {
+    if (!(key in b)) { b[key] = d[key]; continue; }
+    if (!valid(b[key])) { protect(); b[key] = d[key]; }
   }
 }

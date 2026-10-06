@@ -72,3 +72,34 @@ export class WordCache {
     return art;
   }
 }
+
+/** The part of the 512 px word-pad sprite that holds the pad (measured alpha bounds). */
+const PAD_SRC_X = 51, PAD_SRC_Y = 170, PAD_SRC_W = 409, PAD_SRC_H = 171;
+/** Height of the word's letters, and where their middle sits, as shares of the pad's height. */
+const PAD_FONT = 0.42, PAD_TEXT_Y = 0.4;
+
+/**
+ * A word on a floating lily pad for Lily-pad sentences, `h` logical px tall, its case kept (the sentence's first word
+ * starts with a capital). The plain pad sprite is stretched sideways to fit the word, never narrower than its own
+ * shape; a `narrow` pad (the sentence row) hugs the word more closely, down to a rounder pad. A question mark is drawn
+ * larger and a full stop is a round dot, so both read from across the room. An empty word gives the plain pad.
+ */
+export function bakeWordPad(word: string, pad: HTMLImageElement, h: number, ratio: number, narrow = false): WordArt {
+  const mark = word === '.' || word === '?';
+  const px = Math.round(h * (mark ? 0.62 : PAD_FONT)), font = `700 ${px}px ${DISPLAY_FONT}`;
+  const textW = word === '.' ? h * 0.2 : word ? measure(word, font, px) : 0;
+  const w = Math.ceil(Math.max(h * (narrow ? 1.5 : PAD_SRC_W / PAD_SRC_H), word ? textW + h * (narrow ? 0.6 : 1.15) : 0));
+  const { c, g } = cpuCanvas(w * ratio, h * ratio);
+  if (!g) return { canvas: c, w, h };
+  g.scale(ratio, ratio);
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(pad, PAD_SRC_X, PAD_SRC_Y, PAD_SRC_W, PAD_SRC_H, 0, 0, w, h);
+  g.fillStyle = CARD_TEXT;
+  if (word === '.') { g.beginPath(); g.arc(w / 2, h * PAD_TEXT_Y, h * 0.085, 0, Math.PI * 2); g.fill(); }
+  else if (word) {
+    g.font = font; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(word, w / 2, h * PAD_TEXT_Y + px * 0.04);
+  }
+  g.getImageData(0, 0, 1, 1);
+  return { canvas: c, w, h };
+}
