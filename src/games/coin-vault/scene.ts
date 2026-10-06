@@ -13,15 +13,15 @@ import { rewards, type AppServices } from '../../app/services';
 import { ensureDisplayFont } from '../../app/font';
 import { STICKERS, stickerSpriteName } from '../../app/stickers';
 import type { Tier } from '../../engine/difficulty';
-import { createParticleSystem } from '../../engine/particles';
 import type { Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
 import { playSfx, prepareSfxStep, type SfxName, type SfxOptions, type SfxVariant } from '../../audio/sfx';
 import { startMusic, stopMusic } from '../../audio/music';
 import { chunkyCircle, DISPLAY_FONT, drawSprite, OUTLINE } from '../../ui/draw';
-import { confettiBurst, drawStarRow, STAR_GAP_SECONDS, STAR_HIT_SECONDS } from '../../ui/celebrate';
+import { drawStarRow, STAR_GAP_SECONDS, STAR_HIT_SECONDS } from '../../ui/celebrate';
+import { bakeDial, bakeJarFill, bakeShadow, createBits, DUST, GLINT, LEAF, SHAVING } from './fx';
 import { drawEnterFade } from '../../ui/motion';
 import { BOOK_GLIDE, BOOK_ICON_PATH, createStickerOffers, leaveAlpha, leaveDrop, onBook, PICK_FLY, PICK_LIFT, PICK_SECONDS, placeBook } from '../../ui/sticker-offer';
-import { clamp01, easeInCubic, easeInOutSine, easeOutCubic, lerp } from '../../ui/tween';
+import { clamp01, easeInCubic, easeInOutSine, easeOutBack, easeOutCubic, lerp } from '../../ui/tween';
 import { createSoundButton, soundArt, syncSoundIcon } from '../../scenes/hub/shared';
 import { defaultData, GAME_ID, sanitizeVaultData, TOP_STEP, type PendingRound, type VaultData } from './data';
 import {
@@ -50,6 +50,20 @@ const BILL_PX = 640, BILL_PANEL0 = 0.04, BILL_PANEL1 = 0.31;
 const BILL_MIN_W = 192, BILL_MAX_W = 280;
 const SYMBOL = `${ART}symbol-block`;
 const isBill = (kind: number): boolean => kind >= BILL1;
+/** What the visitors save for (one picture per task, drawn beside the visitor with its amount on a gift tag). */
+const GOALS = ['bike', 'kite', 'boat', 'scooter', 'drum', 'paints'] as const;
+const GOAL_NAMES = GOALS.map(g => `${ART}goal-${g}`);
+const JAR = `${ART}jar`, RIBBON = `${ART}gift-ribbon`, GIFT_TAG = `${ART}gift-tag`;
+/**
+ * jar.webp (350x640): the fill is drawn behind the glass and reaches its walls (the glass's outer edge is at 0.006 and
+ * 0.991 of the width, its inner edge about 0.04 and 0.94; docs/games/coin-vault/jar.json's straight inner rectangle is
+ * narrower), from just under the shoulder (0.27 of the height) to the base (0.948), rounded at the base.
+ */
+const JAR_AR = 350 / 640, JAR_X0 = 0.03, JAR_X1 = 0.97, JAR_Y0 = 0.27, JAR_Y1 = 0.948;
+/** gift-tag.webp (256x115): the plain face left of the punched hole. gift-ribbon.webp is 320x254. */
+const GTAG_AR = 115 / 256, GTAG_FACE0 = 0.06, GTAG_FACE1 = 0.72;
+/** The goal picture's height and its gift tag's width, in layout units. */
+const GOAL_H = 130, GTAG_W = 150;
 
 // Measured once from the sprites' pixels (round 1), as fractions of each image.
 /** desk.webp: the desk's far edge, in the background's own pixels. */
@@ -96,7 +110,17 @@ const COUNT_ON = 0.35;
 /** Tags slide up, a wrong tag tilts then sinks and fades. */
 const TAG_RISE = 0.35, TAG_TILT = 0.3, TAG_FADE = 0.4;
 /** The finished-task sequence: tag to the door, coins roll in, door shuts, visitor waves and sinks, the board clears. */
-const SEQ_TAG = 0.35, ROLL_GAP = 0.04, ROLL = 0.45, SHUT = 0.45, WAVE = 0.8, SINK = 0.35;
+const SEQ_TAG = 0.35, ROLL_GAP = 0.04, ROLL = 0.45, SHUT = 0.45, SINK = 0.35;
+/**
+ * After the money is in: the door slams (accelerating), bounces and the dial spins shut; the jar rises beside the board
+ * and fills toward the goal; then the visitor gets its thing (GOT) or smiles and waves (NOT_YET). A press or key during
+ * this sequence plays it HURRY times faster.
+ */
+const SLAM = 0.3, SLAM_BOUNCE = 0.28, DIAL_SPIN = 0.55, JAR_RISE = 0.3, JAR_OUT = 0.3, FILL = 0.75, GOT = 1.2, NOT_YET = 0.9, HURRY = 4;
+/** The getting-the-thing scene: the picture grows over the mat, the ribbon lands on it, it rests, then flies to the visitor. */
+const GIFT_GROW = 0.35, GIFT_RIBBON = 0.22, GIFT_HOLD = 0.8;
+/** A picked-up piece: a short squash, then it springs up to its lifted size. */
+const PICK_SQUASH = 0.06, PICK_SPRING = 0.2, COIN_LIFT = 1.12, BILL_LIFT = 1.08;
 /** The introduction's goal holds its counted dishes and lit cups this long first. */
 const GOAL_HOLD = 0.8, INTRO_HAND_AT = 0.35;
 /** Helper hand timeline: rise to the coin, press it, carry it, then fade. */
@@ -166,6 +190,20 @@ export interface CoinVaultStats {
   readonly billSize: { w: number; h: number };
   readonly coinSizes: { penny: number; nickel: number; dime: number; quarter: number };
   readonly cupDiameter: number;
+  /**
+   * The visitor's goal: the picture, its amount and drawn label (in the task's unit), whether the label is shown yet
+   * (step 8 writes it in once counted), the counted amount, and whether the count reaches it.
+   */
+  readonly goal: { item: string; amount: number; label: string; shown: boolean; counted: number; reached: boolean; x: number; y: number; size: number };
+  /**
+   * The savings jar: shown, the drawn fill share now, the share the count earns (counted / goal, at most 1), the
+   * outcome ('' until the jar has filled, then 'got' or 'not-yet'), and the jar's rectangle in CSS px.
+   */
+  readonly jar: { shown: boolean; fill: number; target: number; outcome: string; x: number; y: number; w: number; h: number };
+  /** A piece follows the pointer after a click (no button held). */
+  readonly carrySticky: boolean;
+  /** Pooled effect bits alive now, and how fast a finished task's sequence plays (1, or HURRY after a press). */
+  readonly bits: number; readonly seqSpeed: number;
   readonly workMean: number; readonly workMax: number;
   /** Largest drawn scale of each image drawn this layout (drawn px / image px at pixel ratio 1). */
   scales(): Record<string, number>;
@@ -178,7 +216,8 @@ const spriteName = (path: string): string => path.replace(/\.\w+$/, '');
 
 function artList(): { name: string; path: string }[] {
   const paths = [`${BG}.webp`, `${STUMP}.webp`, `${DOOR}.webp`, `${MAT}.webp`, `${BOARD}.webp`, `${LOCK}.webp`, `${TAG}.webp`, `${PURSE}.webp`, `${HAND}.webp`,
-    `${BUTTON_PLAY}.png`, `${BUTTON_HOME}.png`, BOOK_ICON_PATH, `${SYMBOL}.webp`];
+    `${BUTTON_PLAY}.png`, `${BUTTON_HOME}.png`, BOOK_ICON_PATH, `${SYMBOL}.webp`, `${JAR}.webp`, `${RIBBON}.webp`, `${GIFT_TAG}.webp`];
+  for (const n of GOAL_NAMES) paths.push(`${n}.webp`);
   for (const n of DISH_NAMES) paths.push(`${n}.webp`);
   for (const n of BILL_NAMES) paths.push(`${n}.webp`);
   for (const pair of VISITOR_NAMES) for (const n of pair) paths.push(`${n}.webp`);
@@ -293,7 +332,8 @@ let debugApplied = false;
 export function createCoinVaultScene(services: AppServices): CoinVaultScene {
   const { sprites, audio, input } = services;
   const random = (): number => services.random();
-  const particles = createParticleSystem(PARTICLES);
+  // Glints, leaves, pencil shavings and dust, pooled (fx.ts).
+  const bits = createBits(PARTICLES);
   const soundButton = createSoundButton(services), soundNames = soundArt(services).map(a => a.name);
   const flights: Flight[] = Array.from({ length: POOL }, () => ({ active: false, mode: 0, kind: 0, face: 0, n: 1, place: 0, slot: 0, x0: 0, y0: 0, x1: 0, y1: 0, t: 0, dur: 1, s0: 1, s1: 1, giggles: 0 }));
   const rollers: Roller[] = Array.from({ length: ROLLERS }, () => ({ active: false, kind: 0, face: 0, x0: 0, y0: 0, s0: 1, t: 0, board: false }));
@@ -332,7 +372,7 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
   const carry = { active: false, sticky: false, keyed: false, place: 0, kind: 0, face: 0, downAt: 0, downX: 0, downY: 0, deliberate: false };
   const hand = { mode: 0, t: 0, place: 0, kind: 0, released: false, taken: false, after: -1 };
   let data: VaultData = defaultData();
-  let W = 1366, H = 768, u = 1, E = 163, portrait = false, rowsWanted = 1, billsWanted = false;
+  let W = 1366, H = 768, u = 1, E = 163, portrait = false, rowsWanted = 1, billsWanted = false, pureBills = false;
   let bgCanvas: HTMLCanvasElement | undefined, bgX = 0, bgY = 0, bgScale = 1;
   let matCanvas: HTMLCanvasElement | undefined, glowCanvas: HTMLCanvasElement | undefined, cupOff: HTMLCanvasElement | undefined, cupOn: HTMLCanvasElement | undefined;
   const tagStrip = strip(), lockStrip = strip(), doorStrip = strip(), billStrip = strip(), boardStrip = strip(), symStrip = strip();
@@ -389,10 +429,33 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
   let bookH = 150, bookGlide = false;
   const stickerNames = new Map(STICKERS.map(s => [s.id, stickerSpriteName(s.id)]));
   const drawnScale = new Map<string, number>();
+  // The visitor's goal: its picture and gift tag in the top band (layout), the tag's numerals, and the pop-in clock.
+  let goalItem = 0, goalShow = true, goalX = 0, goalY = 0, goalSize = 0, gtagX = 0, gtagY = 0, gtagW = 0, gtagH = 0, goalPop = 9, goalWrite = 9;
+  const goalStrip = strip();
+  /** The getting-the-thing picture's longest side over the mat, and the visitor's held picture's. */
+  let bigGoal = 0, heldGoal = 0;
+  // The savings jar beside the board: centre and size, its baked fill, the shown share, its clocks (-1 when not shown).
+  let jarX = 0, jarY = 0, jarW = 0, jarH = 0, jarFill = 0, jarT = -1, jarOut = -1, cupDim = 0, moteT = 0, jarKey = '';
+  let jarCanvas: HTMLCanvasElement | undefined;
+  // The finished task's goal: its amount, whether the count reached it, and the getting-the-thing clock (-1: none).
+  let doneGoal = 0, doneReached = false, giftT = -1, seqSpeed = 1, outcome: '' | 'got' | 'not-yet' = '';
+  /** Each task's goal picture this round and whether the visitor got it (the celebration shows them; never saved). */
+  const roundItem = new Int8Array(4).fill(-1), roundGot = new Uint8Array(4);
+  // The door: the slam's bounce clock, the dial's spin clock and angle, the baked dial and the carried piece's shadows.
+  let slamT = 9, dialT = 9, dialBase = 0, dialRot = 0, dialCanvas: HTMLCanvasElement | undefined, dialKey = 0;
+  let shadowCoin: HTMLCanvasElement | undefined, shadowBill: HTMLCanvasElement | undefined, shadowKey = '';
+  // A picked-up piece: the clock since the press, its tilt from the pointer's speed, the pointer's last position.
+  let carryT = 9, carryTilt = 0, lastPX = 0, visNod = 9;
+  /** How far through the round the visitors' reactions are (0 first task, 1 last): hops and waves grow with it. */
+  const cheer = (): number => (tasksTotal > 1 ? Math.min(1, taskIndex / (tasksTotal - 1)) : 1);
 
   const play = (name: SfxName, variant: SfxVariant, index = 0, volume = 1): void => {
     sfx.index = index; sfx.volume = volume; sfx.variant = variant; playSfx(audio, name, sfx);
   };
+  /** Effects take their scatter from Math.random so they never shift the seeded task sequence. */
+  const fxRandom = Math.random;
+  /** A few gold glints where a piece landed. */
+  const glints = (x: number, y: number, d: number): void => bits.burst(GLINT, 3, x, y - d * 0.15, d * 0.6, 110 * u, 70 * u, 26 * u, 0.5, fxRandom);
   const playable = (): boolean => phase === 'play';
   const isLock = (): boolean => plan.kind === 'lock';
   /** Step 5's lock: one plate, slots for the fewest coins. */
@@ -432,6 +495,7 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     }
     placeCups();
     placeMat(tp.snap * u);
+    placeGoal(); placeJar();
     if (nPlaces) placeCoins();
     // Celebration, choice and rest.
     const headerScale = Math.min(1.25, Math.max(0.6, Math.min(W / 1366, H / 768)));
@@ -449,6 +513,7 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     if (!cupOn || reratio || cupD !== bakedCup) { bakedCup = cupD; cupOn = bakeCup(cupD, artRatio, true); cupOff = bakeCup(cupD, artRatio, false); }
     bakeStrips(reratio);
     bakePieces(reratio);
+    bakeFeel(reratio);
     fitTags();
     const matImg = sprites.get(MAT), matKey = `${Math.round(matW)}x${Math.round(matH)}@${artRatio}`;
     if (matImg && matKey !== bakedMat) { bakedMat = matKey; matCanvas = bakeMat(matImg, Math.round(matW), Math.round(matH), artRatio); }
@@ -468,6 +533,8 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     if (force || tagStrip.px !== tagPx || !tagStrip.canvas) bakeStrip(tagStrip, tagPx, artRatio);
     if (force || lockStrip.px !== lockPx || !lockStrip.canvas) bakeStrip(lockStrip, lockPx, artRatio);
     if (force || doorStrip.px !== doorPx || !doorStrip.canvas) bakeStrip(doorStrip, doorPx, artRatio);
+    const goalPx = Math.max(14, Math.round(gtagH * 0.5));
+    if (force || goalStrip.px !== goalPx || !goalStrip.canvas) bakeStrip(goalStrip, goalPx, artRatio);
     // Bill numerals at 0.52 of the bill's height (baked for the lifted size), the board's $1 likewise, the blocks' symbol
     // at 0.6. These are baked only once a task needs them (bills, step 6 and up, step 8b), so opening the game bakes three strips.
     if (force) { billStrip.px = 0; boardStrip.px = 0; symStrip.px = 0; }
@@ -497,6 +564,41 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
       const d = Math.round(dishCoinD(k));
       if (d > 0 && (force || !ringCanvas[k] || ringBaked[k] !== d)) { ringBaked[k] = d; ringCanvas[k] = bakeRing(d, artRatio); }
     }
+  }
+  /**
+   * The feel layer's baked pieces, each only when its size or the pixel ratio changes: the bits' sprites, the carried
+   * coin's and bill's shadows, the vault dial, and the jar's fill.
+   */
+  function bakeFeel(force: boolean): void {
+    bits.bake(Math.round(u * 100) / 100, artRatio);
+    const sk = `${coinD[QUARTER]}/${billW}@${artRatio}`;
+    if (force || sk !== shadowKey) { shadowKey = sk; shadowCoin = bakeShadow(coinD[QUARTER]!, artRatio, true); shadowBill = bakeShadow(billH, artRatio, false); }
+    const dd = Math.max(8, Math.round(doorD * 0.27));
+    if (force || dd !== dialKey || !dialCanvas) { dialKey = dd; dialCanvas = bakeDial(dd, artRatio); }
+    const fw = Math.round(jarW * (JAR_X1 - JAR_X0)), fh = Math.round(jarH * (JAR_Y1 - JAR_Y0)), jk = `${fw}x${fh}@${artRatio}`;
+    if (fw > 0 && fh > 0 && (force || jk !== jarKey)) { jarKey = jk; jarCanvas = bakeJarFill(fw, fh, artRatio); }
+  }
+  /**
+   * The visitor's goal in the top band, standing on the desk edge between the stump and the sound button: the picture
+   * (GOAL_H u tall) and the gift tag with the amount beside it, shrunk to fit; not shown in a portrait window.
+   */
+  function placeGoal(): void {
+    const img = sprites.get(GOAL_NAMES[goalItem]!), ar = img ? img.naturalWidth / img.naturalHeight : 1;
+    const x0 = stumpX + stumpW + 20 * u, x1 = soundX - cornerRadius - 16 * u, room = x1 - x0;
+    let h = Math.min(GOAL_H * u, E - 12), tw = GTAG_W * u, need = h * ar + 10 * u + tw;
+    goalShow = !portrait && room >= 120;
+    const k = Math.min(1, Math.max(0.1, room) / need); h *= k; tw *= k; need *= k;
+    goalSize = Math.round(Math.max(h, h * ar)); gtagW = Math.round(tw); gtagH = tw * GTAG_AR;
+    const gx0 = x0 + (room - need) / 2;
+    goalX = gx0 + h * ar / 2; goalY = E - h / 2 + 4 * u;
+    gtagX = gx0 + h * ar + 10 * u + tw / 2; gtagY = E - gtagH / 2 - 18 * u;
+    bigGoal = Math.round(Math.max(60, Math.min(512, matH * 0.8, matW * 0.5)));
+    heldGoal = Math.round(visH * 0.5);
+  }
+  /** The savings jar stands on the mat's right end beside the board (the dishes there are empty by the time it rises). */
+  function placeJar(): void {
+    jarH = Math.round(Math.max(60, Math.min(boardH * 0.95, matH * 0.92))); jarW = Math.round(jarH * JAR_AR);
+    jarX = Math.round((portrait ? matX + matW / 2 : boardX - 10 * u - jarW / 2)); jarY = Math.round(matY + matH - 6 * u - jarH / 2);
   }
   /** One bill `w` wide (2:1): the art, then its numeral in both plain side panels (the left one "$20" where $ is used). */
   function bakeBill(i: number, w: number, s: Strip, dollar: boolean): HTMLCanvasElement | undefined {
@@ -531,7 +633,10 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     else placeW = Math.max(96, Math.round(coinD[QUARTER]! + 16 * cu));
     perRow = Math.max(1, Math.floor((placesW + placeGap) / (placeW + placeGap)));
     rows = Math.min(2, Math.max(1, rowsWanted > perRow ? 2 : 1));
-    maxPlaces = Math.min(MAX_PLACES, tp.places, perRow * rows);
+    // Bills never stack where the row has room: every bill gets its own place (a second line when needed, each line
+    // only as tall as a lifted bill), so every bill's numerals stay in view.
+    maxPlaces = Math.min(MAX_PLACES, billsWanted ? Math.max(tp.places, rowsWanted) : tp.places, perRow * rows);
+    if (pureBills && rows === 2) rowH = Math.max(96, Math.round(billH * 1.08 + 20 * cu));
     const total = rows * rowH + (rows - 1) * placeGap;
     rowY = Math.round(H - Math.max(6, 12 * cu) - total);
     purseX = rowX; purseY = rowY + total - purseH - Math.round(4 * u);
@@ -621,12 +726,13 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     tagH = Math.max(96, tw * TAG_AR); tagW = tagH / TAG_AR;
     const symbol = plan.kind === 'symbol', across = symbol ? tagW + 32 * u + 2 * blockS + 24 * u : 3 * tagW + 16;
     if (!portrait && across <= rowW) {
-      const ty = rowY + (rowH - tagH) / 2;
+      // Centred on the row's whole height (one line of places or two).
+      const blockH = rows * rowH + (rows - 1) * placeGap, ty = rowY + (blockH - tagH) / 2;
       if (symbol) {
         // Step 8b: the one tag, then the two symbol blocks, centred along the row.
         const x0 = rowX + (rowW - across) / 2;
         tagX[0] = x0; tagY[0] = ty;
-        for (let i = 0; i < 2; i++) { blockX[i] = x0 + tagW + 32 * u + blockS / 2 + i * (blockS + 24 * u); blockY[i] = rowY + rowH / 2; }
+        for (let i = 0; i < 2; i++) { blockX[i] = x0 + tagW + 32 * u + blockS / 2 + i * (blockS + 24 * u); blockY[i] = ty + tagH / 2; }
       } else {
         const gap = Math.max(8, Math.min(24 * u, (rowW - 3 * tagW) / 2));
         const x0 = rowX + (rowW - 3 * tagW - 2 * gap) / 2;
@@ -774,11 +880,17 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     if (intro && introStage === 2 && i === 0) plan = introTask();
     else { const ts = taskStep(data.step, i); plan = planTask(ts.step, ts.warmup || intro, i, TIERS[tier].coins, TIERS[tier].bills, random, lastTotal); }
     lastTotal = plan.total;
+    // The visitor's goal: a different picture from the last visitor's; its tag pops in as the visitor rises.
+    goalItem = intro && i === 0 ? 0 : (goalItem + 1 + Math.floor(random() * (GOALS.length - 1))) % GOALS.length;
+    goalPop = -RISE * 0.7; goalWrite = 9; giftT = -1; jarT = -1; jarOut = -1; jarFill = 0; cupDim = 0; seqSpeed = 1; doneReached = false; outcome = '';
     // Pieces left from the last task slide away (from where they lie now).
     for (let p = 0; p < nPlaces; p++) if (pCount[p]! > 0) launch(LEAVE, pKind[p]!, pFace[p]!, Math.min(5, pCount[p]!), p, pX[p]! + pNx[p]!, pY[p]! + pNy[p]!, pX[p]! - W, pY[p]!, LEAVE_SECONDS);
     // The task decides the places (bills are wider; a narrow window may need a second line for more kinds), the lock
     // plates, step 5's slots and step 8b's blocks: lay out again (cheap: art is rescaled only when sizes change).
-    rowsWanted = kindsInTask(); billsWanted = plan.bills[0]! + plan.bills[1]! + plan.bills[2]! + plan.bills[3]! > 0;
+    const nBills = plan.bills[0]! + plan.bills[1]! + plan.bills[2]! + plan.bills[3]!;
+    billsWanted = nBills > 0; pureBills = billsWanted && plan.coins[0]! + plan.coins[1]! + plan.coins[2]! + plan.coins[3]! === 0;
+    // Coins share a place per kind; bills want a place each.
+    rowsWanted = billsWanted ? kindsInTask() - (plan.bills[0]! > 0 ? 1 : 0) - (plan.bills[1]! > 0 ? 1 : 0) - (plan.bills[2]! > 0 ? 1 : 0) - (plan.bills[3]! > 0 ? 1 : 0) + nBills : kindsInTask();
     pile = !plan.sorted && !isLock() && !billsWanted;
     layout(W, H);
     lit = 0; pourLeft = 0; pourTimer = 0; firstLit = 0; firstPour = 0;
@@ -968,23 +1080,30 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
       const i = dishN[kind]!;
       if (i < DISH_MAX) dishFace[kind * DISH_MAX + i] = face;
       dishN[kind] = i + 1; dishPulse[kind] = 0;
-      play('pop', 'D', 3, 0.7);
+      // A clink that climbs as the dish fills, a few glints where it landed, and the visitor nods.
+      play('coin-clink', 'A', i, 0.7);
+      dishSlot(kind, i, i + 1); glints(pos.x, pos.y, dishCoinD(kind));
+      visNod = 0;
       startPour(kind);
       return;
     }
     if (mode === PILE) {
       if (pileCount < PILE_MAX) pileKind[pileCount] = kind;
       pileCount++; pileN[kind - BILL1]!++; billPulse[kind - BILL1] = 0;
-      play('pop', 'D', 3, 0.7);
+      play('bill-rustle', 'A', 0, 0.8); play('pop', 'D', 3, 0.4);
+      pileSlot(pileCount - 1); glints(pos.x, pos.y, billH * pileScale);
+      visNod = 0;
       startPour(kind);
       return;
     }
-    if (mode === TO_BOARD) { boardBill = 1; boardPulse = 0; play('pop-big', 'B', 3, 0.7); return; }
+    if (mode === TO_BOARD) { boardBill = 1; boardPulse = 0; play('bill-rustle', 'A', 0, 0.8); play('pop-big', 'B', 3, 0.7); glints(boardBillX + boardBillW / 2, boardBillY + boardBillH / 2, boardBillH); return; }
     if (mode === LOCKED || mode === FIRST) {
       const l = mode === FIRST ? 0 : 1, i = lockN[l]!;
       if (i < LOCK_MAX) { lockKind[l * LOCK_MAX + i] = kind; lockFace[l * LOCK_MAX + i] = face; }
       lockN[l] = i + 1; lockCents[l]! += COIN_VALUE[kind]!; lockPulse[l] = 0;
-      play('pop', 'D', 3, 0.7);
+      play('coin-clink', 'A', i + (l ? 2 : 0), 0.7);
+      lockSlot(l, i, Math.max(i + 1, 4)); glints(pos.x, pos.y, lockCoinD(kind));
+      if (l) visNod = 0;
       if (l === 0) { firstPour += COIN_VALUE[kind]!; if (pourTimer < 0) pourTimer = 0; pourKind = kind; }
       else {
         startPour(kind);
@@ -1158,7 +1277,8 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
       } else if (tagResult >= 0) { recordTask(data, tagResult === 1); roundCounted.push(tagResult); }
     }
     doneTag = plan.total; doneForm = plan.unit; doneLocks = isLock();
-    taskPhase = 'done'; seqT = 0; rollEnd = 0;
+    doneGoal = plan.goal; doneReached = plan.total >= plan.goal; goalWrite = 0;
+    taskPhase = 'done'; seqT = 0; rollEnd = 0; seqSpeed = 1;
     if (isLock()) { lockPulse.fill(0); play('pop-big', 'C', 4, 0.8); }
   }
   /** Coins and bills leave the dishes, pile, board or locks and roll in an arc into the vault's doorway, 40 ms apart. */
@@ -1183,23 +1303,97 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     rollEnd = ROLL_GAP * Math.max(0, n - 1) + ROLL;
     play('whoosh', 'B', 0, 0.6);
   }
-  /** The finished-task sequence on its own clock. */
+  let seqPrev = 0;
+  /** Whether the finished-task clock passed `t` this frame. */
+  const at = (t: number): boolean => seqPrev < t && seqT >= t;
+  /**
+   * The finished-task sequence on its own clock: the money rolls into the vault, the door slams and the dial spins
+   * (updateDoor), the jar rises and fills toward the goal with the counted amount, then the visitor gets its thing or
+   * smiles and waves, and sinks.
+   */
   function updateDone(dt: number): void {
-    const prev = seqT; seqT += dt;
-    const rollAt = doneLocks ? COUNT_ON : SEQ_TAG, shutAt = rollAt + Math.max(0.3, rollEnd), waveAt = shutAt + SHUT, sinkAt = waveAt + WAVE, endAt = sinkAt + SINK;
-    if (prev < rollAt && seqT >= rollAt) { startRoll(); return; }
+    seqPrev = seqT; seqT += dt;
+    const rollAt = doneLocks ? COUNT_ON : SEQ_TAG, shutAt = rollAt + Math.max(0.3, rollEnd), jarAt = shutAt + 0.05, fillAt = shutAt + SLAM + 0.15;
+    const resultAt = fillAt + FILL, sinkAt = resultAt + (doneReached ? GOT : NOT_YET), endAt = sinkAt + SINK;
+    if (at(rollAt)) { startRoll(); return; }
     if (seqT < rollAt) return;
-    if (prev < shutAt && seqT >= shutAt) { doorFrom = 1; doorTo = -1; doorT = 0; }
-    if (prev < shutAt + SHUT * 0.9 && seqT >= shutAt + SHUT * 0.9) play('pop-big', 'D', 1, 0.6);
-    if (prev < waveAt && seqT >= waveAt) { play('go', 'C', 0, 0.7); }
-    if (prev < sinkAt && seqT >= sinkAt) { visSink = 0.0001; }
+    if (at(shutAt)) { doorFrom = 1; doorTo = -1; doorT = 0; }
+    if (at(jarAt)) { jarT = 0; jarOut = -1; jarFill = 0; moteT = 0; play('whoosh', 'C', 0, 0.3); }
+    if (seqT >= fillAt && seqT < resultAt + 0.2) {
+      // The jar fills with the counted amount: its share of the goal, full at the goal (never past it).
+      const target = Math.min(1, doneTag / Math.max(1, doneGoal)), k = clamp01((seqT - fillAt) / FILL);
+      jarFill = target * easeOutCubic(k); cupDim = k;
+      for (let q = 0; q < 4; q++) if (at(fillAt + q * FILL / 4) && target > q * 0.2) play('jar-fill', 'A', q * 2 + Math.round(target * 2), 0.6);
+      // Gold motes from the lit cups into the jar's mouth.
+      moteT -= dt;
+      while (k < 0.9 && moteT <= 0) {
+        moteT += 0.045;
+        const c = Math.floor(fxRandom() * CUPS);
+        if (cupLit[c] || (boardBill && c < 50)) bits.toward(GLINT, cupX[c]!, cupY[c]!, jarX + (fxRandom() - 0.5) * jarW * 0.3, jarY - jarH * 0.28, 18 * u, 0.35);
+      }
+    }
+    if (at(resultAt)) startOutcome();
+    if (at(sinkAt)) { visSink = 0.0001; jarOut = 0; }
     if (seqT >= endAt) {
       // The board's cups go out; the door swings open as the next visitor rises.
-      cupLit.fill(0); lit = 0; firstLit = 0;
+      cupLit.fill(0); lit = 0; firstLit = 0; cupDim = 0;
       if (introStage === 1) { introStage = 2; startTask(0); return; }
       if (taskIndex + 1 < tasksTotal) startTask(taskIndex + 1);
       else finishRound();
     }
+  }
+  /**
+   * The jar is full or not: reached, the goal picture grows over the mat, a ribbon lands on it with leaves, shavings
+   * and glints, and it flies into the visitor's arms; not yet, the visitor smiles and waves and the picture waits.
+   */
+  function startOutcome(): void {
+    if (taskIndex < 4) { roundItem[taskIndex] = goalItem; roundGot[taskIndex] = doneReached ? 1 : 0; }
+    outcome = doneReached ? 'got' : 'not-yet';
+    visHop = 0;
+    if (doneReached) {
+      giftT = 0; play('pop-big', 'B', 4, 0.7);
+      bits.burst(GLINT, 8, jarX, jarY - jarH * 0.42, jarW * 0.8, 160 * u, 120 * u, 30 * u, 0.7, fxRandom);
+    } else {
+      play('go', 'D', 0, 0.55); goalPop = 0;
+      bits.burst(GLINT, 3, jarX, jarY + jarH * (0.45 - jarFill * 0.6), jarW * 0.5, 70 * u, 40 * u, 22 * u, 0.5, fxRandom);
+    }
+  }
+  /** The getting-the-thing scene's clock; the ribbon's landing and the hand-over make their sounds and bits. */
+  function updateGift(dt: number): void {
+    if (giftT < 0) return;
+    const before = giftT; giftT += dt;
+    const cx = matX + matW * 0.42, cy = matY + matH * 0.5;
+    if (before < GIFT_GROW && giftT >= GIFT_GROW) {
+      play('pop-big', 'C', 6, 0.6);
+      bits.burst(LEAF, 14, cx, cy - bigGoal * 0.3, bigGoal * 0.5, 320 * u, 240 * u, 34 * u, 1.3, fxRandom);
+      bits.burst(SHAVING, 10, cx, cy - bigGoal * 0.3, bigGoal * 0.5, 300 * u, 220 * u, 30 * u, 1.3, fxRandom);
+      bits.burst(GLINT, 6, cx, cy, bigGoal * 0.8, 150 * u, 60 * u, 30 * u, 0.8, fxRandom);
+    }
+    if (before < GIFT_HOLD + 0.35 && giftT >= GIFT_HOLD + 0.35) { play('go', 'C', 0, 0.7); visHop = 0; bits.burst(GLINT, 5, visX, E - visH * 0.2, visH * 0.6, 120 * u, 80 * u, 26 * u, 0.6, fxRandom); }
+  }
+  /**
+   * The door's swing on its own clock. Shutting accelerates into a slam; on the slam the door bounces, dust puffs from
+   * the doorway, the clunk sounds and the dial spins shut. Opening eases in and out.
+   */
+  function updateDoor(dt: number): void {
+    slamT += dt;
+    if (dialT < 9) {
+      const before = dialT; dialT += dt;
+      dialRot = dialBase + Math.PI * 2.5 * easeOutBack(clamp01(dialT / DIAL_SPIN));
+      if (before < DIAL_SPIN && dialT >= DIAL_SPIN) { dialBase += Math.PI * 2.5; dialRot = dialBase; dialT = 9; }
+    }
+    if (doorT >= 9) return;
+    doorT += dt;
+    const closing = doorTo < doorFrom, dur = closing ? SLAM : SHUT, k = clamp01(doorT / dur);
+    doorK = lerp(doorFrom, doorTo, closing ? easeInCubic(k) : easeInOutSine(k));
+    if (k < 1) return;
+    doorT = 9;
+    if (!closing) return;
+    slamT = 0; dialT = 0; visHop = 0;
+    play('door-clunk', 'A', 0, 0.85); play('lock-spin', 'A', 0, 0.6);
+    const hx = stumpX + stumpW * HOLE_X, by = stumpY + stumpH * 0.95;
+    bits.burst(DUST, 6, hx, by, stumpW * 0.4, 70 * u, 20 * u, 46 * u, 0.6, fxRandom);
+    bits.burst(SHAVING, 4, hx, by - stumpH * 0.1, stumpW * 0.3, 160 * u, 160 * u, 22 * u, 0.8, fxRandom);
   }
   /** The introduction's goal: the dishes hold a dime and two pennies, twelve cups lit, the 12¢ tag on the door. */
   function startGoal(): void {
@@ -1209,6 +1403,9 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     lit = 12; nPlaces = 0; doneTag = 12; doneForm = CENTS; doneLocks = false; picked = -1; tagState.fill(2);
     pileCount = 0; pileN.fill(0); boardBill = 0;
     visRise = RISE; visSink = 0; doorK = 1; doorT = 9;
+    // The squirrel saves for the bike (10¢); its twelve cents fill the jar, and it gets the bike.
+    goalItem = 0; goalPop = 9; goalWrite = 9; doneGoal = plan.goal; doneReached = true; giftT = -1; jarT = -1; jarOut = -1; jarFill = 0; cupDim = 0; seqSpeed = 1; outcome = '';
+    placeGoal();
     taskPhase = 'done'; seqT = -GOAL_HOLD; rollEnd = 0; taskT = 0;
   }
   /**
@@ -1243,9 +1440,9 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     tasksTotal = intro ? 3 : roundTasks(tier, data.step);
     hits = misses = bounces = 0; stars = 1; starsPlayed = 0; focus = 0; roundCounted.length = 0;
     carry.active = false; carry.keyed = false; hand.mode = 0; introStage = 0; doorK = 1; doorT = 9;
-    particles.clear(); for (const f of flights) f.active = false; for (const r of rollers) r.active = false;
-    nPlaces = 0; lastTotal = 0;
-    plan = introTask(); rowsWanted = 3; billsWanted = false; pile = false;
+    bits.clear(); for (const f of flights) f.active = false; for (const r of rollers) r.active = false;
+    nPlaces = 0; lastTotal = 0; roundItem.fill(-1); roundGot.fill(0); slamT = 9; dialT = 9;
+    plan = introTask(); rowsWanted = 3; billsWanted = false; pureBills = false; pile = false;
     layout(W, H);
     if (intro) startGoal(); else startTask(0);
     guard(PLAY_GUARD_MS); cornerFocus = -1; services.save.flush();
@@ -1272,20 +1469,26 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     if (services.config.rewardsEnabled) bag.stars += stars;
     services.save.flush();
     phase = 'celebration'; phaseT = 0; starsPlayed = 0; carry.active = false; carry.keyed = false; hand.mode = 0; cornerFocus = -1;
-    for (const f of flights) f.active = false; for (const r of rollers) r.active = false; particles.clear(); doorK = -1; doorT = 9;
+    for (const f of flights) f.active = false; for (const r of rollers) r.active = false; bits.clear(); doorK = -1; doorT = 9;
     layout(W, H);
     play('fanfare', FANFARE.variant!);
-    confettiBurst(particles, W / 2, H * 0.45, 70, 380 * u);
+    // Leaves and pencil shavings burst from the vault and drift down across the desk.
+    const hx = stumpX + stumpW * HOLE_X, hy = stumpY + stumpH * HOLE_Y;
+    bits.burst(LEAF, 26, hx, hy, stumpW * 0.5, 520 * u, 360 * u, 38 * u, 2.2, fxRandom);
+    bits.burst(SHAVING, 22, hx, hy, stumpW * 0.5, 480 * u, 340 * u, 34 * u, 2.2, fxRandom);
+    bits.burst(GLINT, 10, hx, hy, stumpW * 0.6, 260 * u, 160 * u, 32 * u, 1, fxRandom);
+    bits.rain(40, W, 44 * u, fxRandom);
+    dialT = 0;
   }
   const celebrationLocked = (): boolean => phaseT < Math.max(1.5, STAR_START + (stars - 1) * STAR_GAP_SECONDS + STAR_HIT_SECONDS);
   function finishCelebration(): void {
     if (phase !== 'celebration') return;
-    particles.clear();
+    bits.clear();
     if (pending?.choices.length && !pending.chosen && pending.rewardEnabled && services.config.rewardsEnabled) { phase = 'choice'; phaseT = 0; guard(MENU_GUARD_MS); }
     else enterRest();
   }
   function enterRest(): void {
-    phase = 'rest'; phaseT = 0; guard(MENU_GUARD_MS); particles.clear();
+    phase = 'rest'; phaseT = 0; guard(MENU_GUARD_MS); bits.clear();
     if (!pending?.restEntered) {
       if (pending) pending.restEntered = true;
       services.save.flush(); services.roundBoundary();
@@ -1317,6 +1520,9 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     const add = (name: string, size: number): void => { warmNames.push(name); warmSizes.push(Math.round(size)); };
     for (let a = 0; a < VISITORS.length; a++) { add(VISITOR_NAMES[a]![1], celebVisitorSize(a)); add(VISITOR_NAMES[a]![1], restSize * 0.62); }
     add(LOCK, lockW); add(TAG, tagW); add(SYMBOL, blockS);
+    // The feel layer: the jar, the getting-the-thing picture at its big size with its ribbon, and the gift tag.
+    add(JAR, jarH); add(RIBBON, Math.round(bigGoal * 0.42)); add(GIFT_TAG, gtagW);
+    for (const g of GOAL_NAMES) add(g, bigGoal);
     add(BUTTON_PLAY, controlsRadius * 1.3); add(BUTTON_HOME, controlsRadius * 1.3);
   }
   /** Each visitor's happy pose on the desk edge in the celebration, as drawSprite's longest side. */
@@ -1465,7 +1671,17 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     boardPulse += dt;
     lockPulse[0]! += dt; lockPulse[1]! += dt;
     for (let k = 0; k < 3; k++) tagT[k]! += dt;
-    if (doorT < 9) { doorT += dt; const k = clamp01(doorT / SHUT); doorK = lerp(doorFrom, doorTo, easeInOutSine(k)); if (k >= 1) doorT = 9; }
+    goalPop += dt; goalWrite += dt; visNod += dt; carryT += dt;
+    updateDoor(dt);
+    updateGift(dt);
+    if (jarT >= 0) jarT += dt;
+    if (jarOut >= 0) { jarOut += dt; if (jarOut >= JAR_OUT) { jarT = -1; jarOut = -1; } }
+    // The carried piece leans with the pointer's sideways speed.
+    if (carry.active && dt > 0) {
+      const lean = Math.max(-0.3, Math.min(0.3, (input.pointer.x - lastPX) / dt * 0.0005));
+      carryTilt += (lean - carryTilt) * Math.min(1, dt * 12);
+    } else carryTilt = 0;
+    lastPX = input.pointer.x;
     refillStacks();
     updateTask(dt);
     updateHand(dt);
@@ -1485,8 +1701,16 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     for (const r of rollers) { if (!r.active) continue; r.t += dt; if (r.t >= ROLL) r.active = false; }
   }
   function updateResult(dt: number): void {
+    const before = phaseT;
     phaseT += dt; time += dt;
+    updateDoor(dt);
     if (phase === 'celebration') {
+      // A second, smaller fall of leaves and shavings as the stars land, and glints over the visitors who got their thing.
+      if (before < 1.1 && phaseT >= 1.1) {
+        bits.rain(30, W, 42 * u, fxRandom);
+        const nl = celebSplit(Math.min(4, pending?.tasks ?? 3));
+        for (let i = 0; i < Math.min(4, pending?.tasks ?? 3); i++) if (roundGot[i]) { celebX(i, nl, Math.min(4, pending?.tasks ?? 3)); bits.burst(GLINT, 5, pos.x, E - visH * 0.3, visH * 0.5, 120 * u, 60 * u, 26 * u, 0.7, fxRandom); }
+      }
       const shown = Math.min(stars, Math.max(0, Math.floor((phaseT - STAR_START - STAR_HIT_SECONDS) / STAR_GAP_SECONDS) + 1));
       if (shown > starsPlayed) { play('star', 'B', starsPlayed); starsPlayed = shown; }
       if (phaseT >= CELEBRATION_SECONDS) finishCelebration();
@@ -1536,13 +1760,18 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     const pose = happy ? 1 : 0, img = sprites.get(VISITOR_NAMES[a]![pose]) ?? waitImg;
     const k = visH / waitImg.naturalHeight, h = img.naturalHeight * k, w = img.naturalWidth * k, cut = pose ? CUT_HAPPY : CUT_WAIT[a]!;
     const up = easeOutCubic(clamp01(visRise / RISE)) * (1 - easeInCubic(clamp01(visSink / SINK)));
-    const hop = visHop < 0.42 ? Math.sin(visHop / 0.42 * Math.PI) * 10 * u : 0;
-    const top = E - cut * h + (1 - up) * h * cut - hop;
-    const wave = happy ? Math.sin(time * 9) * 0.05 : Math.sin(time * 2.1) * 0.01;
+    // Reactions grow over the round: later visitors hop higher, nod deeper at each landed piece and dance more.
+    const c = cheer();
+    const hop = (visHop < 0.42 ? Math.sin(visHop / 0.42 * Math.PI) * (10 + 8 * c) * u : 0) + (visNod < 0.25 ? Math.sin(visNod / 0.25 * Math.PI) * (2 + 4 * c) * u : 0);
+    const dance = happy ? Math.abs(Math.sin(time * 6)) * (3 + 6 * c) * u : 0;
+    const top = E - cut * h + (1 - up) * h * cut - hop - dance;
+    const wave = happy ? Math.sin(time * 9) * (0.05 + 0.04 * c) : Math.sin(time * 2.1) * 0.01;
     // Below the edge only the sack shows, and only as far as the visitor has risen.
     const clipBottom = E + (1 - cut) * h * up;
     ctx.save(); ctx.beginPath(); ctx.rect(0, -H, W, clipBottom + H); ctx.clip();
     drawSprite(ctx, sprites, VISITOR_NAMES[a]![pose], visX, top + h / 2, Math.max(w, h), wave);
+    // The thing it saved for, once handed over, in its arms (it sinks with the visitor).
+    if (giftT >= GIFT_HOLD + 0.35 && taskPhase === 'done') heldGift(ctx, visX + w * 0.3, top + h * 0.62, wave);
     ctx.restore();
     note(VISITOR_NAMES[a]![pose], Math.max(w, h), Math.max(img.naturalWidth, img.naturalHeight));
   }
@@ -1552,8 +1781,16 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     const door = sprites.scaled(DOOR, doorD / 420);
     if (!door) return;
     const pr = sprites.pixelRatio, w = door.width / pr, h = door.height / pr;
-    ctx.save(); ctx.translate(hingeX, doorCY); ctx.scale(doorK, 1);
+    // The slam's bounce: the shut door overshoots a little wider and flatter, then settles.
+    const b = slamT < SLAM_BOUNCE ? Math.sin(slamT / SLAM_BOUNCE * Math.PI * 2) * 0.05 * (1 - slamT / SLAM_BOUNCE) : 0;
+    ctx.save(); ctx.translate(hingeX, doorCY); ctx.scale(doorK * (1 + b), 1 - b * 0.6);
     ctx.drawImage(door, 0, -h / 2, w, h);
+    // The brass dial on the round plate spins shut after the slam.
+    if (dialCanvas) {
+      const dw = dialCanvas.width / artRatio;
+      ctx.translate(doorD * (0.338 + 0.667) / 2, -doorD / 2 + doorD * (0.14 + 0.462) / 2); ctx.rotate(dialRot);
+      ctx.drawImage(dialCanvas, -dw / 2, -dw / 2, dw, dw);
+    }
     ctx.restore();
     note(DOOR, doorD, 420);
     // The tag's amount stays on the door's plate as a keepsake (not shown mid-swing).
@@ -1575,11 +1812,12 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
       // The $1 bill on the board covers rows 1 to 5.
       if (boardBill && !trading && i < 50) continue;
       const on = cupLit[i] === 1, p = cupPulse[i]!;
-      let cx = cupX[i]!, cy = cupY[i]!, sc = p < 0.3 ? 1 + Math.sin(p / 0.3 * Math.PI) * 0.3 : 1;
+      // A lit cup pops in: from 0.7 up past full size to 1.3, then a damped wobble back to 1 (0.3 s).
+      let cx = cupX[i]!, cy = cupY[i]!, sc = p >= 0.3 ? 1 : p < 0.06 ? lerp(0.7, 1.3, p / 0.06) : 1 + 0.3 * Math.exp(-(p - 0.06) * 14) * Math.cos((p - 0.06) * 22);
       if (trading) {
         if (!on && i < 50) { if (tk > 0.5) continue; ctx.globalAlpha = 1 - tk * 2; }
         else if (on) { cx = lerp(cx, bcx, tk); cy = lerp(cy, bcy, tk); sc = 1 - 0.75 * tk; ctx.globalAlpha = 1 - tk * 0.8; }
-      }
+      } else if (on && cupDim > 0) ctx.globalAlpha = 1 - 0.7 * cupDim; // the cups pour into the jar
       if (on && glowCanvas && p < 0.35 && !trading) { const g = cupD * 2.6; ctx.globalAlpha = 1 - p / 0.35; ctx.drawImage(glowCanvas, cx - g / 2, cy - g / 2, g, g); ctx.globalAlpha = 1; }
       const w = cw * sc;
       ctx.drawImage(on ? cupOn : cupOff, cx - w / 2, cy - w / 2, w, w);
@@ -1594,8 +1832,21 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
       note(BILL_NAMES[0]!, w, BILL_PX);
     }
   }
+  /** While a piece is carried, where it would go glows softly: its own dish, the open lock, the pile's next place or the board's $1 spot. */
+  function renderTargetGlow(ctx: CanvasRenderingContext2D): void {
+    if (!carry.active || !glowCanvas || carry.keyed) return;
+    const k = carry.kind, a = 0.45 + 0.2 * Math.sin(time * 5);
+    let x = 0, y = 0, w = 0, h = 0;
+    if (isBill(k)) {
+      if (plan.unit === DOLLARS) { targetPoint(k); x = pos.x; y = pos.y; w = billW * pileScale * 1.5; h = billH * pileScale * 1.7; }
+      else { x = boardBillX + boardBillW / 2; y = boardBillY + boardBillH / 2; w = boardBillW * 1.4; h = boardBillH * 1.7; }
+    } else if (isLock()) { x = lockX[1]! + lockW / 2; y = lockY[1]! + lockH / 2; w = lockW * 1.15; h = lockH * 1.8; }
+    else { x = dishX[k]!; y = dishY[k]!; w = dishW[k]! * 1.55; h = dishH[k]! * 1.7; }
+    ctx.globalAlpha = a; ctx.drawImage(glowCanvas, x - w / 2, y - h / 2, w, h); ctx.globalAlpha = 1;
+  }
   function renderMat(ctx: CanvasRenderingContext2D): void {
     if (matCanvas) ctx.drawImage(matCanvas, matX, matY, matW, matH);
+    renderTargetGlow(ctx);
     if (isLock() && introStage !== 1) { renderLocks(ctx); return; }
     if (plan.unit === DOLLARS && introStage !== 1) {
       // Bills: one fanned pile across the mat, each bill pulsing with its kind in the count-on.
@@ -1610,7 +1861,11 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
       const p = dishPulse[k]!, s = p < 0.35 ? 1 + Math.sin(p / 0.35 * Math.PI) * 0.06 : 1;
       sprite(ctx, DISH_NAMES[k]!, dishX[k]!, dishY[k]!, dishW[k]!, 0, s, s);
       const n = Math.min(DISH_MAX, dishN[k]!), d = dishCoinD(k);
-      for (let i = 0; i < n; i++) { dishSlot(k, i, n); smallCoin(ctx, k, dishFace[k * DISH_MAX + i]!, dishX[k]! + (pos.x - dishX[k]!) * s, dishY[k]! + (pos.y - dishY[k]!) * s, d, s, true); }
+      for (let i = 0; i < n; i++) {
+        // The coin that just landed settles with a little bounce.
+        const b = i === n - 1 && p < 0.3 ? 1 + 0.2 * Math.sin(p / 0.3 * Math.PI * 2) * (1 - p / 0.3) : 1;
+        dishSlot(k, i, n); smallCoin(ctx, k, dishFace[k * DISH_MAX + i]!, dishX[k]! + (pos.x - dishX[k]!) * s, dishY[k]! + (pos.y - dishY[k]!) * s, d, s * b, true);
+      }
     }
   }
   function renderLocks(ctx: CanvasRenderingContext2D): void {
@@ -1704,7 +1959,8 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     const x = pX[p]! + pNx[p]!, y = pY[p]! + pNy[p]! - hopK * 14 * u;
     const under = Math.min(4, n - 1);
     if (isBill(kind)) {
-      for (let k = under; k >= 1; k--) drawBill(ctx, kind, x + k * 4 * u, y + k * 4 * u, 1, 0);
+      // A stack (only where the row has too few places): the bills below peek out up and to the right.
+      for (let k = under; k >= 1; k--) drawBill(ctx, kind, x + k * billW * 0.1, y - k * billH * 0.22, 1, 0);
       if (focused) focusRect(ctx, x, y, billW, billH);
       drawBill(ctx, kind, x, y, 1, 0);
       return;
@@ -1800,7 +2056,7 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
       const kind = f.kind, bill = isBill(kind);
       if (f.mode === ARRIVE || f.mode === LEAVE || f.mode === RETURN) {
         const k = clamp01(f.t / f.dur), e = f.mode === LEAVE ? easeInCubic(k) : easeOutCubic(k);
-        const x = lerp(f.x0, f.x1, e), y = lerp(f.y0, f.y1, e) - Math.sin(k * Math.PI) * (f.mode === ARRIVE ? 50 : f.mode === RETURN ? 40 : 0) * u;
+        const x = lerp(f.x0, f.x1, e), y = lerp(f.y0, f.y1, e) - Math.sin(k * Math.PI) * (f.mode === ARRIVE ? 50 : f.mode === RETURN ? 60 : 0) * u;
         const sc = f.mode === ARRIVE ? lerp(0.5, 1, e) : 1, under = Math.min(4, f.n - 1);
         if (bill) {
           // Bills slide and flutter, never flipped.
@@ -1825,7 +2081,9 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
       // DISH, LOCKED, FIRST, PILE, BOARD and the outward part of BACK_LOCK: an arc onto the mat or board, shrinking to size.
       const k = clamp01(f.t / Math.min(f.dur, TO_DISH + 0.1)), e = easeOutCubic(k);
       const x = lerp(f.x0, f.x1, e), y = lerp(f.y0, f.y1, e) - Math.sin(k * Math.PI) * 70 * u, sc = lerp(f.s0, f.s1, e);
-      if (bill) drawBill(ctx, kind, x, y, sc, Math.sin(k * Math.PI * 2) * 0.1 * (1 - k)); else coin(ctx, kind, f.face, x, y, sc, 0, 1);
+      // Bills flutter down (a rocking tilt that fades); coins spin over once in the arc and land flat.
+      if (bill) drawBill(ctx, kind, x, y, sc, Math.sin(k * Math.PI * 3) * 0.16 * (1 - k));
+      else coin(ctx, kind, f.face, x, y, sc, 0, Math.max(0.12, Math.abs(Math.cos(k * Math.PI * 2))));
     }
   }
   /** Coins and bills rolling in an arc into the vault's doorway, shrinking as they go in. */
@@ -1891,18 +2149,122 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
   /** Keyboard carry is not used: a key sends the highlighted piece straight to the mat. */
   function renderPlay(ctx: CanvasRenderingContext2D): void {
     renderVault(ctx, taskPhase === 'done' && (introStage === 1 || doneLocks || (picked >= 0 && tagT[picked]! >= SEQ_TAG)) ? doneTag : 0);
+    renderGoal(ctx);
     renderVisitor(ctx);
     renderBoard(ctx);
     renderMat(ctx);
+    renderJar(ctx);
     renderRow(ctx);
     renderTags(ctx);
     renderBlocks(ctx);
     renderFlights(ctx);
     renderRollers(ctx);
-    if (carry.active) piece(ctx, carry.kind, carry.face, input.pointer.x, input.pointer.y, isBill(carry.kind) ? 1.08 : 1.12, 0, 1);
-    particles.render(ctx);
+    renderCarry(ctx);
+    renderGift(ctx);
+    bits.render(ctx);
     renderHand(ctx);
   }
+  /**
+   * The carried piece follows the pointer, lifted: a short squash at the press, then it springs up past its lifted
+   * size and settles, breathing gently, over a soft shadow (baked once) that grows apart from it as it rises.
+   */
+  function renderCarry(ctx: CanvasRenderingContext2D): void {
+    if (!carry.active) return;
+    const x = input.pointer.x, y = input.pointer.y, kind = carry.kind, bill = isBill(kind), lift = bill ? BILL_LIFT : COIN_LIFT, t = carryT;
+    let s = lift, sq = 1;
+    if (t < PICK_SQUASH) { s = 1; sq = 1 - 0.12 * (t / PICK_SQUASH); }
+    else if (t < PICK_SQUASH + PICK_SPRING) { const k = (t - PICK_SQUASH) / PICK_SPRING; s = lerp(1, lift, easeOutBack(k, 2.4)); sq = 1 - 0.12 * (1 - k); }
+    else s = lift + 0.012 * Math.sin(time * 6);
+    const up = clamp01((s - 1) / (lift - 1)), sh = bill ? shadowBill : shadowCoin;
+    if (sh) {
+      const k = bill ? s : coinD[kind]! * s / coinD[QUARTER]!, w = sh.width / artRatio * k, h = sh.height / artRatio * k;
+      ctx.globalAlpha = 0.45 + 0.55 * up; ctx.drawImage(sh, x - w / 2 + 8 * u * up, y - h / 2 + 14 * u * up, w, h); ctx.globalAlpha = 1;
+    }
+    if (bill) drawBill(ctx, kind, x, y, s, carryTilt * 0.6 + Math.sin(time * 7) * 0.02);
+    else coin(ctx, kind, carry.face, x, y, s * sq, 0, (2 - sq) / sq);
+  }
+  /** The visitor's goal picture in the top band, with its amount on a gift tag (step 8 writes the amount in once counted). */
+  function renderGoal(ctx: CanvasRenderingContext2D): void {
+    if (!goalShow) return;
+    const up = easeOutCubic(clamp01(visRise / RISE)) * (1 - easeInCubic(clamp01(visSink / SINK)));
+    if (up <= 0.02 || goalPop < 0) return;
+    const pop = goalPop < 0.4 ? lerp(0.9, 1, easeOutBack(goalPop / 0.4, 3)) : 1;
+    const wiggle = taskPhase === 'done' && !doneReached && goalPop < 0.6 ? Math.sin(goalPop * 20) * 0.07 * (1 - goalPop / 0.6) : 0;
+    ctx.globalAlpha = up;
+    if (giftT < 0) sprite(ctx, GOAL_NAMES[goalItem]!, goalX, goalY + Math.sin(time * 2) * 2 * u, goalSize, wiggle, pop, pop);
+    ctx.save(); ctx.translate(gtagX, gtagY); ctx.rotate(-0.06 + Math.sin(time * 1.7) * 0.03 + wiggle); ctx.scale(pop, pop);
+    sprite(ctx, GIFT_TAG, 0, 0, gtagW);
+    // Step 8 sets $ against ¢: its goal shows no symbol before the answer, so the amount is written in once counted.
+    const shown = plan.step < 8 || taskPhase === 'done';
+    if (shown && goalStrip.canvas) {
+      const wk = plan.step >= 8 && goalWrite < 0.35 ? lerp(0.6, 1, easeOutBack(goalWrite / 0.35, 3)) : 1;
+      drawAmount(ctx, goalStrip, plan.unit, plan.goal, -gtagW / 2 + gtagW * (GTAG_FACE0 + GTAG_FACE1) / 2, gtagH * 0.02, wk, gtagW * (GTAG_FACE1 - GTAG_FACE0) * 0.9);
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+  /** The goal picture (and its ribbon) drawn from the one cached big size, scaled by `s`. */
+  function giftAt(ctx: CanvasRenderingContext2D, item: number, x: number, y: number, s: number, rot: number, ribbon: number): void {
+    const img = sprites.get(GOAL_NAMES[item]!); if (!img) return;
+    sprite(ctx, GOAL_NAMES[item]!, x, y, bigGoal, rot, s, s);
+    if (ribbon <= 0) return;
+    const ih = bigGoal * img.naturalHeight / Math.max(img.naturalWidth, img.naturalHeight), rw = Math.round(bigGoal * 0.42);
+    const rs = s * (ribbon < 1 ? lerp(1.35, 1, easeOutCubic(ribbon)) : 1), a = ctx.globalAlpha;
+    ctx.globalAlpha = Math.min(a, clamp01(ribbon * 3));
+    sprite(ctx, RIBBON, x + Math.sin(rot) * ih * 0.4 * s, y - ih * 0.4 * s, rw, rot, rs, rs);
+    ctx.globalAlpha = a;
+  }
+  /** The thing the visitor saved for, held in its arms. */
+  function heldGift(ctx: CanvasRenderingContext2D, x: number, y: number, rot: number): void { giftAt(ctx, goalItem, x, y, heldGoal / bigGoal, rot, 1); }
+  /**
+   * The getting-the-thing scene: the picture grows from the top band to the middle of the mat (springing past its
+   * size), the ribbon lands on it, it rests with a soft glow, then flies into the visitor's arms.
+   */
+  function renderGift(ctx: CanvasRenderingContext2D): void {
+    if (giftT < 0 || giftT >= GIFT_HOLD + 0.35 || taskPhase !== 'done') return;
+    const cx = matX + matW * 0.42, cy = matY + matH * 0.5, t = giftT;
+    let x = cx, y = cy, s = 1;
+    if (t < GIFT_GROW) {
+      // It springs out of the full jar, from the small picture on its lid.
+      const k = t / GIFT_GROW, e = easeOutCubic(k), s0 = jarGoalSize() / bigGoal;
+      x = lerp(jarX, cx, e); y = lerp(jarLidY(), cy, e) - Math.sin(k * Math.PI) * 60 * u; s = lerp(s0, 1, easeOutBack(k, 2));
+    } else if (t < GIFT_HOLD) y = cy + Math.sin((t - GIFT_GROW) * 7) * 4 * u;
+    else {
+      const k = clamp01((t - GIFT_HOLD) / 0.35), e = easeInOutSine(k);
+      x = lerp(cx, visX + visH * 0.3, e); y = lerp(cy, E - visH * 0.3, e) - Math.sin(k * Math.PI) * 50 * u; s = lerp(1, heldGoal / bigGoal, e);
+    }
+    if (glowCanvas && t >= GIFT_GROW * 0.6 && t < GIFT_HOLD) {
+      const g = bigGoal * 1.5; ctx.globalAlpha = 0.55 * clamp01((t - GIFT_GROW * 0.6) / 0.2); ctx.drawImage(glowCanvas, x - g / 2, y - g / 2, g, g); ctx.globalAlpha = 1;
+    }
+    giftAt(ctx, goalItem, x, y, s, Math.sin(t * 5) * 0.04, (t - (GIFT_GROW - 0.05)) / GIFT_RIBBON);
+  }
+  /** The savings jar beside the board: it rises, its fill (behind the glass) shows the counted amount's share of the goal. */
+  function renderJar(ctx: CanvasRenderingContext2D): void {
+    if (jarT < 0) return;
+    const rise = easeOutCubic(clamp01(jarT / JAR_RISE)), out = jarOut >= 0 ? easeInCubic(clamp01(jarOut / JAR_OUT)) : 0;
+    const a = rise * (1 - out); if (a <= 0.01) return;
+    const cy = jarY + (1 - rise) * jarH * 0.3 + out * jarH * 0.3, top = cy - jarH / 2;
+    ctx.globalAlpha = a;
+    if (jarCanvas && jarFill > 0.002) {
+      const fw = jarW * (JAR_X1 - JAR_X0), fh = jarH * (JAR_Y1 - JAR_Y0), fx = jarX - jarW / 2 + jarW * JAR_X0, fy = top + jarH * JAR_Y0;
+      const ch = jarCanvas.height, sy = ch * (1 - jarFill);
+      ctx.drawImage(jarCanvas, 0, sy, jarCanvas.width, ch - sy, fx, fy + fh * (1 - jarFill), fw, fh * jarFill);
+      ctx.fillStyle = 'rgba(255, 244, 200, 0.9)'; ctx.fillRect(fx + fw * 0.05, fy + fh * (1 - jarFill), fw * 0.9, Math.max(2, 3 * u));
+    }
+    sprite(ctx, JAR, jarX, cy, jarH);
+    // What it is saving for: the goal picture sits on the lid (until it springs out) and the gift tag with the goal's
+    // amount hangs on the jar's neck, so the jar's top is the goal.
+    if (giftT < 0) sprite(ctx, GOAL_NAMES[goalItem]!, jarX, cy - jarH / 2 + jarH * 0.02 - jarGoalSize() * 0.32, goalSize, 0, jarGoalSize() / goalSize, jarGoalSize() / goalSize);
+    const tk = jarW * 0.95 / gtagW, tx = jarX - jarW * 0.5, ty = top + jarH * 0.3;
+    ctx.save(); ctx.translate(tx, ty); ctx.rotate(-0.22); ctx.scale(tk, tk);
+    sprite(ctx, GIFT_TAG, 0, 0, gtagW);
+    if (goalStrip.canvas) drawAmount(ctx, goalStrip, plan.unit, doneGoal, -gtagW / 2 + gtagW * (GTAG_FACE0 + GTAG_FACE1) / 2, gtagH * 0.02, 1, gtagW * (GTAG_FACE1 - GTAG_FACE0) * 0.9);
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+  /** The goal picture on the jar's lid: its longest side, and its centre's height when the jar stands. */
+  const jarGoalSize = (): number => Math.round(jarW * 0.62);
+  const jarLidY = (): number => jarY - jarH / 2 + jarH * 0.02 - jarGoalSize() * 0.32;
   function focusRing(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
     ctx.beginPath(); ctx.arc(x, y, r + 8, 0, Math.PI * 2); ctx.strokeStyle = OUTLINE; ctx.lineWidth = 10; ctx.stroke();
     ctx.strokeStyle = '#fff8da'; ctx.lineWidth = 5; ctx.stroke();
@@ -1932,20 +2294,54 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     offers.warmBook(bookH); offers.warmBook(restSize);
   }
   /** The round's visitors on the desk edge, happy and waving, popping up one after another. */
-  function renderCelebVisitors(ctx: CanvasRenderingContext2D, from: number, n: number): void {
-    // Spread along the desk edge on both sides of the vault, clear of the corner buttons.
+  /** The things the round's visitors got pop onto the mat one after another, each with its ribbon. */
+  function renderCelebGifts(ctx: CanvasRenderingContext2D): void {
+    let m = 0; for (let i = 0; i < 4; i++) if (roundGot[i] && roundItem[i]! >= 0) m++;
+    if (!m) return;
+    const size = Math.min(bigGoal * 0.7, matW * 0.8 / m), sc = size / bigGoal;
+    let j = 0;
+    for (let i = 0; i < 4; i++) {
+      if (!roundGot[i] || roundItem[i]! < 0) continue;
+      const k = clamp01((phaseT - 0.5 - 0.3 * j) / 0.45);
+      if (k > 0) {
+        ctx.globalAlpha = clamp01(k * 3);
+        giftAt(ctx, roundItem[i]!, matX + matW * (j + 1) / (m + 1), matY + matH * 0.55 - Math.abs(Math.sin(time * 3 + j)) * 6 * u, sc * lerp(0.9, 1, easeOutBack(k, 2.5)), Math.sin(time * 2 + j) * 0.05, k * 2 - 0.4);
+        ctx.globalAlpha = 1;
+      }
+      j++;
+    }
+  }
+  /** How many of the celebration's `n` visitors stand left of the vault (the rest stand right of it). */
+  function celebSplit(n: number): number {
+    const lw = Math.max(0, stumpX - 8 - (homeX + cornerRadius + 8)), rw = Math.max(0, soundX - cornerRadius - 8 - (stumpX + stumpW + 8));
+    return Math.min(n, Math.max(lw > 0 ? 1 : 0, Math.round(n * lw / ((lw + rw) || 1))));
+  }
+  /** Celebration visitor `i`'s x on the desk edge, into pos.x (`nl` of the `n` stand left of the vault). */
+  function celebX(i: number, nl: number, n: number): void {
     const l0 = homeX + cornerRadius + 8, l1 = stumpX - 8, r0 = stumpX + stumpW + 8, r1 = soundX - cornerRadius - 8;
-    const lw = Math.max(0, l1 - l0), rw = Math.max(0, r1 - r0);
-    const nl = Math.min(n, Math.max(lw > 0 ? 1 : 0, Math.round(n * lw / ((lw + rw) || 1))));
+    const lw = Math.max(0, l1 - l0), rw = Math.max(0, r1 - r0), left = i < nl, j = left ? i : i - nl, m = Math.max(1, left ? nl : n - nl);
+    pos.x = left ? l0 + lw * (j + 0.5) / m : r0 + rw * (j + 0.5) / m;
+  }
+  /**
+   * The round's visitors pop up along the desk edge on both sides of the vault, happy and dancing (later ones dance a
+   * little more); a visitor that got its thing this round holds its picture.
+   */
+  function renderCelebVisitors(ctx: CanvasRenderingContext2D, from: number, n: number): void {
+    const nl = celebSplit(n);
     for (let i = 0; i < n; i++) {
       const a = (from + i) % VISITORS.length, img = sprites.get(VISITOR_NAMES[a]![1]), wait = sprites.get(VISITOR_NAMES[a]![0]);
       if (!img || !wait) continue;
       const k = visH * 0.8 / wait.naturalHeight, h = img.naturalHeight * k, w = img.naturalWidth * k;
-      const pop = easeOutCubic(clamp01((phaseT - 0.15 * i) / 0.4));
-      const left = i < nl, j = left ? i : i - nl, m = left ? nl : n - nl;
-      const x = left ? l0 + lw * (j + 0.5) / m : r0 + rw * (j + 0.5) / m, y = E - h * CUT_HAPPY * pop + h / 2;
+      const pop = easeOutBack(clamp01((phaseT - 0.15 * i) / 0.45));
+      celebX(i, nl, n);
+      const x = pos.x, y = E - h * CUT_HAPPY * pop + h / 2 - Math.abs(Math.sin(time * 4 + i)) * (6 + 3 * i) * u;
       ctx.save(); ctx.beginPath(); ctx.rect(0, -H, W, E + H); ctx.clip();
-      drawSprite(ctx, sprites, VISITOR_NAMES[a]![1], x, y - Math.abs(Math.sin(time * 4 + i)) * 6 * u, Math.max(w, h), Math.sin(time * 6 + i * 1.3) * 0.06);
+      drawSprite(ctx, sprites, VISITOR_NAMES[a]![1], x, y, Math.max(w, h), Math.sin(time * 6 + i * 1.3) * (0.05 + 0.015 * i));
+      const item = roundItem[i]!;
+      if (roundGot[i] && item >= 0 && pop > 0.5) {
+        const gi = sprites.get(GOAL_NAMES[item]!);
+        if (gi) { const s = Math.round(h * 0.55); sprite(ctx, GOAL_NAMES[item]!, x + w * 0.42, y + h * 0.12, s, Math.sin(time * 5 + i) * 0.08); }
+      }
       ctx.restore();
       note(VISITOR_NAMES[a]![1], Math.max(w, h), Math.max(img.naturalWidth, img.naturalHeight));
     }
@@ -1956,7 +2352,8 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     renderVault(ctx, 0);
     if (phase === 'celebration') {
       renderCelebVisitors(ctx, pending?.visitorOffset ?? 0, Math.min(4, pending?.tasks ?? 3));
-      particles.render(ctx);
+      renderCelebGifts(ctx);
+      bits.render(ctx);
     }
     drawStarRow(ctx, W / 2, starY, starR, stars, starT, phase === 'rest' ? 0 : time);
     if (phase === 'celebration') return;
@@ -2036,7 +2433,9 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     if (!available(p)) return false;
     if (!pUnlimited[p]) pCount[p]!--;
     carry.place = p; carry.kind = pKind[p]!; carry.face = pFace[p]!;
-    play('pop', 'B', 2, 0.5); playVoice(audio, VOICE_NAMES[carry.kind]!);
+    if (isBill(carry.kind)) play('bill-rustle', 'A', 0, 0.7); else play('pop', 'B', 2, 0.5);
+    playVoice(audio, VOICE_NAMES[carry.kind]!);
+    carryT = 0; lastPX = input.pointer.x;
     return true;
   }
   function returnCarry(x: number, y: number): void {
@@ -2067,6 +2466,8 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
       if (!onCorner(x, y) && onTag(x, y) < 0) { misses++; visHop = 0; }
       return;
     }
+    // A press while the money goes into the vault plays the rest of that sequence faster.
+    if (taskPhase === 'done' && introStage !== 1 && !onCorner(x, y)) { seqSpeed = HURRY; return; }
     if (!coinPhase()) { if (!onCorner(x, y)) invite(placeAt(x, y)); return; }
     if (carry.active) { release(x, y); return; }
     const p = placeAt(x, y);
@@ -2083,15 +2484,9 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
   function pointerUp(x: number, y: number): void {
     if (!carry.active || carry.sticky) return;
     const now = performance.now(), quick = now - carry.downAt < 300 && Math.hypot(x - carry.downX, y - carry.downY) < 24;
-    if (quick) {
-      if (TIERS[tier].oneTap) {
-        // Tier 0: one press sends the piece where it goes. Not a motor attempt; still a deliberate choice.
-        carry.active = false;
-        dropToMat(carry.kind, carry.face, carry.place, pX[carry.place]! + pNx[carry.place]!, pY[carry.place]! + pNy[carry.place]!, carry.deliberate, false);
-        return;
-      }
-      carry.sticky = true; return; // Click then mat: the piece follows the pointer until the next press.
-    }
+    // A click (press and release within 0.3 s and 24 px) picks the piece up at every tier: it follows the pointer with
+    // no button held until the next press puts it down (release), as letting go of a drag there would.
+    if (quick) { carry.sticky = true; return; }
     release(x, y);
   }
   function keyPlay(code: string): void {
@@ -2119,6 +2514,7 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
       pickTag(tagFocus, deliberate);
       return;
     }
+    if (taskPhase === 'done' && introStage !== 1) { seqSpeed = HURRY; return; }
     if (!coinPhase()) { invite(-1); return; }
     if (left || right) { if (!carry.active) moveFocus(left ? -1 : 1); arrowMoved = true; lastArrowAt = now; return; }
     if (now < keyAfter) return;
@@ -2220,6 +2616,16 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     get billSize() { return { w: billW, h: billH }; },
     get coinSizes() { return { penny: coinD[PENNY]!, nickel: coinD[NICKEL]!, dime: coinD[DIME]!, quarter: coinD[QUARTER]! }; },
     get cupDiameter() { return cupD; },
+    get goal() {
+      return { item: GOALS[goalItem]!, amount: plan.goal, label: label(plan.unit, plan.goal), shown: goalShow && (plan.step < 8 || taskPhase === 'done'),
+        counted: plan.total, reached: plan.total >= plan.goal, x: goalX, y: goalY, size: goalSize };
+    },
+    get jar() {
+      return { shown: jarT >= 0, fill: jarFill, target: Math.min(1, plan.total / Math.max(1, plan.goal)), outcome,
+        x: jarX - jarW / 2, y: jarY - jarH / 2, w: jarW, h: jarH };
+    },
+    get carrySticky() { return carry.active && carry.sticky; },
+    get bits() { return bits.alive; }, get seqSpeed() { return seqSpeed; },
     get targets() {
       const out: TargetInfo[] = [];
       if (playable()) {
@@ -2288,8 +2694,10 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     update(dt) {
       const started = performance.now(); sceneT += dt;
       syncSoundIcon(soundButton, services); soundButton.update(dt, input.pointer.x, input.pointer.y);
+      // Hurried: the rest of a finished task's sequence plays HURRY times faster.
+      if (playable() && taskPhase === 'done') dt *= seqSpeed;
       if (playable()) updatePlay(dt); else updateResult(dt);
-      askIdle(); updateFlights(dt); particles.update(dt);
+      askIdle(); updateFlights(dt); bits.update(dt);
       updateMs += performance.now() - started;
     },
     render(view: SceneContext) {

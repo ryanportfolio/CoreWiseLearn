@@ -38,14 +38,12 @@ export interface TierParams {
   coins: number;
   /** Most bills in one collection. */
   bills: number;
-  /** A single press (click) on a coin sends it straight to where it goes. */
-  oneTap: boolean;
 }
 
 export const TIERS: readonly [TierParams, TierParams, TierParams] = [
-  { tasks: 3, places: 4, dime: 120, bill: 220, snap: 80, coins: 6, bills: 4, oneTap: true },
-  { tasks: 4, places: 5, dime: 108, bill: 210, snap: 56, coins: 9, bills: 6, oneTap: false },
-  { tasks: 4, places: 6, dime: 96, bill: 200, snap: 40, coins: 12, bills: 8, oneTap: false },
+  { tasks: 3, places: 4, dime: 120, bill: 220, snap: 80, coins: 6, bills: 4 },
+  { tasks: 4, places: 5, dime: 108, bill: 210, snap: 56, coins: 9, bills: 6 },
+  { tasks: 4, places: 6, dime: 96, bill: 200, snap: 40, coins: 12, bills: 8 },
 ];
 /** Tasks in a round: every round has at least three counted tasks (a round above step 1 also opens with a warm-up). */
 export const roundTasks = (tier: Tier, step: number): number => Math.max(TIERS[tier].tasks, step > 1 ? 4 : 3);
@@ -80,11 +78,17 @@ export interface TaskPlan {
   quarters: boolean;
   /** Step 5: the lock's slots, as many as the fewest coins for the amount. */
   slots: number;
+  /**
+   * What the visitor is saving for, in the task's unit: the jar fills toward it with the counted amount. A lock task's
+   * goal is the lock's amount (always reached); a counted collection's goal is a round amount in the step's range that
+   * is never the total or a tag, below the total about half the time (reached) and above it otherwise (not yet).
+   */
+  goal: number;
 }
 
 const plan = (step: number, kind: TaskPlan['kind'], total: number): TaskPlan => ({
   step, warmup: false, kind, unit: CENTS, coins: [0, 0, 0, 0], bills: [0, 0, 0, 0], sorted: step <= 1, total, tags: [], tagForms: [CENTS, CENTS, CENTS],
-  first: [0, 0, 0, 0], quarters: false, slots: 0,
+  first: [0, 0, 0, 0], quarters: false, slots: 0, goal: total,
 });
 
 /** Content step for task `index` of a round at learning step `step`: the first task above step 1 warms up with the step below. */
@@ -137,6 +141,10 @@ function mixCoins(cents: number, cap: number, quarters: boolean, random: () => n
 /** Bills worth `dollars` in at most `cap` bills, broken from the fewest toward a random count ($20 into two $10s, $10 into two $5s, $5 into five $1s). */
 function mixBills(dollars: number, cap: number, random: () => number, out: number[]): boolean {
   if (fewestBills(dollars, out) > cap) return false;
+  // Every bill collection has at least two bills: a lone $20 or $10 is broken into two bills.
+  if (sumCoins(out) === 1 && cap >= 2) {
+    if (out[3]) { out[3] = 0; out[2] = 2; } else if (out[2]) { out[2] = 0; out[1] = 2; } else if (out[1] && cap >= 5) { out[1] = 0; out[0] = 5; }
+  }
   const target = sumCoins(out) + Math.floor(random() * (cap - sumCoins(out) + 1));
   for (let guard = 0; guard < 40 && sumCoins(out) < target; guard++) {
     const room = target - sumCoins(out), r = random();
@@ -328,6 +336,7 @@ export function planTask(step: number, warmup: boolean, index: number, cap: numb
     if (index % 2 === 1) { p = step8Collection(cap, billCap, random() < 0.5 ? 0 : 1, random, last, 'symbol'); p.tags = [p.total]; p.tagForms = [p.unit]; }
     else { p = step8Collection(cap, billCap, Math.floor(random() * 3), random, last, 'count'); lookAlikeTags(p, random); }
     p.warmup = warmup;
+    p.goal = makeGoal(p, random);
     return p;
   }
   if (step === 7) p = billTask(7, 6, 100, billCap, random, last);
@@ -338,13 +347,35 @@ export function planTask(step: number, warmup: boolean, index: number, cap: numb
   else p = countingTask(step, cap, random, last);
   p.warmup = warmup;
   if (p.kind === 'count') makeTags(p, random);
+  p.goal = makeGoal(p, random);
   return p;
 }
 
-/** The introduction's task: a dime and two pennies, 12¢, counted with the helper hand. */
+/**
+ * The visitor's saving goal for a task (TaskPlan.goal). Goals are multiples of 5 (¢ or $), never the total and never
+ * one of the tags, so the goal never shows the answer. Reached (goal under the total, at least 0.6 of it) or not yet
+ * (goal over the total, at most 1.6 times it), each about half the time, inside the step's range: 10 to 100¢ for
+ * coins up to a dollar, 101 to 199¢ ("$1 and N¢") above it, $5 to $100 for bills.
+ */
+export function makeGoal(p: TaskPlan, random: () => number): number {
+  if (p.kind === 'lock') return p.total;
+  const t = p.total, [lo, hi] = p.unit === DOLLARS ? [5, 100] : t > 100 ? [105, 195] : [10, 100];
+  const free = (g: number): boolean => g >= lo && g <= hi && g !== t && !p.tags.includes(g);
+  const below: number[] = [], above: number[] = [];
+  for (let g = Math.ceil(t * 0.6 / 5) * 5; g < t; g += 5) if (free(g)) below.push(g);
+  for (let g = Math.floor(t / 5) * 5 + 5; g <= t * 1.6 + 5; g += 5) if (free(g)) above.push(g);
+  const reach = random() < 0.5;
+  const list = (reach && below.length) || !above.length ? below : above;
+  if (list.length) return list[Math.floor(random() * list.length)]!;
+  // Nothing round fits (a tiny total): the nearest free amount below the total, else above it.
+  for (let g = t - 1; g >= Math.min(lo, t - 1) && g > 0; g--) if (g !== t && !p.tags.includes(g)) return g;
+  for (let g = t + 1; ; g++) if (!p.tags.includes(g)) return g;
+}
+
+/** The introduction's task: a dime and two pennies, 12¢, counted with the helper hand; the squirrel saves for 10¢. */
 export function introTask(): TaskPlan {
   const p = plan(1, 'count', 12); p.coins[DIME] = 1; p.coins[PENNY] = 2; p.warmup = true;
-  p.tags = [11, 12, 17];
+  p.tags = [11, 12, 17]; p.goal = 10;
   return p;
 }
 

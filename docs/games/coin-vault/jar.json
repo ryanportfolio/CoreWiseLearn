@@ -1,0 +1,14 @@
+{
+ "file": "jar.webp",
+ "width": 350,
+ "height": 640,
+ "note": "Fractions of the sprite. inner: the largest straight-sided clear (alpha <= 24) rectangle; fill drawn in code behind the jar inside it. clearTop/clearBottom: the full clear column at the centre line.",
+ "inner": {
+  "x0": 0.146,
+  "x1": 0.877,
+  "y0": 0.27,
+  "y1": 0.923,
+  "clearTop": 0.228,
+  "clearBottom": 0.948
+ }
+}
