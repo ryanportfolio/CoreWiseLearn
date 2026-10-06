@@ -174,8 +174,11 @@ export interface RideFareStats {
   readonly panel: Rect | null;
   /** Step 7: the swap stand (drawn rectangle, press zone, coins resting on it). */
   readonly stand: { drawn: Rect; zone: Rect; kind: string; count: number; need: number } | null;
-  /** Step 8: the animal's paws target (rectangle and zone with the snap distance) and the change owed and still to hand back. */
-  readonly paws: { rect: Rect; zone: Rect; owed: number; left: number; paid: boolean } | null;
+  /**
+   * Step 8: the animal's paws target (rectangle, press zone grown over the returned pennies' spots, the outline the hover
+   * and keyboard rings draw), the change owed and still to hand back, and each returned penny's spot.
+   */
+  readonly paws: { rect: Rect; zone: Rect; outline: Rect; owed: number; left: number; paid: boolean; spots: readonly PawsSpot[] } | null;
   readonly demos: number;
   readonly keyTarget: string;
   readonly plate: readonly { kind: string; lit: boolean }[];
@@ -190,7 +193,11 @@ export interface RideFareStats {
   /** Largest drawn scale of each image drawn this layout (drawn px / image px at pixel ratio 1). */
   scales(): Record<string, number>;
   resetWork(): void;
+  /** The paws' press zone and penny spots this layout would give for `owed` pennies of change (1 to 9); state unchanged. */
+  pawsFor(owed: number): { zone: Rect; spots: readonly PawsSpot[]; boxZone: Rect; trayY: number; W: number };
 }
+/** A returned penny's spot in the paws: centre, coin diameter and its tag's drawn width and drop below the coin. */
+interface PawsSpot { x: number; y: number; d: number; tagW: number; hang: number }
 export interface RideFareScene extends Scene { readonly stats: RideFareStats }
 
 const toTier = (n: unknown): Tier => (n === 1 ? 1 : n === 2 ? 2 : 0);
@@ -392,7 +399,7 @@ export function createRideFareScene(services: AppServices): RideFareScene {
   /** The second panel (above the box), the numeral plate (right of the box), the swap stand and the animal's paws. */
   let panelX = 0, panelY = 0, panelW = 0, panelH = 0, numX = 0, numY = 0, numW = 0, numH = 0, numPx = 0;
   let standX = 0, standY = 0, standW = 0, standH = 0, sZoneX0 = 0, sZoneY0 = 0, sZoneX1 = 0, sZoneY1 = 0;
-  let pawsX0 = 0, pawsY0 = 0, pawsX1 = 0, pawsY1 = 0, pZoneX0 = 0, pZoneY0 = 0, pZoneX1 = 0, pZoneY1 = 0;
+  let pawsX0 = 0, pawsY0 = 0, pawsX1 = 0, pawsY1 = 0, pZoneX0 = 0, pZoneY0 = 0, pZoneX1 = 0, pZoneY1 = 0, pawsSnap = 0;
   /** The balloon's vertical offset (lift and landing) and the drifting small balloon's position. */
   let liftY = 0, driftX = 0, driftY = 0;
   let starY = 0, starR = 0, cornerRadius = 48, cornerY = 60, homeX = 60, soundX = 1306, cornerFocus = -1;
@@ -650,8 +657,24 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     // clear of the fare box's press zone (a small uiScale in a narrow window puts the animal close to the box).
     pawsX0 = Math.min(Math.max(gateX - pw / 2, zoneX1 + 2), W - 2 - pw); pawsX1 = pawsX0 + pw; pawsY0 = cy - ph / 2; pawsY1 = Math.min(trayY - 4, cy + ph / 2);
     if (pawsY1 - pawsY0 < 96) pawsY0 = pawsY1 - 96;
-    pZoneX0 = Math.max(zoneX1 + 2, pawsX0 - snap); pZoneX1 = Math.min(W, pawsX1 + snap);
-    pZoneY0 = Math.max(cornerY + cornerRadius + 4, pawsY0 - snap); pZoneY1 = Math.min(trayY - 2, pawsY1 + snap);
+    pawsSnap = snap; fitPawsZone();
+  }
+  /**
+   * The paws' press zone: the paws and the snap distance, grown over every spot a returned penny takes this round
+   * (pawsSpot spreads them past the paws so their tags never cover each other), so a drop on any penny there counts.
+   * The hover and keyboard outlines draw this same rectangle. startRider calls it again once the change owed is known.
+   */
+  function fitPawsZone(): void {
+    let x0 = pawsX0 - pawsSnap, x1 = pawsX1 + pawsSnap, y0 = pawsY0 - pawsSnap, y1 = pawsY1 + pawsSnap;
+    if (changeOwed > 0) {
+      const d = pawsD(), half = Math.max(d, tags.width(PENNY, d)) / 2 + 4, top = d / 2 + 8 * u + 4, bottom = d / 2 + tags.hang(d) + 4;
+      for (let i = 0; i < changeOwed; i++) {
+        pawsSpot(i);
+        x0 = Math.min(x0, pos.x - half); x1 = Math.max(x1, pos.x + half); y0 = Math.min(y0, pos.y - top); y1 = Math.max(y1, pos.y + bottom);
+      }
+    }
+    pZoneX0 = Math.max(zoneX1 + 2, x0); pZoneX1 = Math.min(W, x1);
+    pZoneY0 = Math.max(cornerY + cornerRadius + 4, y0); pZoneY1 = Math.min(trayY - 2, y1);
   }
   /**
    * Cup centres for the current fare. Grid: the box's window holds ten (two rows of five; one middle row for five or
@@ -750,6 +773,7 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     lastFare = plan.step <= 1 ? plateN : fare;
     // Cups: none with a plate; at step 8 the fare's cups and, once the dime pours, the change cups up to ten.
     changeOwed = plan.animalPays ? plan.animalPays - fare : 0; changeLeft = 0; changeReserved = 0; animalPaid = false;
+    fitPawsZone();
     nCups = usesPlate() ? 0 : plan.animalPays ? plan.animalPays : fare;
     cupMode = plan.step === 6 ? CUPS_ROWS : CUPS_GRID;
     panelOn = cupMode === CUPS_GRID ? nCups > 10 : nCups > boxRows * 10;
@@ -883,7 +907,7 @@ export function createRideFareScene(services: AppServices): RideFareScene {
   function launch(mode: number, kind: number, n: number, place: number, x0: number, y0: number, x1: number, y1: number, dur: number): Flight | undefined {
     for (const f of flights) {
       if (f.active) continue;
-      f.active = true; f.mode = mode; f.kind = kind; f.n = n; f.place = place; f.x0 = x0; f.y0 = y0; f.x1 = x1; f.y1 = y1; f.t = 0; f.dur = dur; f.giggles = 0;
+      f.active = true; f.mode = mode; f.kind = kind; f.n = n; f.place = place; f.x0 = x0; f.y0 = y0; f.x1 = x1; f.y1 = y1; f.t = 0; f.dur = dur; f.giggles = 0; f.ink = 0;
       return f;
     }
     // Pool full: settle at once so a coin is never lost.
@@ -1523,7 +1547,7 @@ export function createRideFareScene(services: AppServices): RideFareScene {
       const k = targetHover[t]!; if (k <= 0.01) continue;
       let x0 = zoneX0, y0 = zoneY0, x1 = zoneX1, y1 = zoneY1;
       if (t === T_STAND) { x0 = sZoneX0; y0 = sZoneY0; x1 = sZoneX1; y1 = sZoneY1; }
-      else if (t === T_PAWS) { x0 = pawsX0; y0 = pawsY0; x1 = pawsX1; y1 = pawsY1; }
+      else if (t === T_PAWS) { x0 = pZoneX0; y0 = pZoneY0; x1 = pZoneX1; y1 = pZoneY1; }
       ctx.globalAlpha = 0.55 * k; ctx.beginPath(); ctx.roundRect(x0 + 4, y0 + 4, x1 - x0 - 8, y1 - y0 - 8, 18 * u);
       ctx.lineWidth = 6 * u; ctx.strokeStyle = '#fff8b2'; ctx.stroke(); ctx.globalAlpha = 1;
     }
@@ -1669,15 +1693,21 @@ export function createRideFareScene(services: AppServices): RideFareScene {
   /**
    * Spot i of the change pennies in the paws, into pos: up to five in a row (six or more split into two rows, the second
    * above the first), the pitch wide enough for the penny's tag, kept inside the window and clear of the basket (drawn
-   * over the paws when the rider stands at the gate).
+   * over the paws when the rider stands at the gate) and of the fare box's press zone.
    */
   function pawsSpot(i: number): void {
     const d = pawsD(), n = Math.max(1, changeOwed), perRow = n <= 5 ? n : Math.ceil(n / 2);
     const pitch = Math.max(d * 1.08, tags.width(PENNY, d) + 6 * u), rowPitch = d + tags.hang(d) + 6 * u;
     const row = Math.floor(i / perRow), col = i % perRow, m = Math.min(perRow, n - row * perRow);
     const half = (perRow - 1) / 2 * pitch + Math.max(d, tags.width(PENNY, d)) / 2 + 4;
-    const cx = Math.min(Math.max(pawsCX(), basketL + BW + 4 + half), W - half);
+    const cx = Math.min(Math.max(pawsCX(), basketL + BW + 4 + half, zoneX1 + 6 + half), W - half);
     pos.x = cx + (col - (m - 1) / 2) * pitch; pos.y = pawsCY() + d * 0.35 - row * rowPitch;
+  }
+  /** Debug: every returned penny's spot for `n` owed. */
+  function pawsSpots(n: number): PawsSpot[] {
+    const d = pawsD(), out: PawsSpot[] = [];
+    for (let i = 0; i < n; i++) { pawsSpot(i); out.push({ x: pos.x, y: pos.y, d, tagW: tags.width(PENNY, d), hang: tags.hang(d) }); }
+    return out;
   }
   function handTip(): void {
     const tx = pX[hand.place] ?? W / 2, ty = pY[hand.place] ?? H;
@@ -1764,7 +1794,7 @@ export function createRideFareScene(services: AppServices): RideFareScene {
   function renderKeyCarry(ctx: CanvasRenderingContext2D): void {
     let x0 = zoneX0, y0 = zoneY0, x1 = zoneX1, y1 = zoneY1;
     if (keyTarget === T_STAND) { x0 = sZoneX0; y0 = sZoneY0; x1 = sZoneX1; y1 = sZoneY1; }
-    else if (keyTarget === T_PAWS) { x0 = pawsX0; y0 = pawsY0; x1 = pawsX1; y1 = pawsY1; }
+    else if (keyTarget === T_PAWS) { x0 = pZoneX0; y0 = pZoneY0; x1 = pZoneX1; y1 = pZoneY1; }
     ctx.beginPath(); ctx.roundRect(x0 + 4, y0 + 4, x1 - x0 - 8, y1 - y0 - 8, 18 * u);
     ctx.lineWidth = 9 * u; ctx.strokeStyle = OUTLINE; ctx.stroke(); ctx.lineWidth = 5 * u; ctx.strokeStyle = HIGHLIGHT; ctx.stroke();
     targetPoint(keyTarget, carry.kind);
@@ -2075,7 +2105,7 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     },
     get paws() {
       if (!plan.animalPays || !playable()) return null;
-      return { rect: rect(pawsX0, pawsY0, pawsX1, pawsY1), zone: rect(pZoneX0, pZoneY0, pZoneX1, pZoneY1), owed: changeOwed, left: animalPaid ? changeLeft : changeOwed, paid: animalPaid };
+      return { rect: rect(pawsX0, pawsY0, pawsX1, pawsY1), zone: rect(pZoneX0, pZoneY0, pZoneX1, pZoneY1), outline: rect(pZoneX0, pZoneY0, pZoneX1, pZoneY1), owed: changeOwed, left: animalPaid ? changeLeft : changeOwed, paid: animalPaid, spots: pawsSpots(changeOwed) };
     },
     get demos() { return data.demos; },
     get keyTarget() { return carry.active && carry.keyed ? (keyTarget === T_STAND ? 'stand' : keyTarget === T_PAWS ? 'paws' : 'farebox') : ''; },
@@ -2099,6 +2129,12 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     get workMax() { let max = 0; for (let i = 0; i < workCount; i++) max = Math.max(max, work[i]!); return max; },
     scales() { return Object.fromEntries(drawnScale); },
     resetWork() { workHead = workCount = 0; },
+    pawsFor(owed) {
+      const keep = changeOwed; changeOwed = owed; fitPawsZone();
+      const out = { zone: rect(pZoneX0, pZoneY0, pZoneX1, pZoneY1), spots: pawsSpots(owed), boxZone: rect(zoneX0, zoneY0, zoneX1, zoneY1), trayY, W };
+      changeOwed = keep; fitPawsZone();
+      return out;
+    },
   };
 
   function applyDebug(): void {
