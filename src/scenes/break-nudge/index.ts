@@ -20,6 +20,7 @@ import type { Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
 import type { AppServices } from '../../app/services';
 import { createKeyboardNavigation } from '../../ui/navigation';
 import { createButton, dispatchDown, dispatchUp } from '../../ui/button';
+import { clearButtonHover } from '../../engine/cursor';
 import { chunkyText, OUTLINE } from '../../ui/draw';
 import { starPath } from '../../ui/celebrate';
 import { clamp01, easeInOutSine, easeOutBack, easeOutCubic, pulse } from '../../ui/tween';
@@ -272,6 +273,8 @@ export function createBreakNudgeScene(services: AppServices): Scene {
       if (live && below) {
         // The scene beneath has not been seen yet: let it finish its entry, then keep a still copy.
         below.update(dt);
+        // Its buttons may have reported a hover; the nudge covers them, so drop it.
+        clearButtonHover();
         if (time >= settle) {
           live = false;
           takeSnapshot();

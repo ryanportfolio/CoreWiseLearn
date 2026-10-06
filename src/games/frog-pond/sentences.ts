@@ -12,14 +12,15 @@
 import type { AppServices } from '../../app/services';
 import type { Tier } from '../../engine/difficulty';
 import { createParticleSystem } from '../../engine/particles';
+import type { CursorHover } from '../../engine/scene';
 import { voicePlayer } from '../../audio/voice-player';
 import { playSfx, type SfxName, type SfxOptions, type SfxVariant } from '../../audio/sfx';
 import { drawSprite, OUTLINE, roundedRect } from '../../ui/draw';
-import { clamp01, easeInCubic, easeInOutSine, easeOutCubic, lerp } from '../../ui/tween';
+import { approach, clamp01, easeInCubic, easeInOutSine, easeOutCubic, lerp } from '../../ui/tween';
 import { bakeWordPad, type WordArt } from './cards';
 import type { SceneId, Sentence } from './content';
 import { READ_TIMING } from './read-timing';
-import { FROG_PUFF, FROG_SIT, HAND, PAD } from './rhyme';
+import { FROG_PUFF, FROG_SIT, HAND, HOVER_RING, PAD } from './rhyme';
 import { keyIndexForDegree } from './rhyme-rules';
 import { readClip, sentenceTier, wordClip, type SentencePlan, type SentenceTier } from './sentence-rules';
 import { FROG_VOICE } from './voice';
@@ -86,6 +87,10 @@ export interface LilySentences {
   drawPadFrog(ctx: CanvasRenderingContext2D, x: number, bottom: number, size: number, happy: number): void;
   pointerDown(x: number, y: number): void;
   pointerMove(x: number, y: number): void;
+  /** For the big cursor: what a press at x, y would act on now (pointerDown's own gates and hit tests). */
+  hoverAt(x: number, y: number): CursorHover;
+  /** Eases the hover cues toward the mouse at x, y; x < 0 when no mouse hover counts. */
+  hover(dt: number, x: number, y: number): void;
   key(code: string, shift: boolean): void;
   stop(): void;
   readonly done: boolean;
@@ -146,6 +151,9 @@ export function createLilySentences(services: AppServices): LilySentences {
   let focus = -1, keyMode = false, keyAfter = 0, pointerX = -1, pointerY = -1;
   const hand = { mode: 0, t: 0, pad: -1, x: 0, y: 0 };
   let demoDone = false, pokeT = 9;
+  // Mouse hover, eased 0 to 1: each floating pad and the picture (a press makes it jump).
+  const padHover = new Float32Array(MAX_PADS);
+  let picHover = 0;
   // The picture.
   let mode = ALONE, who: SceneId = 'pig', what: SceneId | undefined;
   let whoS = 0, whatS = 0, whoX = 0, whoY = 0, whatX = 0, whatY = 0, rimY = 0, sideX = 0, sideY = 0, groundY = 0;
@@ -281,7 +289,7 @@ export function createLilySentences(services: AppServices): LilySentences {
   function start(next0: SentencePlan, tier: Tier, isIntro: boolean, withHelp: boolean): void {
     plan = next0; sentence = next0.sentence; intro = isIntro; help = withHelp; params = sentenceTier(tier, isIntro);
     finished = false; struggled = false; time = 0; idleT = 0; sinceHit = 0; misses = 0; next = 0; step = PLAY; stepT = 0; sayT = 9;
-    focus = -1; keyMode = false; hand.mode = 0; hand.pad = -1; demoDone = false; pokeT = 9; actT = -1;
+    focus = -1; keyMode = false; hand.mode = 0; hand.pad = -1; demoDone = false; pokeT = 9; actT = -1; padHover.fill(0); picHover = 0;
     clip = readClip(sentence); clipStarted = false; readT = 0; readWait = 0; lit = -1; litLog.length = 0; litAt.fill(-1);
     onsets = READ_TIMING[clip] ?? [];
     particles.clear();
@@ -596,8 +604,14 @@ export function createLilySentences(services: AppServices): LilySentences {
         let rot = Math.sin(time * 0.9 + seed[i]!) * 0.03;
         const w = wobT[i]!;
         if (w < WOBBLE) rot += Math.sin(w * 26) * 0.2 * (1 - w / WOBBLE);
-        const appear = kind[i] === WORD ? 1 : clamp01(appearT[i]! / APPEAR);
-        drawPad(ctx, a, px, py, floatK * (0.9 + 0.1 * easeOutCubic(appear)), rot, appear);
+        const appear = kind[i] === WORD ? 1 : clamp01(appearT[i]! / APPEAR), hv = padHover[i]!;
+        if (hv > 0.01) {
+          // Mouse hover: a soft cream ring round the pad and a slight swell.
+          const w = a.w * floatK * (1 + 0.06 * hv) + 14 * u, h = a.h * floatK * (1 + 0.06 * hv) + 14 * u;
+          ctx.globalAlpha = 0.5 * hv; ctx.beginPath(); ctx.ellipse(px, py, w / 2, h / 2, rot, 0, Math.PI * 2);
+          ctx.lineWidth = 6 * u; ctx.strokeStyle = HOVER_RING; ctx.stroke(); ctx.globalAlpha = 1;
+        }
+        drawPad(ctx, a, px, py, floatK * (0.9 + 0.1 * easeOutCubic(appear)) * (1 + 0.06 * hv), rot, appear);
       } else if (state[i] === MOVING) {
         const k = easeOutCubic(glideT[i]! / GLIDE), s = slot[i]!;
         const x = lerp(fromX[i]!, slotX[s]!, k), y = lerp(fromY[i]!, rowY, k) - Math.sin(k * Math.PI) * 30 * u;
@@ -653,6 +667,11 @@ export function createLilySentences(services: AppServices): LilySentences {
   }
   function render(ctx: CanvasRenderingContext2D): void {
     drawPicture(ctx);
+    if (picHover > 0.01) {
+      // Mouse hover: a soft cream frame round the picture.
+      ctx.globalAlpha = 0.5 * picHover; roundedRect(ctx, picX - 6 * u, picY - 6 * u, picW + 12 * u, picH + 12 * u, 22 * u);
+      ctx.lineWidth = 6 * u; ctx.strokeStyle = HOVER_RING; ctx.stroke(); ctx.globalAlpha = 1;
+    }
     drawRow(ctx);
     drawFloating(ctx);
     drawFrogOnRow(ctx);
@@ -690,6 +709,16 @@ export function createLilySentences(services: AppServices): LilySentences {
   function pointerMove(x: number, y: number): void {
     if (Math.hypot(x - pointerX, y - pointerY) < 12) return;
     pointerX = x; pointerY = y; keyMode = false; idleT = 0;
+  }
+  const onPicture = (x: number, y: number): boolean => x >= picX && x <= picX + picW && y >= picY && y <= picY + picH;
+  function hoverAt(x: number, y: number): CursorHover {
+    if (demoRunning() || step !== PLAY) return null;
+    return padAt(x, y) >= 0 || onPicture(x, y) ? 'press' : null;
+  }
+  function hover(dt: number, x: number, y: number): void {
+    const live = x >= 0 && !demoRunning() && step === PLAY, p = live ? padAt(x, y) : -1, pic = live && p < 0 && onPicture(x, y);
+    for (let i = 0; i < MAX_PADS; i++) padHover[i] = approach(padHover[i]!, i === p ? 1 : 0, 14, dt);
+    picHover = approach(picHover, pic ? 1 : 0, 14, dt);
   }
   function moveFocus(code: string, shift: boolean): void {
     if (!pressable(focus)) { focus = nearestPad(W / 2, floatTop, -1); return; }
@@ -746,7 +775,7 @@ export function createLilySentences(services: AppServices): LilySentences {
   const STEP_NAMES = ['play', 'back', 'read', 'act', 'done'] as const;
 
   const lily: LilySentences = {
-    start, layout, update, render, drawPadFrog, pointerDown, pointerMove, key,
+    start, layout, update, render, drawPadFrog, pointerDown, pointerMove, hoverAt, hover, key,
     stop() { if (hand.mode !== HAND_DEMO) hand.mode = 0; pointerX = -1; },
     get done() { return finished; },
     get target() { return ''; },

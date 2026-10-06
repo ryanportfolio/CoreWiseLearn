@@ -28,7 +28,19 @@ export interface Scene {
   handleInput?(event: SceneInputEvent): void;
   /** Called when the canvas changes size. */
   resize?(width: number, height: number): void;
+  /**
+   * Optional cursor hook: what a press at (x, y) would touch, for the app's big
+   * cursor. 'press' for something that acts when clicked, 'grab' for something
+   * that can be picked up, 'carry' while the scene holds a piece (wherever the
+   * pointer is), null for nothing. Reuse the scene's own hit tests; allocate
+   * nothing. Buttons from src/ui/button.ts report their hover by themselves.
+   * Called at most once per drawn frame, only while a mouse is over the canvas.
+   */
+  hoverAt?(x: number, y: number): CursorHover;
 }
+
+/** What the cursor is over; see Scene.hoverAt. */
+export type CursorHover = 'press' | 'grab' | 'carry' | null;
 
 /**
  * A transition hook runs before a scene change is applied. It may return a

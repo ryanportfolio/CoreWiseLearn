@@ -10,14 +10,14 @@ import { rewards, type AppServices } from '../../app/services';
 import { STICKERS, stickerSpriteName } from '../../app/stickers';
 import type { Tier } from '../../engine/difficulty';
 import { createParticleSystem } from '../../engine/particles';
-import type { Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
+import type { CursorHover, Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
 import { playSfx, prepareSfxStep, type SfxName, type SfxOptions, type SfxVariant } from '../../audio/sfx';
 import { startMusic, stopMusic } from '../../audio/music';
 import { chunkyCircle, chunkyPanel, DISPLAY_FONT, drawSprite, OUTLINE } from '../../ui/draw';
 import { confettiBurst, drawStarRow, STAR_GAP_SECONDS, STAR_HIT_SECONDS } from '../../ui/celebrate';
 import { drawEnterFade } from '../../ui/motion';
 import { BOOK_GLIDE, BOOK_ICON_PATH, createStickerOffers, leaveAlpha, leaveDrop, onBook, PICK_FLY, PICK_LIFT, PICK_SECONDS, placeBook } from '../../ui/sticker-offer';
-import { clamp01, easeInCubic, easeInOutSine, easeOutCubic, lerp } from '../../ui/tween';
+import { approach, clamp01, easeInCubic, easeInOutSine, easeOutCubic, lerp } from '../../ui/tween';
 import { createSoundButton, soundArt, syncSoundIcon } from '../../scenes/hub/shared';
 import { defaultData, GAME_ID, sanitizeRideData, TOP_STEP, type PendingRound, type RideData } from './data';
 import {
@@ -302,6 +302,9 @@ export function createRideFareScene(services: AppServices): RideFareScene {
   /** Places whose coins came from the swap stand show their dots inside (step 7). */
   const pDots = new Uint8Array(MAX_PLACES), pExtra = new Uint8Array(MAX_PLACES);
   let nPlaces = 0;
+  /** Mouse hover, eased 0 to 1: each tray place (a coin to pick up), each drop target under a carried coin, the corner Home. */
+  const placeHover = new Float32Array(MAX_PLACES), targetHover = new Float32Array(3);
+  let homeHover = 0;
   const cupPulse = new Float32Array(MAX_CUPS).fill(9), cupX = new Float32Array(MAX_CUPS), cupY = new Float32Array(MAX_CUPS);
   const have = new Int32Array(3);
   /** Coins of each kind the fare box took for the current rider. */
@@ -1377,8 +1380,26 @@ export function createRideFareScene(services: AppServices): RideFareScene {
         ctx.beginPath(); ctx.moveTo(x - 15 * u, ty - 20 * u); ctx.lineTo(x + 15 * u, ty - 20 * u); ctx.lineTo(x, ty); ctx.closePath();
         ctx.fillStyle = HIGHLIGHT; ctx.fill(); ctx.lineWidth = 3 * u; ctx.strokeStyle = OUTLINE; ctx.stroke();
       }
-      coin(ctx, kind, 0, x, y, 1, 0, 1);
-      if (pDots[p]) coinDots(ctx, kind, x, y, 1, 1);
+      // Mouse hover: a soft cream ring and a slight swell on the coin a press would pick up.
+      const hv = placeHover[p]!;
+      if (hv > 0.01) {
+        ctx.globalAlpha = 0.5 * hv; ctx.beginPath(); ctx.arc(x, y, d * 0.5 + 7 * u, 0, Math.PI * 2);
+        ctx.lineWidth = 6 * u; ctx.strokeStyle = '#fff8b2'; ctx.stroke(); ctx.globalAlpha = 1;
+      }
+      const hs = 1 + hv * 0.08;
+      coin(ctx, kind, 0, x, y, hs, 0, 1);
+      if (pDots[p]) coinDots(ctx, kind, x, y, 1, hs);
+    }
+  }
+  /** Mouse hover while carrying a coin: a soft cream outline round the drop target under the pointer. */
+  function renderTargetHover(ctx: CanvasRenderingContext2D): void {
+    for (let t = 0; t < 3; t++) {
+      const k = targetHover[t]!; if (k <= 0.01) continue;
+      let x0 = zoneX0, y0 = zoneY0, x1 = zoneX1, y1 = zoneY1;
+      if (t === T_STAND) { x0 = sZoneX0; y0 = sZoneY0; x1 = sZoneX1; y1 = sZoneY1; }
+      else if (t === T_PAWS) { x0 = pawsX0; y0 = pawsY0; x1 = pawsX1; y1 = pawsY1; }
+      ctx.globalAlpha = 0.55 * k; ctx.beginPath(); ctx.roundRect(x0 + 4, y0 + 4, x1 - x0 - 8, y1 - y0 - 8, 18 * u);
+      ctx.lineWidth = 6 * u; ctx.strokeStyle = '#fff8b2'; ctx.stroke(); ctx.globalAlpha = 1;
     }
   }
   /** Dots on a coin, one per cent of its value, as a ring (a penny's one dot in the middle), `k` of the coin's size. */
@@ -1596,6 +1617,7 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     if (gateAt() !== gateX) renderGate(ctx);
     renderTray(ctx);
     renderFlights(ctx);
+    renderTargetHover(ctx);
     if (carry.active) { if (carry.keyed) renderKeyCarry(ctx); else coin(ctx, carry.kind, 0, input.pointer.x, input.pointer.y, 1.12, 0, 1); }
     particles.render(ctx);
     renderHand(ctx);
@@ -1669,8 +1691,14 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     }
   }
   function drawCorners(ctx: CanvasRenderingContext2D): void {
-    chunkyCircle(ctx, homeX, cornerY, cornerRadius, '#a8d58f', OUTLINE, 4);
-    drawSprite(ctx, sprites, BUTTON_HOME, homeX, cornerY, Math.round(cornerRadius * 1.3));
+    // Mouse hover: a slight swell and a soft cream ring; the icon keeps its baked size and scales by transform.
+    const hs = 1 + homeHover * 0.08, hr = cornerRadius * hs;
+    if (homeHover > 0.01) {
+      ctx.globalAlpha = 0.45 * homeHover; ctx.beginPath(); ctx.arc(homeX, cornerY, hr + 7, 0, Math.PI * 2);
+      ctx.lineWidth = 6; ctx.strokeStyle = '#fff8b2'; ctx.stroke(); ctx.globalAlpha = 1;
+    }
+    chunkyCircle(ctx, homeX, cornerY, hr, '#a8d58f', OUTLINE, 4);
+    drawSprite(ctx, sprites, BUTTON_HOME, homeX, cornerY, Math.round(cornerRadius * 1.3), 0, hs, hs);
     soundButton.render(ctx, sprites);
     if (cornerFocus >= 0) focusRing(ctx, cornerFocus === 0 ? homeX : soundX, cornerY, cornerRadius);
   }
@@ -1773,6 +1801,33 @@ export function createRideFareScene(services: AppServices): RideFareScene {
       carry.sticky = true; return; // Click then target: the coin follows the pointer until the next press.
     }
     release(x, y);
+  }
+  /** What a press at x, y would do now, with the same gates as handleInput's pointerdown and pointerDown. */
+  function hoverAt(x: number, y: number): CursorHover {
+    if (soundButton.contains(x, y)) return null;
+    if (Math.hypot(x - homeX, y - cornerY) <= cornerRadius) return 'press';
+    if (phase === 'celebration') return celebrationLocked() ? null : 'press';
+    if (playable() && carry.active) return 'carry';
+    if (performance.now() < inputAfter) return null;
+    if (playable()) {
+      // A press while the balloon is away or on a target with no coin only makes things hop: nothing to act on.
+      if (riderPhase !== 'pay' || introStage === 1) return null;
+      return grabbable(placeAt(x, y)) ? 'grab' : null;
+    }
+    if (phase === 'choice' || phase === 'rest') return hoverMenu(x, y) >= 0 ? 'press' : null;
+    return null;
+  }
+  const grabbable = (p: number): boolean => p >= 0 && !busy() && available(p);
+  /** Ease the hover looks toward the mouse: the coin a press would pick up, the target under a carried coin, Home. */
+  function updateHover(dt: number): void {
+    const pt = input.pointer, mouse = pt.inside && pt.type === 'mouse' && !soundButton.contains(pt.x, pt.y);
+    const home = mouse && Math.hypot(pt.x - homeX, pt.y - cornerY) <= cornerRadius;
+    const live = mouse && !home && playable() && riderPhase === 'pay' && introStage !== 1 && performance.now() >= inputAfter;
+    const p = live && !carry.active ? placeAt(pt.x, pt.y) : -1, over = p >= 0 && grabbable(p) ? p : -1;
+    const t = live && carry.active && !carry.keyed ? targetAt(pt.x, pt.y) : -1;
+    for (let i = 0; i < MAX_PLACES; i++) placeHover[i] = approach(placeHover[i]!, i === over ? 1 : 0, 14, dt);
+    for (let i = 0; i < 3; i++) targetHover[i] = approach(targetHover[i]!, i === t ? 1 : 0, 14, dt);
+    homeHover = approach(homeHover, home ? 1 : 0, 14, dt);
   }
   function keyPlay(code: string): void {
     idleT = 0; interruptHand();
@@ -1920,10 +1975,12 @@ export function createRideFareScene(services: AppServices): RideFareScene {
       releaseArt(); sprites.clearScaled(BG); bgCanvas = undefined; sizeKey = ''; madeName = ''; bakedTray = ''; trayCanvas = undefined;
     },
     resize: layout,
+    hoverAt,
     update(dt) {
       const started = performance.now(); sceneT += dt;
       syncSoundIcon(soundButton, services); soundButton.update(dt, input.pointer.x, input.pointer.y);
       if (playable()) updatePlay(dt); else updateResult(dt);
+      updateHover(dt);
       askIdle(); updateFlights(dt); particles.update(dt);
       updateMs += performance.now() - started;
     },
