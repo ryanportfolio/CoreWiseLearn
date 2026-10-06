@@ -132,6 +132,8 @@ export interface VoicePlayer {
   busy(): boolean;
   /** Loudness of the clip playing now, 0..1; 0 when silent. Reads the measured curve; no allocation. */
   speakingLevel(): number;
+  /** Seconds of the clip playing now that have been heard (output latency allowed for), or -1 when silent. */
+  elapsed(): number;
   /** Index into the running sequence of the clip it last started, or -1. */
   readonly sequenceIndex: number;
   /** Name of the clip playing, or '' when silent. */
@@ -373,6 +375,9 @@ function createVoicePlayer(audio: Audio): VoicePlayer {
       const a = env[i] ?? 0;
       const b = i + 1 < env.length ? (env[i + 1] ?? 0) : 0;
       return a + (b - a) * (x - i);
+    },
+    elapsed() {
+      return isSpeaking() ? Math.max(0, heardTime()) : -1;
     },
     get sequenceIndex() {
       return seqIndex;
