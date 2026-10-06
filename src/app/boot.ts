@@ -9,6 +9,7 @@ import { createCanvas } from '../engine/canvas';
 import { createLoop } from '../engine/loop';
 import { createInput } from '../engine/input';
 import { createAudio } from '../engine/audio';
+import { prepareNoise } from '../audio/voices';
 import { createSceneManager, type SceneContext } from '../engine/scene';
 import { createSaveStore } from '../engine/save';
 import { registerSaveValidators } from '../engine/registry';
@@ -39,6 +40,8 @@ export function bootApp(options: BootOptions = {}): AppServices {
   const canvas = createCanvas(element);
   const input = createInput(element);
   const audio = createAudio(config.masterTrimDb);
+  // The shared noise for pops and clicks, built in idle time instead of on the first pop's frame.
+  audio.onUnlock(() => { if (audio.context) prepareNoise(audio.context); });
   const scenes = createSceneManager(input);
   const cursor = createCursor(element, input, scenes, config.uiScale);
   // Every game's save check must be in place before the stored save is read.

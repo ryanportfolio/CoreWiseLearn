@@ -27,22 +27,72 @@ export function pentaMidi(degree: number, base = 60): number {
 }
 
 const NOISE_SECONDS = 2;
+/** Samples filled per idle slice while the noise is built ahead. */
+const NOISE_SLICE = 8192;
 const noiseCache = new WeakMap<BaseAudioContext, AudioBuffer>();
 
-/** Two seconds of mono white noise, generated once per context. */
-export function noiseBuffer(ctx: BaseAudioContext): AudioBuffer {
-  let buf = noiseCache.get(ctx);
-  if (buf) return buf;
-  buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * NOISE_SECONDS), ctx.sampleRate);
-  const data = buf.getChannelData(0);
+/** Noise being filled in idle time: the next sample to write and the generator state there. */
+interface NoiseBuild {
+  buf: AudioBuffer;
+  data: Float32Array;
+  i: number;
+  seed: number;
+}
+const noiseBuilds = new WeakMap<BaseAudioContext, NoiseBuild>();
+
+function noiseBuild(ctx: BaseAudioContext): NoiseBuild {
+  let b = noiseBuilds.get(ctx);
+  if (b) return b;
+  const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * NOISE_SECONDS), ctx.sampleRate);
   // Small LCG so previews render identically every time.
-  let seed = 0x2f6b9a1d;
-  for (let i = 0; i < data.length; i++) {
+  b = { buf, data: buf.getChannelData(0), i: 0, seed: 0x2f6b9a1d };
+  noiseBuilds.set(ctx, b);
+  return b;
+}
+
+/** Fill samples up to `end`; caches the buffer once it is full. */
+function fillNoise(ctx: BaseAudioContext, b: NoiseBuild, end: number): void {
+  const data = b.data;
+  const n = Math.min(end, data.length);
+  let seed = b.seed;
+  let i = b.i;
+  for (; i < n; i++) {
     seed = (seed * 1664525 + 1013904223) >>> 0;
     data[i] = seed / 2147483648 - 1;
   }
-  noiseCache.set(ctx, buf);
-  return buf;
+  b.i = i;
+  b.seed = seed;
+  if (i >= data.length) {
+    noiseCache.set(ctx, b.buf);
+    noiseBuilds.delete(ctx);
+  }
+}
+
+/** Two seconds of mono white noise, generated once per context. Finishes on the spot whatever prepareNoise has not built yet. */
+export function noiseBuffer(ctx: BaseAudioContext): AudioBuffer {
+  const buf = noiseCache.get(ctx);
+  if (buf) return buf;
+  const b = noiseBuild(ctx);
+  fillNoise(ctx, b, b.data.length);
+  return b.buf;
+}
+
+/**
+ * Build the noise in idle time, a slice at a time, so the first noisy sound does not pay for it on its frame
+ * (about 23 ms measured on the first pop). Without requestIdleCallback this does nothing and noiseBuffer builds it
+ * on first use, as before.
+ */
+export function prepareNoise(ctx: BaseAudioContext): void {
+  if (noiseCache.has(ctx) || noiseBuilds.has(ctx) || typeof requestIdleCallback !== 'function') return;
+  const b = noiseBuild(ctx);
+  const step = (deadline: IdleDeadline): void => {
+    if (noiseCache.has(ctx)) return;
+    // A timed-out callback may have no time left; one slice still runs so the build always moves on.
+    do fillNoise(ctx, b, b.i + NOISE_SLICE);
+    while (b.i < b.data.length && deadline.timeRemaining() > 2);
+    if (b.i < b.data.length) requestIdleCallback(step, { timeout: 500 });
+  };
+  requestIdleCallback(step, { timeout: 500 });
 }
 
 export function makeFilter(ctx: BaseAudioContext, type: BiquadFilterType, frequency: number, q: number, dest: AudioNode): BiquadFilterNode {
