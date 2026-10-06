@@ -45,7 +45,7 @@ export const wordClip = (word: string): string => `say-${word.toLowerCase()}`;
  * option) names the sentence by index.
  */
 export function planSentence(params: SentenceTier, last: number, random: () => number, intro: boolean, force = -1): SentencePlan {
-  let index = force >= 0 && force < SENTENCES.length ? force : intro ? SENTENCES.findIndex(s => s.words.join(' ') === INTRO_SENTENCE) : -1;
+  let index = Number.isSafeInteger(force) && force >= 0 && force < SENTENCES.length ? force : intro ? SENTENCES.findIndex(s => s.words.join(' ') === INTRO_SENTENCE) : -1;
   if (index < 0) {
     const pool: number[] = [];
     for (let i = 0; i < SENTENCES.length; i++) if (SENTENCES[i]!.difficulty === params.difficulty && i !== last - 1) pool.push(i);
