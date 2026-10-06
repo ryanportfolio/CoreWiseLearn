@@ -65,6 +65,12 @@ const LU_HOPS = 0.9, LU_MOVE = 1.7, LU_MOVE_END = 2.6, LU_PULSE = 2.7, LU_OFF = 
 const LABEL_TEXT = VALUE.map(v => `${v}¢`);
 /** The dime's size never grows past this, so a carried quarter (1.12 times) stays within its 320 px sprite. */
 const DIME_CAP = 210, CARRY_SCALE = 1.12, CHUTE_SCALE = 0.5;
+/**
+ * A coin coming down the chute, falling to the hay and rolling to its place shows no value tag (at the chute's half size
+ * the numerals would be under 20 px, and a passing tag would cover a resting coin); its tag fades in over TAG_FADE
+ * seconds once it comes to rest.
+ */
+const TAG_FADE = 0.25;
 const HIGHLIGHT = '#fff6a3', GOLD = '#f3c84b';
 const POOL = 16, PARTICLES = 160, MAX_PIGGIES = 4, MAX_SLOTS = 6;
 const CELEBRATION_SECONDS = 4.6, STAR_START = 0.5;
@@ -95,6 +101,8 @@ interface Coin {
   pointed: boolean;
   /** After two misses: the next drop curves into the matching piggy and records nothing. */
   assisted: boolean;
+  /** Seconds since the value tag started to show (it fades in over TAG_FADE); -1 while the coin comes in, untagged. */
+  tagT: number;
 }
 interface Piggy {
   kind: number; color: number; x: number; feet: number; row: number; coins: number;
@@ -235,7 +243,7 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
   const particles = createParticleSystem(PARTICLES);
   const soundButton = createSoundButton(services), soundNames = soundArt(services).map(a => a.name);
   const coins: Coin[] = Array.from({ length: POOL }, () => ({
-    state: OFF, kind: 0, slot: 0, held: 0, x: 0, y: 0, x0: 0, y0: 0, t: 0, dur: 1, angle: 0, wob: 9, piggy: 0, right: false, misses: 0, pointed: false, assisted: false,
+    state: OFF, kind: 0, slot: 0, held: 0, x: 0, y: 0, x0: 0, y0: 0, t: 0, dur: 1, angle: 0, wob: 9, piggy: 0, right: false, misses: 0, pointed: false, assisted: false, tagT: 9,
   }));
   const newPiggy = (): Piggy => ({ kind: 0, color: 0, x: 0, feet: 0, row: 0, coins: 0, happyT: 0, wiggleT: 9, glowT: 0, bumpT: 9, zone: new Float32Array(4) });
   const piggies: Piggy[] = Array.from({ length: MAX_PIGGIES }, newPiggy);
@@ -616,7 +624,7 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
     const ci = freeCoin(); if (ci < 0) return;
     const c = coins[ci]!;
     c.kind = roundKinds[nextCoin++]!; c.slot = slot; c.held = 0; c.t = 0; c.angle = random() * 6; c.wob = 9;
-    c.misses = 0; c.pointed = false; c.assisted = false;
+    c.misses = 0; c.pointed = false; c.assisted = false; c.tagT = -1;
     slotCoin[slot] = ci;
     if (portrait) { c.state = ROLL; c.x0 = -coinD[c.kind]!; c.y0 = rowY; c.x = c.x0; c.y = rowY; c.dur = 0.5 + (slotX[slot]! - c.x0) / (W * 1.4); }
     else { c.state = CHUTE_ROLL; c.dur = 0.55; chutePoint(0); c.x = pos.x; c.y = pos.y; play('tick', 'C', 1, 0.35); }
@@ -747,7 +755,7 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
     for (let i = 0; i < POOL; i++) {
       const c = coins[i]!;
       if (c.state === OFF) continue;
-      c.t += dt; c.wob += dt;
+      c.t += dt; c.wob += dt; if (c.tagT >= 0) c.tagT += dt;
       const d = coinD[c.kind]!;
       switch (c.state) {
         case CHUTE_ROLL: {
@@ -773,7 +781,7 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
           c.x = lerp(c.x0, slotX[c.slot]!, easeOutCubic(k)); c.y = rowY;
           // Rolls like a wheel and comes to rest upright, so the face reads the right way up.
           c.angle = (c.x - slotX[c.slot]!) / (d * 0.5);
-          if (k >= 1) { c.state = REST; c.wob = 0; play('tick', 'C', 2, 0.35); }
+          if (k >= 1) { c.state = REST; c.wob = 0; c.tagT = 0; play('tick', 'C', 2, 0.35); }
           break;
         }
         case REST: restPoint(c); c.x = pos.x; c.y = pos.y; break;
@@ -1106,7 +1114,11 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
   }
 
   // ---------------------------------------------------------------- render
-  function drawCoin(ctx: CanvasRenderingContext2D, c: Coin): void {
+  /** The coin's drawn size and squash this frame, into look. */
+  const look = { size: 0, sx: 1, sy: 1, rot: 0 };
+  /** Whether coin c is still coming in (down the chute, falling, rolling to its place): drawn without a tag. */
+  const entering = (c: Coin): boolean => c.state === CHUTE_ROLL || c.state === FALL || c.state === ROLL;
+  function coinLook(c: Coin): void {
     const d = coinD[c.kind]!;
     let size = d, sx = 1, sy = 1, rot = c.angle;
     switch (c.state) {
@@ -1114,7 +1126,6 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
       case FALL: sx = sy = lerp(CHUTE_SCALE, 1, clamp01(c.t / c.dur)); break;
       case REST: case BACK: {
         if (c.state === REST && c.wob < 0.6) { const w = Math.sin(c.wob * 26) * (1 - c.wob / 0.6); rot += w * 0.12; sy = 1 - Math.abs(w) * 0.08; }
-        if (c.slot >= 0) groundShadow(ctx, c.state === REST ? c.x : slotX[c.slot]!, rowY + d * 0.42, d * 0.42, d * 0.1, c.state === REST ? 0.2 : 0.2 * clamp01(c.t / c.dur));
         break;
       }
       case HELD: size = Math.round(d * CARRY_SCALE); break;
@@ -1129,10 +1140,29 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
       case SLOT: size = Math.round(d * CARRY_SCALE); sx = 0.14; rot = 0; break;
       default: break;
     }
-    drawSprite(ctx, sprites, coinName(c.kind), c.x, c.y, size, rot, sx, sy);
-    // The value tag is part of the coin: it moves, lifts, squashes and flies with it, upright while the coin rolls.
-    const k = size / d;
-    tags.draw(ctx, c.kind, d, c.x, c.y, sx * k, sy * k);
+    look.size = size; look.sx = sx; look.sy = sy; look.rot = rot;
+  }
+  /** Coin c's front; with `tag`, its value tag too (tray coins draw their tags in a later pass, over every coin). */
+  function drawCoin(ctx: CanvasRenderingContext2D, c: Coin, tag = true): void {
+    const d = coinD[c.kind]!;
+    if ((c.state === REST || c.state === BACK) && c.slot >= 0) groundShadow(ctx, c.state === REST ? c.x : slotX[c.slot]!, rowY + d * 0.42, d * 0.42, d * 0.1, c.state === REST ? 0.2 : 0.2 * clamp01(c.t / c.dur));
+    coinLook(c);
+    drawSprite(ctx, sprites, coinName(c.kind), c.x, c.y, look.size, look.rot, look.sx, look.sy);
+    if (tag) drawTag(ctx, c);
+  }
+  /**
+   * Coin c's value tag, part of the coin: it moves, lifts, squashes and flies with it, upright while the coin turns. None
+   * while the coin comes in; it fades in as the coin comes to rest.
+   */
+  function drawTag(ctx: CanvasRenderingContext2D, c: Coin): void {
+    if (entering(c)) return;
+    const d = coinD[c.kind]!, fade = c.state === REST && c.tagT >= 0 && c.tagT < TAG_FADE ? c.tagT / TAG_FADE : 1;
+    if (fade <= 0) return;
+    coinLook(c);
+    const k = look.size / d;
+    if (fade < 1) ctx.globalAlpha = fade;
+    tags.draw(ctx, c.kind, d, c.x, c.y, look.sx * k, look.sy * k);
+    if (fade < 1) ctx.globalAlpha = 1;
   }
   /**
    * mode 0 play, 1 celebration dance (piggy `index` in turn), 2 still rest. `part`: 0 the whole piggy, 1 its body only,
@@ -1180,8 +1210,11 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
     const top = n - 1;
     tags.draw(ctx, pg.kind, d, x + (top % 2 ? 0.05 : -0.05) * d, stackTagY(base - top * d * 0.22, d), 1, 1);
   }
-  /** Where a flat-lying stack coin centred at `y` puts its upright tag's coin centre, so the tag meets its lower edge. */
-  const stackTagY = (y: number, d: number): number => y - d * (1 - STACK_SY) / 2;
+  /**
+   * Where a flat-lying stack coin centred at `y` puts its upright tag's coin centre: the tag meets its lower edge and
+   * overlaps it only STACK_SY of the usual depth, so the flattened coin's face stays clear above the tag.
+   */
+  const stackTagY = (y: number, d: number): number => y - d * (1 - STACK_SY) / 2 + tags.over(d) * (1 - STACK_SY);
   /** Each step's value on its front face: the label (steps 7 and 8) and the dots in rows of five, each row in a groove. */
   function drawValues(ctx: CanvasRenderingContext2D): void {
     if (!dotCanvas || !litCanvas || !groove5 || !groove1) return;
@@ -1246,10 +1279,10 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
   }
   function renderPlay(ctx: CanvasRenderingContext2D): void {
     drawScenery(ctx, false);
-    for (let i = 0; i < POOL; i++) {
-      const c = coins[i]!;
-      if (c.state === CHUTE_ROLL || c.state === FALL || c.state === ROLL || c.state === REST || c.state === BACK) drawCoin(ctx, c);
-    }
+    // Coins coming in pass behind the resting ones; every tray coin's tag is drawn after all the coins, so no coin or
+    // passing tag ever covers a resting coin's tag or face.
+    for (let i = 0; i < POOL; i++) { const c = coins[i]!; if (entering(c)) drawCoin(ctx, c, false); }
+    for (let i = 0; i < POOL; i++) { const c = coins[i]!; if (c.state === REST || c.state === BACK) drawCoin(ctx, c, false); }
     if (lineup.active) drawLineup(ctx);
     drawChick(ctx);
     // The highlighted coin (keyboard default; a press on a piggy sends it) and, while a coin is held, its piggy.
@@ -1257,9 +1290,8 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
     if (keyMode === 'coin' && resting(fc) && hand.mode !== 1) {
       const c = coins[fc]!, d = coinD[c.kind]!;
       ring(ctx, c.x, c.y, d * 0.56, d * 0.56); arrow(ctx, c.x, c.y - d * 0.62);
-      // The ring crosses the coin's value tag: the tag goes back on top so it stays whole.
-      tags.draw(ctx, c.kind, d, c.x, c.y, 1, 1);
     }
+    for (let i = 0; i < POOL; i++) { const c = coins[i]!; if (c.state === REST || c.state === BACK) drawTag(ctx, c); }
     const held = heldCoin();
     if (held >= 0) {
       const c = coins[held]!, p = keyMode === 'piggy' ? focusPiggy : piggyAt(c.x, c.y);
@@ -1548,7 +1580,7 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
       for (const c of coins) {
         if (c.state === OFF) continue;
         const d = coinD[c.kind]!, scale = c.state === CHUTE_ROLL ? CHUTE_SCALE : c.state === HELD || c.state === FLY || c.state === SLOT ? CARRY_SCALE : 1;
-        out.push({ kind: COIN_NAMES[c.kind]!, face: 'heads', x: c.x, y: c.y, d: Math.round(d * scale), state: STATE_NAMES[c.state]!, tag: tags.text(c.kind), tagInk: tags.ink(d) * scale });
+        out.push({ kind: COIN_NAMES[c.kind]!, face: 'heads', x: c.x, y: c.y, d: Math.round(d * scale), state: STATE_NAMES[c.state]!, tag: entering(c) ? '' : tags.text(c.kind), tagInk: entering(c) ? 0 : tags.ink(d) * scale });
       }
       if (phase === 'play') {
         for (let i = 0; i < pigCount; i++) {

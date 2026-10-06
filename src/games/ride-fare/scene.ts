@@ -39,8 +39,13 @@ const ANIMAL_NAMES = ANIMALS.map(a => [`${ART}${a}-wait`, `${ART}${a}-wave`] as 
 const COIN_FRONTS = COIN_NAMES.map(c => `${ART}coin-${c}-heads`);
 /** Value tags in the fare plate's numerals (Andika 700, deep brown), planned at 21 CSS px so they draw at least 20. */
 const TAG_WEIGHT = 700, TAG_MIN_INK = 21;
-/** An empty place still says what it holds: the coin's front faint, its value tag clear. */
-const GHOST_ALPHA = 0.3, GHOST_TAG_ALPHA = 0.85;
+/**
+ * An empty place still says what it holds, drawn as a place and not a coin (as in Coin Count Vault): a dashed ring, the
+ * coin's front at EMPTY_ALPHA and its value tag at EMPTY_TAG_ALPHA, so it never reads as one more coin to count.
+ */
+const EMPTY_ALPHA = 0.18, EMPTY_TAG_ALPHA = 0.35;
+/** Value tags waiting for the end of a group's coins (tray, plate, swap stand, paws): at most this many at once. */
+const TAG_QUEUE = 48;
 const NUMBER_CLIPS = Array.from({ length: 100 }, (_, n) => `number-${n}` as const);
 
 // Measured once from the sprites' pixels (round 2), as fractions of each image.
@@ -335,9 +340,16 @@ export function createRideFareScene(services: AppServices): RideFareScene {
   /** Baked cups per look (unlit, lit, change): full-size cups for the grids and small ones for step 6's rows. */
   const cupCanvas: (HTMLCanvasElement | undefined)[] = [undefined, undefined, undefined], smallCanvas: (HTMLCanvasElement | undefined)[] = [undefined, undefined, undefined];
   let glowCanvas: HTMLCanvasElement | undefined, dotCanvas: HTMLCanvasElement | undefined;
-  let ringStand: HTMLCanvasElement | undefined, ringStand2: HTMLCanvasElement | undefined, ringPlace: HTMLCanvasElement | undefined, digitsBig: HTMLCanvasElement | undefined, digitsLit: HTMLCanvasElement | undefined;
+  let ringStand: HTMLCanvasElement | undefined, ringStand2: HTMLCanvasElement | undefined, digitsBig: HTMLCanvasElement | undefined, digitsLit: HTMLCanvasElement | undefined;
   const digitX = new Float32Array(GLYPHS.length), digitW = new Float32Array(GLYPHS.length);
   let artRatio = 0, glowSize = 0, dotSize = 0, bakedCupR = 0, bakedSmallR = 0, bakedTray = '', bakedRing = '', bakedDigits = 0, digitPad = 0;
+  /** Dashed rings round an empty tray place, one per coin kind, and round the empty paws. */
+  const placeRing: (HTMLCanvasElement | undefined)[] = [undefined, undefined, undefined];
+  let pawsRing: HTMLCanvasElement | undefined, bakedPlaceRing = '';
+  /** Queued value tags: kind, size key, centre, scale and alpha, drawn by flushTags after the group's coins. */
+  const tagKind = new Int8Array(TAG_QUEUE), tagD = new Float32Array(TAG_QUEUE), tagX = new Float32Array(TAG_QUEUE), tagY = new Float32Array(TAG_QUEUE);
+  const tagSx = new Float32Array(TAG_QUEUE), tagSy = new Float32Array(TAG_QUEUE), tagA = new Float32Array(TAG_QUEUE);
+  let tagN = 0, deferTags = false;
   let phase: Phase = 'play', tier: Tier = 0, intro = false, introStage = 0, animalOffset = 0;
   let riderPhase: RiderPhase = 'enter', riderT = 0, seqT = 0, riderIndex = 0, ridersTotal = 3, enterSeconds = 1;
   let plan: RiderPlan = introRider(), fare = 0, lit = 0, reserved = 0, pourLeft = 0, pourTimer = 0, pourGap = POUR_GAP, plateN = 0, lastFare = 0;
@@ -461,7 +473,13 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     const ringKey = `${coinD[PENNY]}/${standW}@${artRatio}`;
     if (roundPanel() && ringKey !== bakedRing) {
       bakedRing = ringKey;
-      ringStand = bakeRing(standCoinD(5), artRatio, PLATE_LINE); ringStand2 = bakeRing(standCoinD(2), artRatio, PLATE_LINE); ringPlace = bakeRing(coinD[NICKEL]! * 0.96, artRatio, PLATE_LINE);
+      ringStand = bakeRing(standCoinD(5), artRatio, PLATE_LINE); ringStand2 = bakeRing(standCoinD(2), artRatio, PLATE_LINE);
+    }
+    const placeKey = `${coinD[PENNY]}/${coinD[NICKEL]}/${coinD[DIME]}@${artRatio}`;
+    if (placeKey !== bakedPlaceRing) {
+      bakedPlaceRing = placeKey;
+      for (let k = 0; k < 3; k++) placeRing[k] = bakeRing(Math.round(coinD[k]! * 1.06), artRatio, PLATE_LINE);
+      pawsRing = bakeRing(Math.round(pawsD() * 1.06), artRatio, PLATE_LINE);
     }
     if (roundPanel() && (!digitsBig || reratio || numPx !== bakedDigits)) {
       bakedDigits = numPx; digitPad = Math.ceil(numPx * 0.12);
@@ -876,8 +894,8 @@ export function createRideFareScene(services: AppServices): RideFareScene {
       launch(take ? TO_STAND : BACK_STAND, kind, 1, place, fromX, fromY, pos.x, pos.y, take ? TO_SECONDS : TO_SECONDS + BACK_HOLD + BACK_HOP);
     } else if (target === T_PAWS) {
       take = kind === PENNY && animalPaid && changeReserved < changeOwed;
-      if (take) changeReserved++;
-      launch(take ? TO_PAWS : BACK_PAWS, kind, 1, place, fromX, fromY, pawsCX(), pawsCY(), take ? TO_SECONDS : TO_SECONDS + BACK_HOLD + BACK_HOP);
+      if (take) { changeReserved++; pawsSpot(changeReserved - 1); } else { pos.x = pawsCX(); pos.y = pawsCY(); }
+      launch(take ? TO_PAWS : BACK_PAWS, kind, 1, place, fromX, fromY, pos.x, pos.y, take ? TO_SECONDS : TO_SECONDS + BACK_HOLD + BACK_HOP);
     } else {
       if (usesPlate()) {
         for (let k = 0; k < plateN; k++) if (plateState[k] === 0 && plateKind[k] === kind) { plateState[k] = 1; take = true; break; }
@@ -1305,13 +1323,29 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     note(COIN_FRONTS[kind]!, d * scale, 384);
     if (base === 0) return;
     const b = base < 0 ? d : base, k = d * scale / b;
-    tags.draw(ctx, kind, b, x, y, sx * k, k);
+    tag(ctx, kind, b, x, y, sx * k, k, ctx.globalAlpha);
   }
-  /** An empty place's coin `d` across: its front faint and its value tag clear, `a` of their full strength. */
-  function ghostCoin(ctx: CanvasRenderingContext2D, kind: number, x: number, y: number, d: number, a: number): void {
-    ctx.globalAlpha = GHOST_ALPHA * a; drawSprite(ctx, sprites, COIN_FRONTS[kind]!, x, y, coinD[kind]!, 0, d / coinD[kind]!, d / coinD[kind]!);
-    ctx.globalAlpha = GHOST_TAG_ALPHA * a; tags.draw(ctx, kind, d, x, y, 1, 1);
+  /**
+   * A value tag: drawn now, or, between deferTags = true and flushTags, queued so a group's tags all draw upright on top
+   * of all its coins and no coin ever covers part of a tag.
+   */
+  function tag(ctx: CanvasRenderingContext2D, kind: number, d: number, x: number, y: number, sx: number, sy: number, a: number): void {
+    if (!deferTags || tagN >= TAG_QUEUE) { const was = ctx.globalAlpha; ctx.globalAlpha = a; tags.draw(ctx, kind, d, x, y, sx, sy); ctx.globalAlpha = was; return; }
+    tagKind[tagN] = kind; tagD[tagN] = d; tagX[tagN] = x; tagY[tagN] = y; tagSx[tagN] = sx; tagSy[tagN] = sy; tagA[tagN] = a; tagN++;
+  }
+  function flushTags(ctx: CanvasRenderingContext2D): void {
+    for (let i = 0; i < tagN; i++) { ctx.globalAlpha = tagA[i]!; tags.draw(ctx, tagKind[i]!, tagD[i]!, tagX[i]!, tagY[i]!, tagSx[i]!, tagSy[i]!); }
+    ctx.globalAlpha = 1; tagN = 0; deferTags = false;
+  }
+  /**
+   * An empty place for a coin `d` across: the dashed `ring` (when given), the coin's front at EMPTY_ALPHA and its value
+   * tag at EMPTY_TAG_ALPHA, `a` of their full strength.
+   */
+  function ghostCoin(ctx: CanvasRenderingContext2D, kind: number, x: number, y: number, d: number, a: number, ring?: HTMLCanvasElement): void {
+    if (ring) { const g = ring.width / artRatio; ctx.globalAlpha = a; ctx.drawImage(ring, x - g / 2, y - g / 2, g, g); }
+    ctx.globalAlpha = EMPTY_ALPHA * a; drawSprite(ctx, sprites, COIN_FRONTS[kind]!, x, y, coinD[kind]!, 0, d / coinD[kind]!, d / coinD[kind]!);
     ctx.globalAlpha = 1;
+    tag(ctx, kind, d, x, y, 1, 1, EMPTY_TAG_ALPHA * a);
   }
   function animal(ctx: CanvasRenderingContext2D, a: number, pose: number, x: number, feet: number, h: number, scale: number, rot = 0, sx = 1): void {
     const name = ANIMAL_NAMES[a % ANIMALS.length]![pose]!, img = sprites.get(name);
@@ -1401,31 +1435,33 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     const step = (x1 - x0 - 2 * pad) / Math.max(plateN, 2.2), base = plateNickel(plateN) / coinD[NICKEL]!;
     // Each picture carries its value tag; the coins sit a little high so coin and tag are centred together.
     const cy = (y0 + y1) / 2 - tags.hang(plateD(NICKEL, plateN)) / 2;
+    deferTags = true;
     for (let k = 0; k < plateN; k++) {
       const kind = plateKind[k]!, cx = (x0 + x1) / 2 + (k - (plateN - 1) / 2) * step, d = coinD[kind]! * base, state = plateState[k]!;
       const p = platePulse[k]!, sc = p < 0.3 ? 1 + Math.sin(p / 0.3 * Math.PI) * 0.2 : 1;
       if (state === 2 && glowCanvas) { const g = d * 1.7; ctx.drawImage(glowCanvas, cx - g / 2, cy - g / 2, g, g); }
       if (state !== 2) {
         ctx.beginPath(); ctx.arc(cx, cy, d * 0.56, 0, Math.PI * 2); ctx.setLineDash(DASH); ctx.lineWidth = Math.max(2, 3 * u); ctx.strokeStyle = PLATE_LINE; ctx.stroke(); ctx.setLineDash(NO_DASH);
-        // An unpaid picture: the coin faint, its value tag clear.
-        ctx.globalAlpha = 0.55; coin(ctx, kind, cx, cy, base * sc, 0, 1, 0);
-        ctx.globalAlpha = GHOST_TAG_ALPHA; tags.draw(ctx, kind, plateD(kind, plateN), cx, cy, sc, sc);
+        // An unpaid picture says "a coin goes here", like an empty place: inside its dashed ring, the coin and its tag faint.
+        ctx.globalAlpha = EMPTY_ALPHA; coin(ctx, kind, cx, cy, base * sc, 0, 1, 0); ctx.globalAlpha = 1;
+        tag(ctx, kind, plateD(kind, plateN), cx, cy, sc, sc, EMPTY_TAG_ALPHA);
       } else coin(ctx, kind, cx, cy, base * sc, 0, 1, plateD(kind, plateN));
       ctx.globalAlpha = 1;
       // Step 7: the wanted coin shows its value as dots, like the coin the swap stand makes.
       if (plan.swap) coinDots(ctx, kind, cx, cy, state === 2 ? 1 : 0.85, base * sc);
     }
+    flushTags(ctx);
   }
   function renderTray(ctx: CanvasRenderingContext2D): void {
     if (trayCanvas) ctx.drawImage(trayCanvas, trayX, trayY, trayW, trayH);
+    // Coins first, then every value tag on top of all of them (a stack's top coin's only).
+    deferTags = true;
     for (let p = 0; p < nPlaces; p++) {
       // A soft round well under each place.
       ctx.beginPath(); ctx.ellipse(pX[p]!, pY[p]! + coinD[pKind[p]!]! * 0.06, coinD[pKind[p]!]! * 0.56, coinD[pKind[p]!]! * 0.52, 0, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(70, 30, 10, 0.22)'; ctx.fill();
-      // Step 7: an empty place waits for the coin the swap stand makes.
-      if (pExtra[p] && pCount[p]! <= 0 && ringPlace) { const g = ringPlace.width / artRatio; ctx.drawImage(ringPlace, pX[p]! - g / 2, pY[p]! - g / 2, g, g); }
-      // An empty place still says what it holds: its coin's front, faint, and its value tag.
-      if (pCount[p]! <= 0 && !arriving(p)) ghostCoin(ctx, pKind[p]!, pX[p]!, pY[p]!, coinD[pKind[p]!]!, 1);
+      // An empty place (one emptied, or one waiting for the coin the swap stand makes) still says what it holds.
+      if (pCount[p]! <= 0 && !arriving(p)) ghostCoin(ctx, pKind[p]!, pX[p]!, pY[p]!, coinD[pKind[p]!]!, 1, placeRing[pKind[p]!]);
     }
     const showFocus = playable() && riderPhase === 'pay' && !carry.active && hand.mode !== HAND_DEMO;
     for (let p = 0; p < nPlaces; p++) {
@@ -1453,6 +1489,7 @@ export function createRideFareScene(services: AppServices): RideFareScene {
       coin(ctx, kind, x, y, hs, 0, 1);
       if (pDots[p]) coinDots(ctx, kind, x, y, 1, hs);
     }
+    flushTags(ctx);
   }
   /** Whether place p's coins are still sliding onto the tray (a new rider's, before they first land). */
   function arriving(p: number): boolean {
@@ -1556,27 +1593,30 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     drawSprite(ctx, sprites, STAND, standX + standW / 2, standY + standH / 2 - hop, standH);
     note(STAND, standW, 582);
     const merging = mergeT >= 0 && mergeT < MERGE_AT, mode = merging ? standKind : standMode(), n = standNeed(mode), d = standCoinD(n);
+    deferTags = true;
     if (mergeT >= MERGE_AT) {
       // The new coin, with its dots glowing inside, pops in the middle of the stand.
       const k = clamp01((mergeT - MERGE_AT) / 0.25), sc = (standCoinD(2) / coinD[standKind]!) * (1 + Math.sin(k * Math.PI) * 0.2);
       const cx = standX + standW / 2, cy = standY + standH * STAND_TABLE - standCoinD(2) * 0.55 - hop;
       if (glowCanvas) { const g = standCoinD(2) * 1.8; ctx.drawImage(glowCanvas, cx - g / 2, cy - g / 2, g, g); }
       coin(ctx, standKind, cx, cy, sc, 0, 1, standCoinD(2)); coinDots(ctx, standKind, cx, cy, 1, sc);
+      flushTags(ctx);
       return;
     }
-    if (!merging && !standOpen()) return;
+    if (!merging && !standOpen()) { flushTags(ctx); return; }
     const ring = n === 5 ? ringStand : ringStand2, slide = merging ? easeInOutSine(clamp01((mergeT - MERGE_SLIDE_AT) / (MERGE_AT - MERGE_SLIDE_AT))) : 0;
     for (let i = 0; i < n; i++) {
       standSlot(i, n); const x = pos.x, y = pos.y - hop;
       if (i >= standCount) {
-        // An empty circle says which coin goes there: the dashed ring with the coin's front, faint, and its value tag.
-        if (ring && !merging) { const g = ring.width / artRatio; ctx.drawImage(ring, x - g / 2, y - g / 2, g, g); ghostCoin(ctx, mode, x, y, d, 1); }
+        // An empty circle says which coin goes there: the dashed ring with the coin's front and its value tag, faint.
+        if (ring && !merging) ghostCoin(ctx, mode, x, y, d, 1, ring);
         continue;
       }
       // Merging, the coins slide together to the middle.
       const cx = lerp(x, standX + standW / 2, slide), sc = d / coinD[standKind]!;
       coin(ctx, standKind, cx, y, sc, 0, 1, d); coinDots(ctx, standKind, cx, y, 1, sc);
     }
+    flushTags(ctx);
   }
   /** Step 8: a warm glow at the animal's paws while change is owed, and the pennies handed back so far. */
   function renderPaws(ctx: CanvasRenderingContext2D): void {
@@ -1587,10 +1627,25 @@ export function createRideFareScene(services: AppServices): RideFareScene {
       ctx.drawImage(glowCanvas, cx - g / 2, cy - g / 2, g, g); ctx.globalAlpha = 1;
     }
     const sc = pawsD() / coinD[PENNY]!, d = pawsD();
-    // The pennies handed back make one pile: one tag on its top penny (the last drawn), so the tags never pile up.
-    for (let i = 0; i < back; i++) coin(ctx, PENNY, cx + (i - (back - 1) / 2) * d * 0.55, cy + d * 0.35 - hop - i * 2 * u, sc, 0, 1, i === back - 1 ? d : 0);
-    // While change is owed and the paws are still empty, they say what they take: a faint penny with its tag.
-    if (animalPaid && back === 0 && changeReserved < changeOwed) ghostCoin(ctx, PENNY, cx, cy + d * 0.35 - hop, d, 1);
+    // Every penny handed back sits in its own spot with its own tag, spaced so no tag covers another (pawsSpot).
+    deferTags = true;
+    for (let i = 0; i < back; i++) { pawsSpot(i); coin(ctx, PENNY, pos.x, pos.y - hop, sc, 0, 1, d); }
+    // While change is owed and the paws are still empty, they say what they take: an empty place for a penny.
+    if (animalPaid && back === 0 && changeReserved < changeOwed) { pawsSpot(0); ghostCoin(ctx, PENNY, pos.x, pos.y - hop, d, 1, pawsRing); }
+    flushTags(ctx);
+  }
+  /**
+   * Spot i of the change pennies in the paws, into pos: up to five in a row (six or more split into two rows, the second
+   * above the first), the pitch wide enough for the penny's tag, kept inside the window and clear of the basket (drawn
+   * over the paws when the rider stands at the gate).
+   */
+  function pawsSpot(i: number): void {
+    const d = pawsD(), n = Math.max(1, changeOwed), perRow = n <= 5 ? n : Math.ceil(n / 2);
+    const pitch = Math.max(d * 1.08, tags.width(PENNY, d) + 6 * u), rowPitch = d + tags.hang(d) + 6 * u;
+    const row = Math.floor(i / perRow), col = i % perRow, m = Math.min(perRow, n - row * perRow);
+    const half = (perRow - 1) / 2 * pitch + Math.max(d, tags.width(PENNY, d)) / 2 + 4;
+    const cx = Math.min(Math.max(pawsCX(), basketL + BW + 4 + half), W - half);
+    pos.x = cx + (col - (m - 1) / 2) * pitch; pos.y = pawsCY() + d * 0.35 - row * rowPitch;
   }
   function handTip(): void {
     const tx = pX[hand.place] ?? W / 2, ty = pY[hand.place] ?? H;

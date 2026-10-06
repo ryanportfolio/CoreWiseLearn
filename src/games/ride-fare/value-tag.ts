@@ -28,6 +28,10 @@ export interface ValueTags {
   ink(d: number): number;
   /** How far the tag reaches below the lower edge of a coin `d` across, in CSS px. */
   hang(d: number): number;
+  /** How far the tag reaches up over the lower edge of a coin `d` across, in CSS px. */
+  over(d: number): number;
+  /** The drawn width of the tag of a coin of `kind` resting `d` across, in CSS px (bakes it if needed). */
+  width(kind: number, d: number): number;
   /** Bake the tag for a coin of `kind` resting `d` across ahead of its first draw. */
   prepare(kind: number, d: number): void;
   /**
@@ -115,6 +119,8 @@ export function createValueTags(values: readonly number[], ink: string, weight: 
     },
     ink: inkOf,
     hang(d) { const ik = inkOf(d), pillH = ik * TAG_PILL_H; return pillH - overOf(d, pillH) + edge(ik) / 2; },
+    over(d) { return overOf(d, inkOf(d) * TAG_PILL_H); },
+    width(kind, d) { const i = slotOf(kind, d); return i >= 0 ? tw[i]! : 0; },
     prepare(kind, d) { slotOf(kind, d); },
     draw(ctx, kind, d, x, y, sx, sy) {
       const i = slotOf(kind, d), c = i >= 0 ? canvas[i] : undefined; if (!c) return;
