@@ -73,6 +73,8 @@ const S_HIDDEN = 0, S_SHOWN = 1, S_ENTER = 2, S_LEAVE = 3, S_WAIT = 4;
 const SWAP_EVERY = 5, SWAP_FADE = 1.2;
 /** The newest words of the collection always swim, and so does every word made this round. */
 const NEWEST_SHOWN = 4;
+/** Pins keep a swimmer in the water: one of the newest words, or a word made this round. */
+const PIN_NEWEST = 1, PIN_MADE = 2;
 /**
  * How full the open water may get: the swimmers' boxes (picture and label, plus SWIM_GAP all round) cover at most this
  * share of its area. MIN_SWIMMERS holds on the smallest windows, crowded or not.
@@ -224,6 +226,8 @@ export function createWordPot(services: AppServices): WordPot {
     warmScaled(HAND, Math.round(130 * u));
     // The round's pictures are needed only once a word is made, and any word made before may swim in the next round's
     // pond: scale those in idle time, so opening a round decodes no pictures (see warmIdle).
+    // A new layout replaces the queue: requests at an old size are no use now.
+    warmCount = 0;
     for (const c of plan.compounds) { queueWarm(pictureName(c.word), revealSize); queueWarm(pictureName(c.word), swimSize); }
     for (const w of COLLECTION_WORDS) queueWarm(pictureName(w), swimSize);
   }
@@ -238,22 +242,27 @@ export function createWordPot(services: AppServices): WordPot {
    */
   const WARM_MAX = MAX_SWIMMERS + 2 * 8;
   const warmNames: string[] = new Array<string>(WARM_MAX).fill(''), warmSizes = new Float32Array(WARM_MAX);
-  let warmCount = 0, warmHandle = 0;
+  let warmCount = 0, warmHandle = 0, warmStopped = false;
+  /** A slow laptop may never leave 6 ms idle; after this wait one picture is scaled anyway, so swaps never stall. */
+  const WARM_OPTIONS: IdleRequestOptions = { timeout: 1000 };
+  function scheduleWarm(): void { if (!warmHandle && !warmStopped && warmCount > 0) warmHandle = requestIdleCallback(warmIdle, WARM_OPTIONS); }
+  /** Paused or left: no picture work in the background. update() and start() pick the queue up again. */
+  function stopWarm(): void { warmStopped = true; if (warmHandle) cancelIdleCallback(warmHandle); warmHandle = 0; }
   function queueWarm(name: string, size: number): void {
     if (typeof requestIdleCallback !== 'function') { warmScaled(name, size); return; }
     for (let k = 0; k < warmCount; k++) if (warmNames[k] === name && warmSizes[k] === size) return;
     if (warmCount >= WARM_MAX) { warmScaled(name, size); return; }
     warmNames[warmCount] = name; warmSizes[warmCount++] = size;
-    if (!warmHandle) warmHandle = requestIdleCallback(warmIdle);
+    scheduleWarm();
   }
   function warmIdle(deadline: IdleDeadline): void {
     warmHandle = 0;
-    if (warmCount > 0 && deadline.timeRemaining() >= 6) {
+    if (warmCount > 0 && (deadline.didTimeout || deadline.timeRemaining() >= 6)) {
       warmScaled(warmNames[0]!, warmSizes[0]!);
       warmCount--;
       for (let k = 0; k < warmCount; k++) { warmNames[k] = warmNames[k + 1]!; warmSizes[k] = warmSizes[k + 1]!; }
     }
-    if (warmCount > 0) warmHandle = requestIdleCallback(warmIdle);
+    scheduleWarm();
   }
   /** The picture is still waiting in the idle queue (not scaled yet), so drawing it now would decode it in a frame. */
   function warmPending(name: string, size: number): boolean {
@@ -326,6 +335,7 @@ export function createWordPot(services: AppServices): WordPot {
 
   // ---------------------------------------------------------------- round
   function start(next: PotPlan, tier: Tier, isIntro: boolean, withHelp: boolean, collection: readonly string[]): void {
+    warmStopped = false; scheduleWarm();
     plan = next; intro = isIntro; help = withHelp; params = potParams(tier, isIntro);
     finished = false; struggled = false; time = 0; idleT = 0; sinceMade = 0; doneT = -1; dropT = 0; fountainBump = 9; fountainHop = 9;
     made = madeAll = bonks = 0; demoMade = false;
@@ -356,7 +366,7 @@ export function createWordPot(services: AppServices): WordPot {
       if (!seen) addSwimmer(w, S_HIDDEN);
     }
     // Stamps order who comes in and goes out first: random, and below any time this round, so the first swaps follow it.
-    for (let s = 0; s < nSwim; s++) { sPin[s] = s >= nSwim - NEWEST_SHOWN ? 1 : 0; sStamp[s] = -1 - random() * 100; }
+    for (let s = 0; s < nSwim; s++) { sPin[s] = s >= nSwim - NEWEST_SHOWN ? PIN_NEWEST : 0; sStamp[s] = -1 - random() * 100; }
     updateCap();
     for (let s = nSwim - 1; s >= 0; s--) if (sPin[s]) showSwimmer(s, S_SHOWN);
     for (let shown = Math.min(nSwim, NEWEST_SHOWN); shown < pondCap; shown++) {
@@ -462,6 +472,16 @@ export function createWordPot(services: AppServices): WordPot {
     }
     return best;
   }
+  /**
+   * The swimmer a full pond lets go: the one in longest, or, when only pinned swimmers are left (a small pond, a big
+   * round), the oldest of the newest words, which loses its pin. This round's words always stay.
+   */
+  function evictable(): number {
+    const s = longestShown();
+    if (s >= 0) return s;
+    for (let n = 0; n < nSwim; n++) if (sState[n] === S_SHOWN && sPin[n] === PIN_NEWEST && sHop[n]! >= 0.7) { sPin[n] = 0; return n; }
+    return -1;
+  }
   function countInWater(): number {
     let n = 0;
     for (let s = 0; s < nSwim; s++) if (inWater(s)) n++;
@@ -502,7 +522,7 @@ export function createWordPot(services: AppServices): WordPot {
   /** After a resize: hide the swimmers in longest until the water holds them, or bring hidden ones in. No fading. */
   function fitPond(): void {
     let n = countInWater();
-    while (n > pondCap) { const s = longestShown(); if (s < 0) break; sState[s] = S_HIDDEN; sStamp[s] = time; n--; }
+    while (n > pondCap) { const s = evictable(); if (s < 0) break; sState[s] = S_HIDDEN; sStamp[s] = time; n--; }
     while (n < pondCap) { const s = longestHidden(false); if (s < 0) break; showSwimmer(s, S_SHOWN); n++; }
   }
 
@@ -604,9 +624,9 @@ export function createWordPot(services: AppServices): WordPot {
       warmScaled(pictureName(c.word), swimSize);
       if (sState[s] === S_HIDDEN) showSwimmer(s, S_WAIT);
       else if (sState[s] === S_LEAVE) { sState[s] = S_ENTER; sFade[s] = Math.max(0, SWAP_FADE - sFade[s]!); }
-      sPin[s] = 1;
+      sPin[s] = PIN_MADE;
       // A full pond makes room: the swimmer in longest fades out.
-      if (countInWater() > pondCap) { const out = longestShown(); if (out >= 0) startLeave(out); }
+      if (countInWater() > pondCap) { const out = evictable(); if (out >= 0) startLeave(out); }
     }
     rSwim[k] = s;
   }
@@ -630,8 +650,8 @@ export function createWordPot(services: AppServices): WordPot {
     }
     return -1;
   }
-  /** Swimming, or more than half faded in. A fading-out swimmer takes no presses. */
-  const pressableSwimmer = (s: number): boolean => sState[s] === S_SHOWN || (sState[s] === S_ENTER && sFade[s]! >= SWAP_FADE * 0.5);
+  /** Swimming. A fading swimmer is drawn sunk below its press area, so it takes no presses until it is fully in. */
+  const pressableSwimmer = (s: number): boolean => sState[s] === S_SHOWN;
   function swimmerAt(x: number, y: number): number {
     for (let s = nSwim - 1; s >= 0; s--) {
       if (!pressableSwimmer(s)) continue;
@@ -639,7 +659,7 @@ export function createWordPot(services: AppServices): WordPot {
     }
     return -1;
   }
-  const onFountain = (x: number, y: number): boolean => Math.abs(x - fountainX) <= fountainHalfW && y >= fountainTopY && y <= H;
+  const onFountain = (x: number, y: number): boolean => Math.abs(x - fountainX) <= Math.max(48, fountainHalfW) && y >= fountainTopY && y <= H;
   /** A pair of the round still to make, nearest the fountain first: [a, b] into `out`, or false. */
   function nextPair(out: Int8Array): boolean {
     let bestD = Infinity, found = false;
@@ -822,6 +842,7 @@ export function createWordPot(services: AppServices): WordPot {
   }
 
   function update(dt: number): void {
+    if (warmStopped) { warmStopped = false; scheduleWarm(); }
     time += dt; idleT += dt; fountainBump += dt; fountainHop += dt;
     if (doneT < 0 && madeAll < plan.compounds.length && !(intro && !demoMade)) {
       sinceMade += dt;
@@ -1132,13 +1153,13 @@ export function createWordPot(services: AppServices): WordPot {
   const swimmerInfo = (): PotSwimmerInfo[] => {
     const out: PotSwimmerInfo[] = [];
     const names = ['hidden', 'shown', 'entering', 'leaving', 'waiting'] as const;
-    for (let s = 0; s < nSwim; s++) out.push({ word: swimWord[s]!, visible: sState[s] === S_SHOWN || sState[s] === S_ENTER, state: names[sState[s]!]!, pinned: sPin[s] === 1, x: sx[s]!, y: sy[s]!, hit: { x: sx[s]! - swimSize / 2, y: sy[s]! - swimSize / 2, w: swimSize, h: swimSize * 0.95 + labelH }, label: { x: sx[s]! - (labels[s]?.w ?? 0) / 2, y: sy[s]! + swimSize * 0.42, w: labels[s]?.w ?? 0, h: labels[s]?.h ?? 0 } });
+    for (let s = 0; s < nSwim; s++) out.push({ word: swimWord[s]!, visible: sState[s] === S_SHOWN || sState[s] === S_ENTER, state: names[sState[s]!]!, pinned: sPin[s] !== 0, x: sx[s]!, y: sy[s]!, hit: { x: sx[s]! - swimSize / 2, y: sy[s]! - swimSize / 2, w: swimSize, h: swimSize * 0.95 + labelH }, label: { x: sx[s]! - (labels[s]?.w ?? 0) / 2, y: sy[s]! + swimSize * 0.42, w: labels[s]?.w ?? 0, h: labels[s]?.h ?? 0 } });
     return out;
   };
 
   const pot: WordPot = {
     start, layout, update, render, drawFountain, pointerDown, pointerMove, hoverAt, hover, key,
-    stop() { hand.mode = hand.mode === HAND_DEMO ? HAND_DEMO : 0; pointerX = -1; },
+    stop() { hand.mode = hand.mode === HAND_DEMO ? HAND_DEMO : 0; pointerX = -1; stopWarm(); },
     get done() { return finished; },
     get target() { return plan.compounds[0]?.word ?? ''; },
     result: () => ({ made, bonks, help, struggled }),

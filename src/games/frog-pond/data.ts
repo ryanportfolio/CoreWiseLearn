@@ -25,8 +25,6 @@ export interface FrogPondData extends Record<string, unknown> {
   tier: number;
   /** Finished rounds, all activities. 0 means the next round is the introduction. */
   rounds: number;
-  /** Rounds finished in the current set, any activity (0 to SET_ROUNDS - 1). Kept across visits. */
-  setDone: number;
   /** 1 while the bugs say their word when the child points at them (after a long pause or several dodges). */
   assist: number;
   /** The last round's rhyme family (its rime, such as 'AT'), so the next round picks another. */
@@ -66,7 +64,7 @@ export interface SentenceBag extends Record<string, number> {
 }
 export const defaultSentenceBag = (): SentenceBag => ({ tier: 0, rounds: 0, assist: 0, last: 0 });
 
-export const defaultData = (): FrogPondData => ({ tier: 0, rounds: 0, setDone: 0, assist: 0, lastRime: '', pending: null, pot: defaultPot(), sentences: defaultSentenceBag() });
+export const defaultData = (): FrogPondData => ({ tier: 0, rounds: 0, assist: 0, lastRime: '', pending: null, pot: defaultPot(), sentences: defaultSentenceBag() });
 
 const count = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0;
 const range = (v: unknown, max: number): v is number => count(v) && v <= max;
@@ -81,7 +79,7 @@ export const toTier = (n: unknown): Tier => (n === 1 ? 1 : n === 2 ? 2 : 0);
  */
 export function sanitizeFrogPondData(bag: Record<string, unknown>, protect: () => void): void {
   const d = defaultData();
-  const checks: Record<string, (v: unknown) => boolean> = { tier: v => range(v, 2), rounds: count, setDone: v => range(v, SET_ROUNDS - 1), assist: v => range(v, 1), lastRime: word };
+  const checks: Record<string, (v: unknown) => boolean> = { tier: v => range(v, 2), rounds: count, assist: v => range(v, 1), lastRime: word };
   for (const [key, valid] of Object.entries(checks)) {
     if (!(key in bag)) { bag[key] = d[key]; continue; }
     if (!valid(bag[key])) { protect(); bag[key] = d[key]; }

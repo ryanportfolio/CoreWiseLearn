@@ -99,7 +99,7 @@ export function createFrogPondScene(services: AppServices): FrogPondScene {
   let bgCanvas: HTMLCanvasElement | undefined, bgX = 0, bgY = 0;
   let phase: Phase = 'play', activity: ActivityId = 'rhyme', tier: Tier = 0, intro = false;
   let time = 0, sceneT = 0, phaseT = 0, stars = SET_ROUNDS, starsPlayed = 0;
-  let pending: PendingRound | null = null, roundRime = '';
+  let pending: PendingRound | null = null, roundRime = '', setDone = 0;
   let menuSelected = -1, inputAfter = 0, focusAt = 0, cornerFocus = -1, pondFocus = -1;
   let workHead = 0, workCount = 0, updateMs = 0;
   let fanfareStarted = false, fanfareAsked = false, idleHandle = 0, idleWaitFrom = -1, restWarmed = false;
@@ -216,15 +216,16 @@ export function createFrogPondScene(services: AppServices): FrogPondScene {
     }
     if (roundRime) data.lastRime = roundRime;
     data.rounds++;
-    // Every round earns its star at once, so leaving mid-set loses nothing; the set's count is saved too.
+    // Every round earns its star at once, so leaving mid-set loses nothing. The place in the set comes from the saved
+    // round count, which tabs playing at once add up, so no tab loses another's round.
     const bag = rewards(services); bag.rounds[GAME_ID] = (bag.rounds[GAME_ID] ?? 0) + 1;
     if (services.config.rewardsEnabled) bag.stars++;
-    if (++data.setDone < SET_ROUNDS) {
+    setDone = bag.rounds[GAME_ID] % SET_ROUNDS;
+    if (setDone > 0) {
       services.save.flush();
       phase = 'between'; phaseT = 0; starsPlayed = 0; cornerFocus = -1;
       return;
     }
-    data.setDone = 0;
     const id = globalThis.crypto?.randomUUID?.() ?? `round-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
     pending = { id, activity, stars, choices: chooseOffers(), chosen: '', rewardEnabled: services.config.rewardsEnabled, restEntered: false, target: current().target };
     data.pending = pending;
@@ -294,7 +295,7 @@ export function createFrogPondScene(services: AppServices): FrogPondScene {
     if (phase === 'between') {
       // The finished round stays on screen and keeps moving while its star lands.
       current().update(dt);
-      if (!starsPlayed && phaseT >= STAR_HIT_SECONDS) { play('star', 'B', data.setDone - 1); starsPlayed = 1; }
+      if (!starsPlayed && phaseT >= STAR_HIT_SECONDS) { play('star', 'B', setDone - 1); starsPlayed = 1; }
       if (phaseT >= BETWEEN_SECONDS) startRound();
       return;
     }
@@ -351,7 +352,7 @@ export function createFrogPondScene(services: AppServices): FrogPondScene {
       // The set's stars so far; the newest slams in (the gap between stars is longer than a slam, so the others have landed).
       current().render(ctx);
       // Lily-pad sentences' picture card fills the top middle, so its stars sit in the open water below the pads.
-      drawStarRow(ctx, W / 2, activity === 'sentences' ? H * 0.72 : starY, starR, data.setDone, phaseT + (data.setDone - 1) * STAR_GAP_SECONDS, time);
+      drawStarRow(ctx, W / 2, activity === 'sentences' ? H * 0.72 : starY, starR, setDone, phaseT + (setDone - 1) * STAR_GAP_SECONDS, time);
       return;
     }
     const starT = phase === 'celebration' ? phaseT - STAR_START : 99;
@@ -465,7 +466,7 @@ export function createFrogPondScene(services: AppServices): FrogPondScene {
   // ---------------------------------------------------------------- stats
   const stats: FrogPondStats = {
     get phase() { return phase; }, get activity() { return activity; }, get tier() { return tier; }, get liveTier() { return adaptive.tier; },
-    get rounds() { return data.rounds; }, get setDone() { return data.setDone; }, get intro() { return intro; }, get target() { return current().target; }, get help() { return current().stats.help; },
+    get rounds() { return data.rounds; }, get setDone() { return (rewards(services).rounds[GAME_ID] ?? 0) % SET_ROUNDS; }, get intro() { return intro; }, get target() { return current().target; }, get help() { return current().stats.help; },
     get stars() { return stars; }, get stickerId() { return pending?.chosen ?? ''; }, get choiceIds() { return pending?.choices ?? []; },
     get bugs() { return playable() ? snack.stats.bugs : []; }, get focus() { return snack.stats.focus; }, get keyMode() { return snack.stats.keyMode; },
     get hand() { return snack.stats.hand; }, get tongue() { return snack.stats.tongue; }, get catches() { return snack.stats.catches; },
