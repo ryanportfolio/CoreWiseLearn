@@ -41,8 +41,21 @@ const VISITOR_NAMES = VISITORS.map(a => [`${ART}${a}-wait`, `${ART}${a}-happy`] 
 /** Where each visitor's waiting pose has its straight body cut (fraction of its height); the sack hangs below it. */
 const CUT_WAIT = [0.937, 0.952, 0.993, 0.928, 0.93, 0.925] as const;
 const CUT_HAPPY = 0.99;
-const COIN_FACES = COIN_NAMES.map(c => [`${ART}coin-${c}-heads`, `${ART}coin-${c}-tails`] as const);
+/** Every coin shows its front only (owner 2026-10-06: "SUPER clear what each coin is"). */
+const COIN_FRONT = COIN_NAMES.map(c => `${ART}coin-${c}-heads`);
 const COIN_PX = 320;
+/**
+ * The value tag every coin carries (1¢, 5¢, 10¢, 25¢): a cream pill with a deep-ink edge over the coin's lower edge.
+ * Its numerals' ink is at least TAG_INK of the coin's diameter and TAG_MIN_INK CSS px (times u above 1; 21 so the
+ * anti-aliased digits measure at least 20 on screen); the pill is
+ * TAG_PILL_H times the ink tall, TAG_OVER of it lies over the coin. Baked TAG_SHARP times larger than drawn so a lifted
+ * coin's tag (up to 1.22x in the pick-up spring) is never drawn above its own pixels.
+ */
+const TAG_INK = 0.3, TAG_MIN_INK = 21, TAG_PILL_H = 1.5, TAG_OVER = 0.55, TAG_SHARP = 1.25, TAG_SLOTS = 6;
+/** An empty dish or row place still shows its kind: the coin (or bill) faint, its value tag clear. */
+const GHOST_ALPHA = 0.3, GHOST_TAG_ALPHA = 0.85;
+/** The name the size log (`scales()`) keeps the value tags under. */
+const VALUE_TAG = `${ART}value-tag`;
 /** bill-1.webp to bill-20.webp (640x320): the plain side panels where code draws the numeral. */
 const BILL_NAMES = BILL_VALUE.map(v => `${ART}bill-${v}`);
 const BILL_PX = 640, BILL_PANEL0 = 0.04, BILL_PANEL1 = 0.31;
@@ -152,7 +165,8 @@ interface Flight {
 }
 interface Roller { active: boolean; kind: number; face: number; x0: number; y0: number; s0: number; t: number; board: boolean }
 interface Rect { x: number; y: number; w: number; h: number }
-interface CoinInfo { kind: string; face: 'heads' | 'tails'; x: number; y: number; d: number; where: string; count: number; hit: Rect | null }
+/** `tag` is the coin's value tag as drawn ("10¢"), `tagGlyph` its numerals' ink height in CSS px at rest. */
+interface CoinInfo { kind: string; face: 'heads' | 'tails'; x: number; y: number; d: number; where: string; count: number; hit: Rect | null; tag: string; tagGlyph: number }
 interface BillInfo { value: number; x: number; y: number; w: number; h: number; where: string; count: number; label: string; hit: Rect | null }
 interface TargetInfo { kind: string; x: number; y: number; w: number; h: number; drawn?: Rect }
 interface TaskInfo {
@@ -221,7 +235,7 @@ function artList(): { name: string; path: string }[] {
   for (const n of DISH_NAMES) paths.push(`${n}.webp`);
   for (const n of BILL_NAMES) paths.push(`${n}.webp`);
   for (const pair of VISITOR_NAMES) for (const n of pair) paths.push(`${n}.webp`);
-  for (const pair of COIN_FACES) for (const n of pair) paths.push(`${n}.webp`);
+  for (const n of COIN_FRONT) paths.push(`${n}.webp`);
   return [...paths.map(path => ({ name: spriteName(path), path })), ...STICKERS.filter(s => s.game === GAME_ID).map(s => ({ name: stickerSpriteName(s.id), path: s.path }))];
 }
 const OWN_ART = artList().map(a => a.name).filter(name => name !== BG);
@@ -289,6 +303,43 @@ function bakeRing(d: number, ratio: number): HTMLCanvasElement {
   g.scale(ratio, ratio);
   g.beginPath(); g.arc(size / 2 + lw * 0.4, size / 2 + lw * 0.6, d / 2 + lw * 0.3, 0, Math.PI * 2); g.fillStyle = 'rgba(40, 24, 12, 0.35)'; g.fill();
   g.beginPath(); g.arc(size / 2, size / 2, d / 2 + lw / 2 - 0.5, 0, Math.PI * 2); g.lineWidth = lw; g.strokeStyle = INK; g.stroke();
+  g.getImageData(0, 0, 1, 1);
+  return c;
+}
+/** A coin's value tag geometry for a coin `d` across: numeral ink height, pill height and edge width, in CSS px. */
+function tagInk(d: number, minInk: number): number { return Math.max(TAG_INK * d, minInk); }
+/** How far a coin's value tag hangs below the coin's lower edge. */
+function tagHang(d: number, minInk: number): number { const ink = tagInk(d, minInk), lw = Math.max(2, ink * 0.1); return ink * TAG_PILL_H * (1 - TAG_OVER) + lw / 2; }
+/** Digit ink height as a share of the font size (measured once the font is in; Andika's digits are about 0.7). */
+let digitShare = 0;
+/**
+ * One value tag ("10¢") for a coin `d` across, baked once per size: a cream pill with a deep-ink edge and the value in
+ * the bundled font. Writes its drawn width, height and the pill centre's offset below the coin's centre into `out`.
+ */
+function bakeValueTag(cents: number, d: number, minInk: number, ratio: number, fontIn: boolean, out: { w: number; h: number; off: number; ink: number }): HTMLCanvasElement {
+  const probe = cpuCanvas(1, 1).g;
+  if (fontIn && !digitShare) {
+    // Measured from pixels once: the drawn height of "0" at 100 px (text metrics overstate it).
+    const { g: m } = cpuCanvas(120, 160);
+    if (m) {
+      m.font = `700 100px ${DISPLAY_FONT}`; m.textBaseline = 'alphabetic'; m.fillText('0', 10, 130);
+      const a = m.getImageData(0, 0, 120, 160).data; let top = 160, bottom = -1;
+      for (let y = 0; y < 160; y++) for (let x = 0; x < 120; x++) if (a[(y * 120 + x) * 4 + 3]! > 128) { if (y < top) top = y; bottom = y; }
+      digitShare = bottom > top ? (bottom - top + 1) / 100 : 0.7;
+    }
+  }
+  const share = digitShare || 0.7, ink = tagInk(d, minInk), px = ink / share, font = `700 ${px.toFixed(2)}px ${DISPLAY_FONT}`, text = `${cents}¢`;
+  if (probe) probe.font = font;
+  const textW = probe ? probe.measureText(text).width : px * 0.6 * text.length;
+  const lw = Math.max(2, ink * 0.1), pillH = ink * TAG_PILL_H, pillW = Math.max(pillH * 1.3, textW + ink * 0.9);
+  const w = pillW + lw, h = pillH + lw, k = ratio * TAG_SHARP, { c, g } = cpuCanvas(w * k, h * k);
+  out.w = w; out.h = h; out.off = d / 2 + pillH * (0.5 - TAG_OVER); out.ink = ink;
+  if (!g) return c;
+  g.scale(c.width / w, c.height / h);
+  g.beginPath(); g.roundRect(lw / 2, lw / 2, pillW, pillH, pillH / 2);
+  g.fillStyle = CREAM; g.fill(); g.lineWidth = lw; g.strokeStyle = INK; g.stroke();
+  g.font = font; g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.fillStyle = INK;
+  g.fillText(text, w / 2, h / 2 + ink / 2);
   g.getImageData(0, 0, 1, 1);
   return c;
 }
@@ -383,11 +434,21 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
   // Bills are baked at the tier's largest lifted size for this window (billBakeW), so a task whose row shrinks them
   // draws the same canvases smaller and never rebakes; billMade* hold what each canvas was baked for.
   const billCanvas: (HTMLCanvasElement | undefined)[] = [undefined, undefined, undefined, undefined];
-  const billMadeW = new Float32Array(4), billMadePx = new Float32Array(4), billMadeRatio = new Float32Array(4), billMadeDollar = new Int8Array(4).fill(-1);
+  const billMadeW = new Float32Array(4), billMadePx = new Float32Array(4), billMadeRatio = new Float32Array(4);
   let boardCanvas: HTMLCanvasElement | undefined, boardKey = '', billBakeW = 0;
   // Step 5's dashed slot ring and the dark rings under dish coins (one per coin kind).
   let slotCanvas: HTMLCanvasElement | undefined, slotBaked = 0;
   const ringCanvas: (HTMLCanvasElement | undefined)[] = [undefined, undefined, undefined, undefined], ringBaked = new Float32Array(4);
+  // Value tags: TAG_SLOTS cached sizes per coin kind (the row's, the dish's, the lock's), each with its drawn geometry.
+  const tagCanvas: (HTMLCanvasElement | undefined)[] = new Array<HTMLCanvasElement | undefined>(4 * TAG_SLOTS).fill(undefined);
+  const tagD = new Float32Array(4 * TAG_SLOTS).fill(-1), tagWs = new Float32Array(4 * TAG_SLOTS), tagHs = new Float32Array(4 * TAG_SLOTS);
+  const tagOff = new Float32Array(4 * TAG_SLOTS), tagInks = new Float32Array(4 * TAG_SLOTS), tagNext = new Uint8Array(4);
+  const tagGeo = { w: 0, h: 0, off: 0, ink: 0 };
+  /** Coins per row in each dish and their spacing (so the coins' value tags never overlap). */
+  const dishPer = new Uint8Array(4).fill(4), dishPitch = new Float32Array(4).fill(30);
+  /** Scratch for laying a lock's tags in lanes: each placed tag's lane and its left and right edges. */
+  const laneOf = new Uint8Array(LOCK_MAX), laneX0 = new Float32Array(LOCK_MAX), laneX1 = new Float32Array(LOCK_MAX);
+  let tagMinInk = TAG_MIN_INK, tagBakedInk = 0, tagFont = false;
   let artRatio = 0, glowSize = 0, bakedCup = 0, bakedMat = '', fontReady = false;
   let phase: Phase = 'play', tier: Tier = 0, intro = false, introStage = 0, visitorOffset = 0;
   let taskPhase: TaskPhase = 'enter', taskT = 0, seqT = 0, taskIndex = 0, tasksTotal = 3, enterSeconds = 1;
@@ -481,6 +542,7 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     artRatio = sprites.pixelRatio;
     if (reratio) warmDone.clear();
     u = Math.min(U_MAX, Math.max(0.45, Math.min(W / 1366, H / 768))) * services.config.uiScale;
+    tagMinInk = TAG_MIN_INK * Math.max(1, u);
     const cornerU = Math.min(1.5, Math.max(0.4, Math.min(W / 1366, H / 768))) * services.config.uiScale;
     cornerRadius = Math.max(48, Math.min(60 * cornerU, W / 8, H / 6));
     homeX = cornerRadius + 12; soundX = W - cornerRadius - 12; cornerY = cornerRadius + 12;
@@ -564,13 +626,41 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     if (billsWanted) for (let i = 0; i < 4; i++) if (force || !billFresh(i)) bakeBillAt(i);
     const bkey = `${boardBillW}@${artRatio}/${boardStrip.px}`;
     if (boardWanted() && boardBillW > 0 && boardStrip.px > 0 && (force || bkey !== boardKey)) {
-      const c = bakeBill(0, boardBillW, boardStrip, true); if (c) { boardCanvas = c; boardKey = bkey; }
+      const c = bakeBill(0, boardBillW, boardStrip); if (c) { boardCanvas = c; boardKey = bkey; }
     }
     if (isFewest() && slotD > 0 && (force || !slotCanvas || slotBaked !== slotD)) { slotBaked = slotD; slotCanvas = bakeSlot(slotD, artRatio); }
     for (let k = 0; k < 4; k++) {
       const d = Math.round(dishCoinD(k));
       if (d > 0 && (force || !ringCanvas[k] || ringBaked[k] !== d)) { ringBaked[k] = d; ringCanvas[k] = bakeRing(d, artRatio); }
     }
+    // Value tags for the sizes this layout draws coins at: the row's (also carried and flying), the dish's, the lock's.
+    if (force || tagBakedInk !== tagMinInk || tagFont !== fontReady) { tagBakedInk = tagMinInk; tagFont = fontReady; tagD.fill(-1); tagCanvas.fill(undefined); }
+    for (let k = 0; k < 4; k++) {
+      tagSlot(k, coinD[k]!);
+      if (isLock()) tagSlot(k, lockCoinD(k));
+      // A dish's coins lie in rows far enough apart that their tags never overlap (up to four a row, fewer in a small
+      // dish); each row lies a little higher than the one in front, whose coins cover the tags behind them.
+      const d = dishCoinD(k), t = tagSlot(k, d), tw = t >= 0 ? tagWs[t]! : d, pitch = Math.max(d * 0.53, tw + 2);
+      dishPer[k] = Math.max(1, Math.min(4, Math.floor((dishW[k]! * 0.95 - tw) / pitch) + 1)); dishPitch[k] = pitch;
+    }
+  }
+  /** The cached value tag for a coin of `kind` drawn `d` across (baked on first use of a size), or -1. */
+  function tagSlot(kind: number, d: number): number {
+    const dd = Math.round(d); if (dd <= 0) return -1;
+    const base = kind * TAG_SLOTS;
+    for (let i = base; i < base + TAG_SLOTS; i++) if (tagD[i] === dd) return i;
+    const i = base + tagNext[kind]!; tagNext[kind] = (tagNext[kind]! + 1) % TAG_SLOTS;
+    tagCanvas[i] = bakeValueTag(COIN_VALUE[kind]!, dd, tagMinInk, artRatio, fontReady, tagGeo);
+    tagD[i] = dd; tagWs[i] = tagGeo.w; tagHs[i] = tagGeo.h; tagOff[i] = tagGeo.off; tagInks[i] = tagGeo.ink;
+    return i;
+  }
+  /** A coin's value tag under the coin's own transform (centre, horizontal and vertical scale, turn), so it moves with it. */
+  function coinTag(ctx: CanvasRenderingContext2D, kind: number, d: number, x: number, y: number, sx: number, sy: number, rot: number): void {
+    const i = tagSlot(kind, d), c = i >= 0 ? tagCanvas[i] : undefined; if (!c) return;
+    const w = tagWs[i]!, h = tagHs[i]!, off = tagOff[i]!;
+    if (rot === 0) ctx.drawImage(c, x - w * sx / 2, y + (off - h / 2) * sy, w * sx, h * sy);
+    else { ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.scale(sx, sy); ctx.drawImage(c, -w / 2, off - h / 2, w, h); ctx.restore(); }
+    note(VALUE_TAG, w * Math.max(sx, sy), w * TAG_SHARP);
   }
   /**
    * The feel layer's baked pieces, each only when its size or the pixel ratio changes: the bits' sprites, the carried
@@ -611,15 +701,15 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
   const boardWanted = (): boolean => plan.unit === CENTS && (plan.total > 100 || plan.bills[0]! > 0);
   /** The bills' numeral size: 0.52 of the baked bill's height. */
   const billStripPx = (): number => Math.max(14, Math.round(billBakeW / 2 * 0.52));
-  /** Whether bill i's canvas was baked for this window, tier, pixel ratio, notation and numeral strip. */
+  /** Whether bill i's canvas was baked for this window, tier, pixel ratio and numeral strip. */
   const billFresh = (i: number): boolean => billCanvas[i] !== undefined && billMadeW[i] === billBakeW && billMadePx[i] === billStrip.px
-    && billMadeRatio[i] === artRatio && billMadeDollar[i] === (plan.step >= 6 ? 1 : 0);
+    && billMadeRatio[i] === artRatio;
   /** Whether bill i still needs baking (its art loaded; a missing sprite is drawn plain, never waited for). */
   const billDue = (i: number): boolean => !billFresh(i) && sprites.get(BILL_NAMES[i]!) !== undefined;
   function bakeBillAt(i: number): void {
     if (billStrip.px <= 0) return;
-    const dollar = plan.step >= 6, c = bakeBill(i, billBakeW, billStrip, dollar); if (!c) return;
-    billCanvas[i] = c; billMadeW[i] = billBakeW; billMadePx[i] = billStrip.px; billMadeRatio[i] = artRatio; billMadeDollar[i] = dollar ? 1 : 0;
+    const c = bakeBill(i, billBakeW, billStrip); if (!c) return;
+    billCanvas[i] = c; billMadeW[i] = billBakeW; billMadePx[i] = billStrip.px; billMadeRatio[i] = artRatio;
   }
   /** A round at step 7 or 8 may bring bills in any task after its warm-up: bake them ahead, in idle time. */
   const billsSoon = (): boolean => !intro && data.step >= 7;
@@ -640,8 +730,11 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     for (let i = 0; i < 4; i++) if (billDue(i)) { bakeBillAt(i); idleWaitFrom = -1; return true; }
     return false;
   }
-  /** One bill `w` wide (2:1): the art, then its numeral in both plain side panels (the left one "$20" where $ is used). */
-  function bakeBill(i: number, w: number, s: Strip, dollar: boolean): HTMLCanvasElement | undefined {
+  /**
+   * One bill `w` wide (2:1): the art, then its value written as money ("$20") in both plain side panels, both at one
+   * size (owner 2026-10-06: bills "need to be clearly labeled as $1, $5, etc.").
+   */
+  function bakeBill(i: number, w: number, s: Strip): HTMLCanvasElement | undefined {
     const img = sprites.get(BILL_NAMES[i]!); if (!img || !s.canvas) return undefined;
     const h = Math.round(w / 2), { c, g } = cpuCanvas(w * artRatio, h * artRatio); if (!g) return c;
     g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
@@ -649,8 +742,8 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     g.scale(artRatio, artRatio);
     const panelW = w * (BILL_PANEL1 - BILL_PANEL0), lx = w * (BILL_PANEL0 + BILL_PANEL1) / 2, rx = w - lx, k = (h * 0.52) / s.px;
     const value = BILL_VALUE[i]!;
-    drawAmount(g, s, dollar ? DOLLARS : -1, value, lx, h / 2, k, panelW * 0.92, Math.max(0.3 * h / s.px, 0));
-    drawAmount(g, s, -1, value, rx, h / 2, k, panelW * 0.92, 0);
+    drawAmount(g, s, DOLLARS, value, lx, h / 2, k, panelW * 0.92, 0.3 * h / s.px);
+    drawAmount(g, s, DOLLARS, value, rx, h / 2, k, panelW * 0.92, 0.3 * h / s.px);
     g.getImageData(0, 0, 1, 1);
     return c;
   }
@@ -862,7 +955,9 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
       const r = Math.floor(i / per), j = i % per, m = Math.min(per, nPlaces - r * per);
       const span = m * cell + (m - 1) * (pitch - cell);
       pX[i] = placesX0 + (placesW - span) / 2 + cell / 2 + j * pitch;
-      pY[i] = rowY + r * (rowH + placeGap) + rowH / 2;
+      // A coin sits a little high in its place so the coin and the value tag hanging below it are centred together.
+      const k = pKind[i]!, lift = k < BILL1 ? tagHang(coinD[k]!, tagMinInk) / 2 : 0;
+      pY[i] = rowY + r * (rowH + placeGap) + rowH / 2 - lift;
       pHW[i] = cell / 2;
     }
   }
@@ -961,11 +1056,13 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     placeCoins();
     for (let p = 0; p < nPlaces; p++) {
       const n = pCount[p]!; pCount[p] = 0; pHop[p] = 9; pOrder[p] = p;
-      pFace[p] = random() < 0.5 ? 0 : 1;
-      // A pile: each coin turned, nudged a little and staggered up or down, so neighbours overlap.
+      pFace[p] = 0;
+      // A pile: each coin turned, nudged a little and staggered up or down, so neighbours overlap (never so low that its
+      // value tag would leave the window).
       pRot[p] = pile ? (random() - 0.5) * 0.9 : 0;
       pNx[p] = pile ? (random() - 0.5) * 14 * u : 0;
       pNy[p] = pile ? (p % 2 ? 1 : -1) * rowH * 0.12 + (random() - 0.5) * 10 * u : 0;
+      if (pile) { const d = coinD[pKind[p]!]!; pNy[p] = Math.min(pNy[p]!, H - 4 - pY[p]! - d / 2 - tagHang(d, tagMinInk)); }
       const f = launch(ARRIVE, pKind[p]!, pFace[p]!, n, p, purseX + purseW * 0.7, purseY + purseH * 0.4, pX[p]! + pNx[p]!, pY[p]! + pNy[p]!, ARRIVE_SECONDS);
       if (f) f.t = -RISE * 0.6 - ARRIVE_STAGGER * p;
     }
@@ -1030,8 +1127,9 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
    */
   const dishCoinD = (k: number): number => Math.min(coinD[k]! * 0.6, dishW[k]! * 0.8 / 2.6);
   function dishSlot(k: number, i: number, n: number): void {
-    const d = dishCoinD(k), row = Math.floor(i / 4), col = i % 4, inRow = Math.min(4, Math.max(1, n - row * 4)), rowsN = Math.ceil(Math.max(n, i + 1) / 4);
-    pos.x = dishX[k]! + (col - (inRow - 1) / 2) * d * 0.53;
+    // Every row keeps the front row's columns, so a coin behind sits right behind one in front, which hides its tag.
+    const per = dishPer[k]!, d = dishCoinD(k), row = Math.floor(i / per), col = i % per, cols = Math.min(per, Math.max(n, i + 1)), rowsN = Math.ceil(Math.max(n, i + 1) / per);
+    pos.x = dishX[k]! + (col - (cols - 1) / 2) * dishPitch[k]!;
     pos.y = dishY[k]! + dishH[k]! * 0.04 + ((rowsN - 1) / 2 - row) * d * 0.42;
   }
   /** A coin in a lock keeps the true ratios: the quarter at 0.62 of the plate's height (step 5: a quarter fills a slot). */
@@ -1675,7 +1773,7 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
         let kind = QUARTER, c = i;
         for (let k = QUARTER; k >= PENNY; k--) { if (c < plan.first[k]!) { kind = k; break; } c -= plan.first[k]!; }
         lockSlot(0, i, Math.max(all, 4));
-        const f = launch(FIRST, kind, i % 2, 1, -1, visX, E + visH * 0.02, pos.x, pos.y, TO_DISH + 0.1);
+        const f = launch(FIRST, kind, 0, 1, -1, visX, E + visH * 0.02, pos.x, pos.y, TO_DISH + 0.1);
         if (f) f.s1 = lockCoinD(kind) / coinD[kind]!;
         firstLeft--; firstT += FIRST_GAP;
       }
@@ -1762,10 +1860,24 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
   }
 
   // ---------------------------------------------------------------- render
-  function coin(ctx: CanvasRenderingContext2D, kind: number, face: number, x: number, y: number, scale: number, rot: number, sx: number): void {
+  /**
+   * A coin at play size (its front) with its value tag, at `scale` with a turn and a horizontal factor `sx` (a flip in
+   * flight, the pick-up squash), all by transform of one cached size. The size log takes the wider of the two axes.
+   */
+  function coin(ctx: CanvasRenderingContext2D, kind: number, _face: number, x: number, y: number, scale: number, rot: number, sx: number): void {
     const d = coinD[kind]!;
-    drawSprite(ctx, sprites, COIN_FACES[kind]![face]!, x, y, d, rot, sx * scale, scale);
-    note(COIN_FACES[kind]![face]!, d * scale, COIN_PX);
+    drawSprite(ctx, sprites, COIN_FRONT[kind]!, x, y, d, rot, sx * scale, scale);
+    coinTag(ctx, kind, d, x, y, sx * scale, scale, rot);
+    note(COIN_FRONT[kind]!, d * scale * Math.max(1, sx), COIN_PX);
+  }
+  /** An empty place's or dish's coin `d` across at `s`: the front faint, its value tag clear, `a` of their full strength. */
+  function ghostCoin(ctx: CanvasRenderingContext2D, kind: number, x: number, y: number, d: number, s: number, a: number): void {
+    ctx.globalAlpha = GHOST_ALPHA * a;
+    drawSprite(ctx, sprites, COIN_FRONT[kind]!, x, y, Math.round(d), 0, s, s);
+    ctx.globalAlpha = GHOST_TAG_ALPHA * a;
+    coinTag(ctx, kind, d, x, y, s, s, 0);
+    ctx.globalAlpha = 1;
+    note(COIN_FRONT[kind]!, d * s, COIN_PX);
   }
   /** A bill at `scale` of its play size, drawn from its baked canvas (art and numerals) with a transform; never flipped. */
   function drawBill(ctx: CanvasRenderingContext2D, kind: number, x: number, y: number, scale: number, rot: number): void {
@@ -1783,11 +1895,12 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
    * A coin `d` px across at `s` of that (a pulse), drawn from one cached size with a transform; dish coins (`ring`) sit
    * on a dark ring so they stand out on their dish.
    */
-  function smallCoin(ctx: CanvasRenderingContext2D, kind: number, face: number, x: number, y: number, d: number, s: number, ring: boolean): void {
+  function smallCoin(ctx: CanvasRenderingContext2D, kind: number, _face: number, x: number, y: number, d: number, s: number, ring: boolean, tagged = true): void {
     const rc = ring ? ringCanvas[kind] : undefined;
     if (rc) { const rw = rc.width / artRatio * s; ctx.drawImage(rc, x - rw / 2, y - rw / 2, rw, rw); }
-    drawSprite(ctx, sprites, COIN_FACES[kind]![face]!, x, y, Math.round(d), 0, s, s);
-    note(COIN_FACES[kind]![face]!, d * s, COIN_PX);
+    drawSprite(ctx, sprites, COIN_FRONT[kind]!, x, y, Math.round(d), 0, s, s);
+    if (tagged) coinTag(ctx, kind, d, x, y, s, s, 0);
+    note(COIN_FRONT[kind]!, d * s, COIN_PX);
   }
   function sprite(ctx: CanvasRenderingContext2D, name: string, x: number, y: number, size: number, rot = 0, sx = 1, sy = 1): void {
     const img = sprites.get(name); if (!img) return;
@@ -1905,7 +2018,11 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
       const p = dishPulse[k]!, s = p < 0.35 ? 1 + Math.sin(p / 0.35 * Math.PI) * 0.06 : 1;
       sprite(ctx, DISH_NAMES[k]!, dishX[k]!, dishY[k]!, dishW[k]!, 0, s, s);
       const n = Math.min(DISH_MAX, dishN[k]!), d = dishCoinD(k);
-      for (let i = 0; i < n; i++) {
+      // An empty dish still says what it holds: its coin, faint, with the value tag where the first coin will lie.
+      if (n === 0) { dishSlot(k, 0, 1); ghostCoin(ctx, k, dishX[k]! + (pos.x - dishX[k]!) * s, dishY[k]! + (pos.y - dishY[k]!) * s, d, s, 1); }
+      // Back rows first, so each row's coins cover the tags hanging from the row behind and the front tags stay clear.
+      const per = dishPer[k]!;
+      for (let row = Math.floor((n - 1) / per); row >= 0; row--) for (let i = row * per; i < Math.min(n, row * per + per); i++) {
         // The coin that just landed settles with a little bounce.
         const b = i === n - 1 && p < 0.3 ? 1 + 0.2 * Math.sin(p / 0.3 * Math.PI * 2) * (1 - p / 0.3) : 1;
         dishSlot(k, i, n); smallCoin(ctx, k, dishFace[k * DISH_MAX + i]!, dishX[k]! + (pos.x - dishX[k]!) * s, dishY[k]! + (pos.y - dishY[k]!) * s, d, s * b, true);
@@ -1925,7 +2042,29 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
         for (let i = 0; i < Math.min(SLOT_MAX, plan.slots); i++) ctx.drawImage(slotCanvas, slotX[i]! - sw / 2, slotY[i]! - sw / 2, sw, sw);
       }
       const n = Math.min(LOCK_MAX, lockN[l]!);
-      for (let i = 0; i < n; i++) { const k = lockKind[l * LOCK_MAX + i]!; lockSlot(l, i, Math.max(n, 4)); smallCoin(ctx, k, lockFace[l * LOCK_MAX + i]!, pos.x, pos.y, lockCoinD(k), 1, false); }
+      for (let i = 0; i < n; i++) { const k = lockKind[l * LOCK_MAX + i]!; lockSlot(l, i, Math.max(n, 4)); smallCoin(ctx, k, lockFace[l * LOCK_MAX + i]!, pos.x, pos.y, lockCoinD(k), 1, false, false); }
+      lockTags(ctx, l, n);
+    }
+  }
+  /**
+   * The value tags of a lock's coins, laid so none overlaps another: from the last coin back, each tag takes the first
+   * of two lanes (under the coin, or one tag lower) where it is clear; a tag with no clear lane lies hidden under the
+   * tags beside it and is not drawn, so a crowded plank never shows a tag cut into a misleading amount.
+   */
+  function lockTags(ctx: CanvasRenderingContext2D, l: number, n: number): void {
+    let placed = 0;
+    for (let i = n - 1; i >= 0; i--) {
+      const k = lockKind[l * LOCK_MAX + i]!, d = lockCoinD(k), t = tagSlot(k, d); if (t < 0) continue;
+      lockSlot(l, i, Math.max(n, 4));
+      const w = tagWs[t]!, x0 = pos.x - w / 2 - 2, x1 = pos.x + w / 2 + 2;
+      for (let lane = 0; lane < 2; lane++) {
+        let clear = true;
+        for (let j = 0; j < placed; j++) if (laneOf[j] === lane && x0 < laneX1[j]! && x1 > laneX0[j]!) { clear = false; break; }
+        if (!clear) continue;
+        if (placed < LOCK_MAX) { laneOf[placed] = lane; laneX0[placed] = x0; laneX1[placed] = x1; placed++; }
+        coinTag(ctx, k, d, pos.x, pos.y + lane * tagHs[t]! * 0.92, 1, 1, 0);
+        break;
+      }
     }
   }
   /** Fill `seq` with the glyphs of an amount and return their count. */
@@ -1994,8 +2133,18 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     }
     const showFocus = (taskPhase === 'count' || taskPhase === 'lock') && !carry.active && hand.mode !== HAND_DEMO;
     // A pile draws in its own order; the highlighted piece is drawn last so its ring shows on top.
+    // Emptied places still say what they held (the piece faint, its value clear) until the tags rise over the row.
+    const ghost = taskPhase === 'count' || taskPhase === 'counton' || taskPhase === 'lock' ? 1 : taskPhase === 'tags' || taskPhase === 'symbol' ? 1 - out : 0;
+    if (ghost > 0.01) for (let q = 0; q < nPlaces; q++) ghostPiece(ctx, pOrder[q]!, ghost);
     for (let q = 0; q < nPlaces; q++) { const p = pOrder[q]!; if (!(showFocus && p === focus)) rowPiece(ctx, p, false); }
     if (showFocus && focus < nPlaces) rowPiece(ctx, focus, true);
+  }
+  function ghostPiece(ctx: CanvasRenderingContext2D, p: number, a: number): void {
+    if (pCount[p]! > 0) return;
+    const kind = pKind[p]!, x = pX[p]! + pNx[p]!, y = pY[p]! + pNy[p]!;
+    if (isBill(kind)) { ctx.globalAlpha = GHOST_ALPHA * 1.4 * a; drawBill(ctx, kind, x, y, 1, 0); ctx.globalAlpha = 1; return; }
+    if (pRot[p] !== 0) { ctx.save(); ctx.translate(x, y); ctx.rotate(pRot[p]!); ghostCoin(ctx, kind, 0, 0, coinD[kind]!, 1, a); ctx.restore(); }
+    else ghostCoin(ctx, kind, x, y, coinD[kind]!, 1, a);
   }
   function rowPiece(ctx: CanvasRenderingContext2D, p: number, focused: boolean): void {
     const n = pCount[p]!; if (n <= 0) return;
@@ -2655,33 +2804,33 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     return out;
   };
   const placeHit = (p: number): Rect => ({ x: pX[p]! - pHW[p]!, y: placeTop(p), w: pHW[p]! * 2, h: rowH });
+  const tagInfo = (kind: number, d: number): { tag: string; tagGlyph: number } => ({ tag: `${COIN_VALUE[kind]}¢`, tagGlyph: Math.round(tagInk(d, tagMinInk) * 10) / 10 });
   const coinInfo = (): CoinInfo[] => {
     const out: CoinInfo[] = [];
     if (!playable()) return out;
     const face = (f: number): 'heads' | 'tails' => (f ? 'tails' : 'heads');
     for (let p = 0; p < nPlaces; p++) {
       if (pCount[p]! <= 0 || isBill(pKind[p]!)) continue;
-      out.push({ kind: COIN_NAMES[pKind[p]!]!, face: face(pFace[p]!), x: pX[p]! + pNx[p]!, y: pY[p]! + pNy[p]!, d: coinD[pKind[p]!]!, where: pUnlimited[p] ? 'stack' : 'row', count: pUnlimited[p] ? -1 : pCount[p]!, hit: placeHit(p) });
+      out.push({ kind: COIN_NAMES[pKind[p]!]!, face: face(pFace[p]!), x: pX[p]! + pNx[p]!, y: pY[p]! + pNy[p]!, d: coinD[pKind[p]!]!, where: pUnlimited[p] ? 'stack' : 'row', count: pUnlimited[p] ? -1 : pCount[p]!, hit: placeHit(p), ...tagInfo(pKind[p]!, coinD[pKind[p]!]!) });
     }
     for (const k of DISH_ORDER) for (let i = 0; i < Math.min(DISH_MAX, dishN[k]!); i++) {
-      dishSlot(k, i, dishN[k]!); out.push({ kind: COIN_NAMES[k]!, face: face(dishFace[k * DISH_MAX + i]!), x: pos.x, y: pos.y, d: dishCoinD(k), where: 'dish', count: 1, hit: null });
+      dishSlot(k, i, dishN[k]!); out.push({ kind: COIN_NAMES[k]!, face: face(dishFace[k * DISH_MAX + i]!), x: pos.x, y: pos.y, d: dishCoinD(k), where: 'dish', count: 1, hit: null, ...tagInfo(k, dishCoinD(k)) });
     }
     for (let l = 0; l < 2; l++) for (let i = 0; i < Math.min(LOCK_MAX, lockN[l]!); i++) {
       const k = lockKind[l * LOCK_MAX + i]!;
-      lockSlot(l, i, Math.max(lockN[l]!, 4)); out.push({ kind: COIN_NAMES[k]!, face: face(lockFace[l * LOCK_MAX + i]!), x: pos.x, y: pos.y, d: lockCoinD(k), where: `lock${l + 1}`, count: 1, hit: null });
+      lockSlot(l, i, Math.max(lockN[l]!, 4)); out.push({ kind: COIN_NAMES[k]!, face: face(lockFace[l * LOCK_MAX + i]!), x: pos.x, y: pos.y, d: lockCoinD(k), where: `lock${l + 1}`, count: 1, hit: null, ...tagInfo(k, lockCoinD(k)) });
     }
-    for (const f of flights) if (f.active && f.mode !== LEAVE && !isBill(f.kind)) out.push({ kind: COIN_NAMES[f.kind]!, face: face(f.face), x: f.x1, y: f.y1, d: coinD[f.kind]!, where: 'flight', count: f.n, hit: null });
+    for (const f of flights) if (f.active && f.mode !== LEAVE && !isBill(f.kind)) out.push({ kind: COIN_NAMES[f.kind]!, face: face(f.face), x: f.x1, y: f.y1, d: coinD[f.kind]!, where: 'flight', count: f.n, hit: null, ...tagInfo(f.kind, coinD[f.kind]!) });
     return out;
   };
   const billInfo = (): BillInfo[] => {
     const out: BillInfo[] = [];
     if (!playable()) return out;
-    const dollar = billCanvas[0] !== undefined && plan.step >= 6;
     const info = (kind: number, x: number, y: number, w: number, h: number, where: string, count: number, hit: Rect | null): BillInfo =>
-      ({ value: BILL_VALUE[kind - BILL1]!, x, y, w, h, where, count, label: `${dollar ? '$' : ''}${BILL_VALUE[kind - BILL1]} | ${BILL_VALUE[kind - BILL1]}`, hit });
+      ({ value: BILL_VALUE[kind - BILL1]!, x, y, w, h, where, count, label: `${BILL_VALUE[kind - BILL1]} | ${BILL_VALUE[kind - BILL1]}`, hit });
     for (let p = 0; p < nPlaces; p++) if (pCount[p]! > 0 && isBill(pKind[p]!)) out.push(info(pKind[p]!, pX[p]! + pNx[p]!, pY[p]! + pNy[p]!, billW, billH, 'row', pCount[p]!, placeHit(p)));
     for (let i = 0; i < Math.min(PILE_MAX, pileCount); i++) { pileSlot(i); out.push(info(pileKind[i]!, pos.x, pos.y, billW * pileScale, billH * pileScale, 'pile', 1, null)); }
-    if (boardBill) out.push({ value: 1, x: boardBillX + boardBillW / 2, y: boardBillY + boardBillH / 2, w: boardBillW, h: boardBillH, where: 'board', count: 1, label: '$1 | 1', hit: null });
+    if (boardBill) out.push({ value: 1, x: boardBillX + boardBillW / 2, y: boardBillY + boardBillH / 2, w: boardBillW, h: boardBillH, where: 'board', count: 1, label: '$1 | $1', hit: null });
     for (const f of flights) if (f.active && f.mode !== LEAVE && isBill(f.kind)) out.push(info(f.kind, f.x1, f.y1, billW, billH, 'flight', f.n, null));
     return out;
   };
