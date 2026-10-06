@@ -1,0 +1,55 @@
+{
+  "background": "harbour-stall.webp",
+  "width": 1920,
+  "height": 1280,
+  "overlays": [
+    {
+      "name": "sails-big",
+      "file": "sails-big.webp",
+      "x": 247,
+      "y": 259,
+      "w": 224,
+      "h": 235
+    },
+    {
+      "name": "sail-small",
+      "file": "sail-small.webp",
+      "x": 509,
+      "y": 368,
+      "w": 98,
+      "h": 128
+    },
+    {
+      "name": "lamp-glow",
+      "file": "lamp-glow.webp",
+      "x": 1519,
+      "y": 270,
+      "w": 157,
+      "h": 85
+    },
+    {
+      "name": "houses-paint",
+      "file": "houses-paint.webp",
+      "x": 1630,
+      "y": 366,
+      "w": 198,
+      "h": 108
+    },
+    {
+      "name": "bunting-left",
+      "file": "bunting-left.webp",
+      "x": 96,
+      "y": 84,
+      "w": 870,
+      "h": 178
+    },
+    {
+      "name": "bunting-right",
+      "file": "bunting-right.webp",
+      "x": 958,
+      "y": 84,
+      "w": 872,
+      "h": 179
+    }
+  ]
+}
