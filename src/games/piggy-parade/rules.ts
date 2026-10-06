@@ -33,24 +33,26 @@ export const TIERS: readonly [TierParams, TierParams, TierParams] = [
 export const VALUE = [1, 5, 10, 25] as const;
 
 /**
- * The coins and badges of one learning step. `stairs`: piggies stand on the steps in value order with value dots;
- * `labels`: 1¢ 5¢ 10¢ 25¢ beside the dots; `lineup`: the round opens with the size-then-value line-up.
+ * The coins and badges of one learning step. Every coin and badge shows its front with its value tag (money labels,
+ * owner 2026-10-06), so step 5, which once showed the badges' backs, now plays like step 4. `stairs`: piggies stand on
+ * the steps in value order with value dots; `labels`: 1¢ 5¢ 10¢ 25¢ beside the dots; `lineup`: the round opens with
+ * the size-then-value line-up.
  */
 export interface StepContent {
-  readonly kinds: readonly number[]; readonly tails: boolean;
+  readonly kinds: readonly number[];
   readonly stairs: boolean; readonly labels: boolean; readonly lineup: boolean;
 }
 const ALL = [PENNY, NICKEL, DIME, QUARTER] as const;
-const plain = (kinds: readonly number[], tails = false): StepContent => ({ kinds, tails, stairs: false, labels: false, lineup: false });
+const plain = (kinds: readonly number[]): StepContent => ({ kinds, stairs: false, labels: false, lineup: false });
 const STEPS: readonly StepContent[] = [
   plain([PENNY, QUARTER]),
   plain([PENNY, DIME]),
   plain([PENNY, NICKEL, DIME]),
   plain(ALL),
-  plain(ALL, true),
-  { kinds: ALL, tails: false, stairs: true, labels: false, lineup: false },
-  { kinds: ALL, tails: false, stairs: true, labels: true, lineup: false },
-  { kinds: ALL, tails: false, stairs: true, labels: true, lineup: true },
+  plain(ALL),
+  { kinds: ALL, stairs: true, labels: false, lineup: false },
+  { kinds: ALL, stairs: true, labels: true, lineup: false },
+  { kinds: ALL, stairs: true, labels: true, lineup: true },
 ];
 export const stepContent = (step: number): StepContent => STEPS[Math.max(1, Math.min(STEPS.length, step)) - 1]!;
 /** The introduction round: penny and quarter, four coins, the easiest motor tier. */
