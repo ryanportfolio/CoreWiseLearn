@@ -277,6 +277,8 @@ export function createWordPot(services: AppServices): WordPot {
     revealCards.clear(); bakedCardH = revealCardH;
     // Bake the round's reveal cards and pond labels here, so making a word (in update) only looks them up.
     for (const c of plan.compounds) { revealCard(c); labelCard(c.word); }
+    // This round's clips load ahead of the rest of the folder: each word it can make, then word help.
+    voicePlayer(audio).prioritize(FROG_VOICE, [...plan.compounds.map(c => `make-${c.word}`), ...words.slice(0, nBubbles).map(w => `say-${w}`)]);
   }
   /** Where each bubble rises to: spread over the zone, the farthest of a few random spots from those already chosen. */
   function placeHomes(): void {

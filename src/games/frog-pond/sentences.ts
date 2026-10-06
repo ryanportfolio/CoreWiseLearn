@@ -308,6 +308,8 @@ export function createLilySentences(services: AppServices): LilySentences {
     frogSlot = -1; hopT = 9; landT = 9;
     layout(W, H, u, top, ratio);
     frogX = startX; frogY = frogAtY();
+    // This round's clips load ahead of the rest of the folder: the sentence read aloud, then each word.
+    voice.prioritize(FROG_VOICE, [clip, ...words.map(wordClip)]);
   }
   const frogAtX = (s: number): number => (s < 0 ? startX : slotX[s]!);
   /** The frog stands on the back of a pad, so the word on its front stays in view. */

@@ -18,7 +18,7 @@ import { drawSprite, OUTLINE, roundedRect } from '../../ui/draw';
 import { approach, clamp01, easeInCubic, easeInOutSine, easeOutBack, easeOutCubic, lerp } from '../../ui/tween';
 import { bakePadWord, WordCache, type WordArt } from './cards';
 import { keyIndexForDegree, tierParams, tuneDegree, type RhymePlan, type RhymeTier } from './rhyme-rules';
-import { sayWord } from './voice';
+import { FROG_VOICE, sayWord } from './voice';
 
 const ART = 'frog-pond/';
 export const FROG_SIT = `${ART}frog-sit`, FROG_OPEN = `${ART}frog-open`, FROG_PUFF = `${ART}frog-puff`, PAD = `${ART}lily-pad`;
@@ -221,6 +221,11 @@ export function createRhymeSnack(services: AppServices): RhymeSnack {
       facing[k] = fromLeft ? 1 : -1;
     }
     bakePad();
+    // This round's clips load ahead of the rest of the folder: the target, each bug's catch or dodge word, then word help.
+    const want: string[] = plan.target ? [`say-${plan.target}`] : [];
+    for (let k = 0; k < nBugs; k++) want.push(`${rhyme[k] ? 'catch' : 'dodge'}-${words[k]}`);
+    for (let k = 0; k < nBugs; k++) want.push(`say-${words[k]}`);
+    voicePlayer(audio).prioritize(FROG_VOICE, want);
   }
 
   /** Bugs the pond holds at this size: open water (less the frog's box) over a bug's press area, at 40 percent cover. */
