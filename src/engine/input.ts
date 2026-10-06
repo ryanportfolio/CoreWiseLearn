@@ -16,6 +16,8 @@ export interface PointerState {
   down: boolean;
   /** True if the pointer has been inside the canvas at least once. */
   inside: boolean;
+  /** PointerEvent.pointerType of the latest pointer event: 'mouse', 'touch' or 'pen'. */
+  type: string;
 }
 
 export interface PointerEventInfo {
@@ -96,7 +98,7 @@ function shouldBlockKey(e: KeyboardEvent): boolean {
 }
 
 export function createInput(canvas: HTMLCanvasElement): Input {
-  const pointer: PointerState = { x: 0, y: 0, previousX: 0, previousY: 0, down: false, inside: false };
+  const pointer: PointerState = { x: 0, y: 0, previousX: 0, previousY: 0, down: false, inside: false, type: 'mouse' };
   const keys = new Set<string>();
   let sceneGeneration = 0;
   const listeners: { [K in InputEventName]: Set<InputListener<K>> } = {
@@ -126,6 +128,7 @@ export function createInput(canvas: HTMLCanvasElement): Input {
     if (!pointer.inside) { pointer.previousX = info.x; pointer.previousY = info.y; }
     pointer.x = info.x;
     pointer.y = info.y;
+    pointer.type = e.pointerType;
     pointer.down = true;
     pointer.inside = true;
     emit('pointerdown', info);
@@ -136,6 +139,7 @@ export function createInput(canvas: HTMLCanvasElement): Input {
     if (!pointer.inside) { pointer.previousX = info.x; pointer.previousY = info.y; }
     pointer.x = info.x;
     pointer.y = info.y;
+    pointer.type = e.pointerType;
     pointer.inside = true;
     emit('pointermove', info);
   };

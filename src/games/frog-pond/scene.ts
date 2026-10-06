@@ -10,17 +10,17 @@ import { rewards, type AppServices } from '../../app/services';
 import { STICKERS, stickerSpriteName } from '../../app/stickers';
 import { createAdaptiveTier, type Tier } from '../../engine/difficulty';
 import { createParticleSystem } from '../../engine/particles';
-import type { Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
+import type { CursorHover, Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
 import { playSfx, prepareSfxStep, type SfxName, type SfxOptions, type SfxVariant } from '../../audio/sfx';
 import { startMusic, stopMusic } from '../../audio/music';
 import { chunkyCircle, drawSprite, OUTLINE } from '../../ui/draw';
 import { confettiBurst, drawStarRow, STAR_GAP_SECONDS, STAR_HIT_SECONDS } from '../../ui/celebrate';
 import { drawEnterFade } from '../../ui/motion';
 import { BOOK_GLIDE, BOOK_ICON_PATH, createStickerOffers, leaveAlpha, leaveDrop, onBook, PICK_FLY, PICK_LIFT, PICK_SECONDS, placeBook } from '../../ui/sticker-offer';
-import { clamp01, easeOutCubic, lerp } from '../../ui/tween';
+import { approach, clamp01, easeOutCubic, lerp } from '../../ui/tween';
 import { createSoundButton, soundArt, syncSoundIcon } from '../../scenes/hub/shared';
 import { ACTIVITY_IDS, defaultData, GAME_ID, sanitizeFrogPondData, SET_ROUNDS, toTier, type ActivityId, type FrogPondData, type PendingRound } from './data';
-import { createRhymeSnack, FROG_SIT, PAD, RHYME_ART, type BugInfo } from './rhyme';
+import { createRhymeSnack, FROG_SIT, HOVER_RING, PAD, RHYME_ART, type BugInfo } from './rhyme';
 import { planRhyme, tierParams } from './rhyme-rules';
 import { planSentence, sentenceTier } from './sentence-rules';
 import { createLilySentences, SENTENCE_ART, WORD_PAD, type LilySentences } from './sentences';
@@ -107,6 +107,8 @@ export function createFrogPondScene(services: AppServices): FrogPondScene {
   let choiceSize = 0, choiceY = 0, restSize = 0, restY = 0, controlsY = 0, controlsRadius = 60, spotR = 90;
   const offers = createStickerOffers(sprites), bookAt = new Float32Array(2);
   let bookH = 150, bookGlide = false;
+  /** Mouse hover on the corner Home, eased 0 to 1 (the activities ease their own objects). */
+  let homeHover = 0;
   const stickerNames = new Map(STICKERS.map(s => [s.id, stickerSpriteName(s.id)]));
   const forcePond = services.debug.enabled && new URLSearchParams(location.search).has('pond');
   const debugSentence = services.debug.enabled ? Number(new URLSearchParams(location.search).get('sentence') ?? -1) : -1;
@@ -410,8 +412,14 @@ export function createFrogPondScene(services: AppServices): FrogPondScene {
     }
   }
   function drawCorners(ctx: CanvasRenderingContext2D): void {
-    chunkyCircle(ctx, homeX, cornerY, cornerRadius, '#a8d58f', OUTLINE, 4);
-    drawSprite(ctx, sprites, BUTTON_HOME, homeX, cornerY, Math.round(cornerRadius * 1.3));
+    // Mouse hover: a slight swell and a soft cream ring; the icon keeps its baked size and scales by transform.
+    const hs = 1 + homeHover * 0.08, hr = cornerRadius * hs;
+    if (homeHover > 0.01) {
+      ctx.globalAlpha = 0.45 * homeHover; ctx.beginPath(); ctx.arc(homeX, cornerY, hr + 7, 0, Math.PI * 2);
+      ctx.lineWidth = 6; ctx.strokeStyle = HOVER_RING; ctx.stroke(); ctx.globalAlpha = 1;
+    }
+    chunkyCircle(ctx, homeX, cornerY, hr, '#a8d58f', OUTLINE, 4);
+    drawSprite(ctx, sprites, BUTTON_HOME, homeX, cornerY, Math.round(cornerRadius * 1.3), 0, hs, hs);
     soundButton.render(ctx, sprites);
     if (cornerFocus >= 0) focusRing(ctx, cornerFocus === 0 ? homeX : soundX, cornerY, cornerRadius);
   }
@@ -428,6 +436,27 @@ export function createFrogPondScene(services: AppServices): FrogPondScene {
     for (let i = 0; i < ACTIVITY_IDS.length; i++) if (Math.hypot(x - spotX(i), y - spotY()) <= spotR) return i;
     return -1;
   };
+  // ---------------------------------------------------------------- hover
+  const onHome = (x: number, y: number): boolean => Math.hypot(x - homeX, y - cornerY) <= cornerRadius;
+  /** What a press at x, y would do now, with the same gates as handleInput's pointerdown. */
+  function hoverAt(x: number, y: number): CursorHover {
+    if (soundButton.contains(x, y)) return null;
+    if (onHome(x, y)) return 'press';
+    if (phase === 'celebration') return celebrationLocked() ? null : 'press';
+    if (performance.now() < inputAfter) return null;
+    if (playable()) return current().hoverAt(x, y);
+    if (phase === 'pond') return spotAt(x, y) >= 0 ? 'press' : null;
+    if (phase === 'choice' || phase === 'rest') return hoverMenu(x, y) >= 0 ? 'press' : null;
+    return null;
+  }
+  /** Ease the hover looks toward the mouse: the activity's objects and the corner Home. Pond spots, offers, Again and
+   * Home already show their focus ring on pointermove. */
+  function updateHover(dt: number): void {
+    const pt = input.pointer, mouse = pt.inside && pt.type === 'mouse' && !soundButton.contains(pt.x, pt.y);
+    const home = mouse && onHome(pt.x, pt.y), live = mouse && !home && playable() && performance.now() >= inputAfter;
+    if (playable()) current().hover(dt, live ? pt.x : -1, pt.y);
+    homeHover = approach(homeHover, home ? 1 : 0, 14, dt);
+  }
   function openActivity(i: number): void {
     if (i < 0 || i >= ACTIVITY_IDS.length) return;
     activity = ACTIVITY_IDS[i]!; play('go', 'A', 0, 0.8); startRound();
@@ -478,6 +507,7 @@ export function createFrogPondScene(services: AppServices): FrogPondScene {
 
   return {
     stats,
+    hoverAt,
     enter() {
       void loadFrogPondArt(services).then(() => layout(services.canvas.width, services.canvas.height));
       preloadFrogVoice(audio);
@@ -516,6 +546,7 @@ export function createFrogPondScene(services: AppServices): FrogPondScene {
       if (playable()) { time += dt; const act = current(); act.update(dt); if (act.done) finishRound(); }
       else if (phase === 'pond') { time += dt; phaseT += dt; }
       else updateResult(dt);
+      updateHover(dt);
       askIdle(); particles.update(dt);
       updateMs += performance.now() - started;
     },

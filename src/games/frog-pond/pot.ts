@@ -12,15 +12,16 @@
 import type { AppServices } from '../../app/services';
 import type { Tier } from '../../engine/difficulty';
 import { createParticleSystem, type ParticleSpawn } from '../../engine/particles';
+import type { CursorHover } from '../../engine/scene';
 import { voicePlayer } from '../../audio/voice-player';
 import { playSfx, type SfxName, type SfxOptions, type SfxVariant } from '../../audio/sfx';
 import { drawSprite, OUTLINE } from '../../ui/draw';
-import { clamp01, easeInCubic, easeInOutSine, easeOutBack, easeOutCubic, lerp, slamScale } from '../../ui/tween';
+import { approach, clamp01, easeInCubic, easeInOutSine, easeOutBack, easeOutCubic, lerp, slamScale } from '../../ui/tween';
 import type { WordArt } from './cards';
 import type { Compound } from './content';
 import { bakeBubble, bakeJoined, type BubbleArt } from './pot-cards';
 import { COLLECTION_WORDS, COMPOUND_WORDS, joinWord, potParams, type PotPlan, type PotTier } from './pot-rules';
-import { HAND } from './rhyme';
+import { HAND, HOVER_RING } from './rhyme';
 import { FROG_VOICE, sayWord } from './voice';
 
 const ART = 'frog-pond/';
@@ -115,6 +116,10 @@ export interface WordPot {
   drawFountain(ctx: CanvasRenderingContext2D, x: number, bottom: number, height: number, happy: number, time: number, word: string): void;
   pointerDown(x: number, y: number): void;
   pointerMove(x: number, y: number): void;
+  /** For the big cursor: what a press at x, y would act on now (pointerDown's own gates and hit tests). */
+  hoverAt(x: number, y: number): CursorHover;
+  /** Eases the hover cues toward the mouse at x, y; x < 0 when no mouse hover counts. */
+  hover(dt: number, x: number, y: number): void;
   key(code: string, shift: boolean): void;
   /** Stop the hand (the scene left or was covered). */
   stop(): void;
@@ -187,6 +192,9 @@ export function createWordPot(services: AppServices): WordPot {
   let made = 0, madeAll = 0, bonks = 0, demoMade = false;
   let selected = -1, focus = -1, keyMode = false, keyAfter = 0, pointerX = -1, pointerY = -1;
   const hand = { mode: 0, t: 0, a: -1, b: -1, x: 0, y: 0 };
+  // Mouse hover, eased 0 to 1: each bubble, each swimming picture, and the pot. potSwell is set only while play draws.
+  const bubbleHover = new Float32Array(MAX_BUBBLES), swimHover = new Float32Array(MAX_SWIMMERS);
+  let potHover = 0, potSwell = 0;
 
   // ---------------------------------------------------------------- layout
   function layout(width: number, height: number, unit: number, topY: number, pixelRatio: number): void {
@@ -322,7 +330,7 @@ export function createWordPot(services: AppServices): WordPot {
     finished = false; struggled = false; time = 0; idleT = 0; sinceMade = 0; doneT = -1; dropT = 0; fountainBump = 9; fountainHop = 9;
     made = madeAll = bonks = 0; demoMade = false;
     selected = -1; focus = -1; keyMode = false; hand.mode = 0; hand.a = hand.b = -1;
-    particles.clear(); rT.fill(-1);
+    particles.clear(); rT.fill(-1); bubbleHover.fill(0); swimHover.fill(0); potHover = 0;
     // A small window holds fewer bubbles: decoys are dropped (never halves) until they fit with room to drift.
     nBubbles = Math.min(MAX_BUBBLES, plan.bubbles.length, Math.max(plan.halves, capacity()));
     const order: number[] = [];
@@ -870,7 +878,8 @@ export function createWordPot(services: AppServices): WordPot {
   /** Draw the fountain squashing about its base. */
   function drawFountainSquashed(ctx: CanvasRenderingContext2D, x: number, feet: number, size: number, happy: number, t: number): void {
     fountainSquash(happy, t, squashOut);
-    const sxk = squashOut[0]!, syk = squashOut[1]!, lift = squashOut[2]!;
+    // Mouse hover during play: a slight swell from the base.
+    const sxk = squashOut[0]! + 0.04 * potSwell, syk = squashOut[1]! + 0.04 * potSwell, lift = squashOut[2]!;
     ctx.save();
     ctx.translate(x, feet - lift);
     ctx.scale(sxk, syk);
@@ -901,9 +910,16 @@ export function createWordPot(services: AppServices): WordPot {
       a = easeInOutSine(st === S_ENTER ? f : 1 - f); sink = (1 - a) * 18 * u; k *= 0.82 + 0.18 * a;
       ctx.globalAlpha = a;
     }
+    const hv = swimHover[s]!;
+    k *= 1 + 0.08 * hv;
     // A ripple on the water under it.
     ctx.beginPath(); ctx.ellipse(x, sy[s]! + swimSize * 0.36, swimSize * (0.3 + 0.12 * a), swimSize * 0.09, 0, 0, Math.PI * 2);
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)'; ctx.lineWidth = 3; ctx.stroke();
+    if (hv > 0.01) {
+      // Mouse hover: a soft cream ring round the picture.
+      ctx.globalAlpha = 0.5 * hv * a; ctx.beginPath(); ctx.arc(x, y + sink, swimSize * 0.55, 0, Math.PI * 2);
+      ctx.lineWidth = 6 * u; ctx.strokeStyle = HOVER_RING; ctx.stroke(); ctx.globalAlpha = a;
+    }
     drawSprite(ctx, sprites, pictureName(swimWord[s]!), x, y + sink, swimSize, rot, k, k);
     const label = labels[s];
     if (label) ctx.drawImage(label.canvas, x - label.w / 2, sy[s]! + swimSize * 0.42 + sink, label.w, label.h);
@@ -931,7 +947,13 @@ export function createWordPot(services: AppServices): WordPot {
       ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3; ctx.stroke();
       ctx.globalAlpha = 1;
     }
-    const k = grow * arrive;
+    const hv = bubbleHover[i]!;
+    if (hv > 0.01) {
+      // Mouse hover: a soft cream ring and a slight swell.
+      ctx.globalAlpha = 0.5 * hv; ctx.beginPath(); ctx.arc(x, y, art.r * grow * (1 + 0.06 * hv) + 7 * u, 0, Math.PI * 2);
+      ctx.lineWidth = 6 * u; ctx.strokeStyle = HOVER_RING; ctx.stroke(); ctx.globalAlpha = 1;
+    }
+    const k = grow * arrive * (1 + 0.06 * hv);
     ctx.save();
     ctx.translate(x, y);
     ctx.scale(sxk * k, syk * k);
@@ -994,7 +1016,15 @@ export function createWordPot(services: AppServices): WordPot {
 
   function render(ctx: CanvasRenderingContext2D): void {
     for (let s = 0; s < nSwim; s++) drawSwimmer(ctx, s);
+    potSwell = potHover;
+    if (potHover > 0.01) {
+      // Mouse hover: a soft cream ring round the fountain.
+      const top = fountainTopY - 8 * u, bottom = fountainCY + (FOUNTAIN_FEET - 0.5) * fountainSize + 4 * u;
+      ctx.globalAlpha = 0.5 * potHover; ctx.beginPath(); ctx.ellipse(fountainX, (top + bottom) / 2, fountainHalfW + 26 * u, (bottom - top) / 2, 0, 0, Math.PI * 2);
+      ctx.lineWidth = 6 * u; ctx.strokeStyle = HOVER_RING; ctx.stroke(); ctx.globalAlpha = 1;
+    }
     drawFountainSquashed(ctx, fountainX, fountainCY + (FOUNTAIN_FEET - 0.5) * fountainSize, fountainSize, doneT >= DONE_HOP_AT && fountainHop >= 0.6 ? doneT - DONE_HOP_AT : -1, time);
+    potSwell = 0;
     // Rising bubbles first (they come out of the spray), then the drifting ones, the joining ones, the lifted one on top.
     for (let i = 0; i < nBubbles; i++) if (state[i] === FREE) drawBubble(ctx, i);
     for (let i = 0; i < nBubbles; i++) if (state[i] === JOINING) drawBubble(ctx, i);
@@ -1028,6 +1058,18 @@ export function createWordPot(services: AppServices): WordPot {
   function pointerMove(x: number, y: number): void {
     if (Math.hypot(x - pointerX, y - pointerY) < 12) return;
     pointerX = x; pointerY = y; keyMode = false; idleT = 0;
+  }
+  function hoverAt(x: number, y: number): CursorHover {
+    if (demoRunning() || doneT >= 0) return null;
+    return bubbleAt(x, y) >= 0 || onFountain(x, y) || swimmerAt(x, y) >= 0 ? 'press' : null;
+  }
+  function hover(dt: number, x: number, y: number): void {
+    // The same order as pointerDown: a bubble, else the pot, else a swimmer.
+    const live = x >= 0 && !demoRunning() && doneT < 0, b = live ? bubbleAt(x, y) : -1;
+    const onIt = live && b < 0 && onFountain(x, y), s = live && b < 0 && !onIt ? swimmerAt(x, y) : -1;
+    for (let i = 0; i < MAX_BUBBLES; i++) bubbleHover[i] = approach(bubbleHover[i]!, i === b ? 1 : 0, 14, dt);
+    for (let i = 0; i < MAX_SWIMMERS; i++) swimHover[i] = approach(swimHover[i]!, i === s ? 1 : 0, 14, dt);
+    potHover = approach(potHover, onIt ? 1 : 0, 14, dt);
   }
   function moveFocus(code: string, shift: boolean): void {
     if (!pressable(focus)) { focus = nearestFree(W / 2, top); return; }
@@ -1095,7 +1137,7 @@ export function createWordPot(services: AppServices): WordPot {
   };
 
   const pot: WordPot = {
-    start, layout, update, render, drawFountain, pointerDown, pointerMove, key,
+    start, layout, update, render, drawFountain, pointerDown, pointerMove, hoverAt, hover, key,
     stop() { hand.mode = hand.mode === HAND_DEMO ? HAND_DEMO : 0; pointerX = -1; },
     get done() { return finished; },
     get target() { return plan.compounds[0]?.word ?? ''; },

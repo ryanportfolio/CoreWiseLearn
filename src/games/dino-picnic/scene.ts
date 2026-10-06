@@ -7,14 +7,14 @@ import { rewards, type AppServices } from '../../app/services';
 import { STICKERS, stickerSpriteName } from '../../app/stickers';
 import type { Tier } from '../../engine/difficulty';
 import { createParticleSystem, type ParticleSpawn } from '../../engine/particles';
-import type { Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
+import type { CursorHover, Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
 import { playSfx, prepareSfxStep, type SfxName, type SfxOptions, type SfxVariant } from '../../audio/sfx';
 import { startMusic, stopMusic } from '../../audio/music';
 import { chunkyCircle, chunkyPanel, drawSprite, OUTLINE } from '../../ui/draw';
 import { confettiBurst, drawCounter, drawStarRow, STAR_GAP_SECONDS, STAR_HIT_SECONDS } from '../../ui/celebrate';
 import { drawEnterFade } from '../../ui/motion';
 import { BOOK_GLIDE, BOOK_ICON_PATH, createStickerOffers, leaveAlpha, leaveDrop, onBook, PICK_FLY, PICK_LIFT, PICK_SECONDS, placeBook } from '../../ui/sticker-offer';
-import { arriveScale, clamp01, easeInOutSine, easeOutCubic, lerp } from '../../ui/tween';
+import { approach, arriveScale, clamp01, easeInOutSine, easeOutCubic, lerp } from '../../ui/tween';
 import { createSoundButton, soundArt, syncSoundIcon } from '../../scenes/hub/shared';
 import { defaultData, GAME_ID, sanitizePicnicData, type PendingRound, type PicnicData } from './data';
 import {
@@ -227,6 +227,9 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
   let zoneW = 0, zoneTop = 0, zoneBottom = 0, basketX = 0, basketY = 0, basketSize = 0, basketR = 0, hatSize = 0;
   let starY = 0, starR = 0, pipY = 0, pipSize = 0;
   let cornerRadius = 48, cornerY = 60, homeX = 60, soundX = 1306, cornerFocus = -1;
+  // Mouse hover, eased from 0 to 1: the corner Home, the basket and each plate (see updateHover).
+  let homeHover = 0, basketHover = 0;
+  const plateHover = new Float32Array(3);
   let choiceSize = 0, choiceY = 0, restSize = 0, restY = 0, controlsY = 0, controlsRadius = 60;
   // The offers drawn as stickers and the small sticker book they go into: its height beside the offers, its centre there
   // (bookAt), and bookGlide when the rest screen came from a pick, so the book moves from there to the middle.
@@ -1063,12 +1066,15 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
   }
   function basket(ctx: CanvasRenderingContext2D): void {
     if (cmp.active) return;
-    drawSprite(ctx, sprites, BASKET, basketX, basketY, basketSize);
+    // Under the mouse the basket lifts a little (about its centre) inside a soft halo: its fruit can be picked up.
+    const g = 1 + 0.07 * basketHover;
+    if (basketHover > 0.01) halo(ctx, basketX, basketY, basketR * g + 6, basketR * g + 6, basketHover);
+    drawSprite(ctx, sprites, BASKET, basketX, basketY, basketSize, 0, g, g);
     // A heap of fruit in the basket, always plenty.
-    const fs = Math.round(basketSize * 0.3), my = basketMouthY();
+    const fs = Math.round(basketSize * 0.3), my = basketY + (basketMouthY() - basketY) * g;
     for (let k = 0; k < 4; k++) {
-      const fx = basketX + (k - 1.5) * fs * 0.62, fy = my + (k % 2 ? -fs * 0.12 : fs * 0.06);
-      drawSprite(ctx, sprites, fruitName((nextFruit + k) % FRUITS.length), fx, fy, fs);
+      const fx = basketX + (k - 1.5) * fs * 0.62 * g, fy = my + (k % 2 ? -fs * 0.12 : fs * 0.06) * g;
+      drawSprite(ctx, sprites, fruitName((nextFruit + k) % FRUITS.length), fx, fy, fs, 0, g, g);
     }
   }
   function renderFlights(ctx: CanvasRenderingContext2D): void {
@@ -1136,6 +1142,11 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     const n = activeSlots();
     for (let i = 0; i < n; i++) { const sl = slots[i]!; if (sl.state !== 'off') dino(ctx, sl, sl.x, false); }
     for (let i = 0; i < n; i++) { const sl = slots[i]!; if (sl.state !== 'off') plate(ctx, sl); }
+    // A soft halo round the plate under the mouse: a press there feeds that dino (or drops the carried fruit on it).
+    for (let i = 0; i < n; i++) {
+      const sl = slots[i]!, k = plateHover[i]!;
+      if (k > 0.01 && sl.state !== 'off') halo(ctx, sl.x, plateY, plateW * 0.58, plateW * 0.39, k);
+    }
     const focused = slots[focus];
     if (focused && focus < n && (cmp.active ? cmp.sub === 'ask' && cmp.focusShown : feeding(focused))) highlight(ctx, focused);
     for (let i = 0; i < n; i++) card(ctx, slots[i]!);
@@ -1225,8 +1236,11 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
     }
   }
   function drawCorners(ctx: CanvasRenderingContext2D): void {
-    chunkyCircle(ctx, homeX, cornerY, cornerRadius, '#a8d58f', OUTLINE, 4);
-    drawSprite(ctx, sprites, BUTTON_HOME, homeX, cornerY, Math.round(cornerRadius * 1.3));
+    // The corner Home lifts a little and gains a soft halo while the mouse is over it.
+    const homeR = cornerRadius * (1 + 0.08 * homeHover);
+    if (homeHover > 0.01) halo(ctx, homeX, cornerY, homeR + 9, homeR + 9, homeHover);
+    chunkyCircle(ctx, homeX, cornerY, homeR, '#a8d58f', OUTLINE, 4);
+    drawSprite(ctx, sprites, BUTTON_HOME, homeX, cornerY, Math.round(cornerRadius * 1.3), 0, homeR / cornerRadius, homeR / cornerRadius);
     soundButton.render(ctx, sprites);
     if (cornerFocus >= 0) focusRing(ctx, cornerFocus === 0 ? homeX : soundX, cornerY, cornerRadius);
   }
@@ -1239,6 +1253,38 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
       if (choice ? Math.abs(dx) <= choiceSize / 2 && Math.abs(dy) <= choiceSize * 0.5 : Math.hypot(dx, dy) <= controlsRadius) return i;
     }
     return -1;
+  }
+  /**
+   * What a press at x, y would do now, through the same tests and gates as handleInput's pointerdown. The sound button
+   * reports its own hover.
+   */
+  function hoverKind(x: number, y: number): CursorHover {
+    if (playable() && carry.active) return 'carry';
+    if (Math.hypot(x - homeX, y - cornerY) <= cornerRadius) return 'press';
+    if (phase === 'celebration') return celebrationLocked() ? null : 'press';
+    if (performance.now() < inputAfter) return null;
+    if (playable()) {
+      if (cmp.active) { const i = slotAt(x, y); return cmp.sub === 'ask' && i >= 0 && i <= 1 ? 'press' : null; }
+      if (onBasket(x, y)) return 'grab';
+      return slotAt(x, y) >= 0 ? 'press' : null;
+    }
+    if (phase === 'choice' || phase === 'rest') return hoverMenu(x, y) >= 0 ? 'press' : null;
+    return null;
+  }
+  /** Eases the hover cues on the corner Home, the basket and the plates toward where the mouse is. */
+  function updateHover(dt: number): void {
+    const p = input.pointer, mouse = p.inside && p.type === 'mouse';
+    homeHover = approach(homeHover, mouse && Math.hypot(p.x - homeX, p.y - cornerY) <= cornerRadius ? 1 : 0, 14, dt);
+    const live = mouse && playable() && !cmp.active && performance.now() >= inputAfter;
+    basketHover = approach(basketHover, live && !carry.active && onBasket(p.x, p.y) ? 1 : 0, 14, dt);
+    const i = live ? slotAt(p.x, p.y) : -1;
+    for (let k = 0; k < 3; k++) plateHover[k] = approach(plateHover[k]!, k === i ? 1 : 0, 14, dt);
+  }
+  /** A soft cream ring at strength k (0 to 1), the same halo the round buttons show on hover. */
+  function halo(ctx: CanvasRenderingContext2D, x: number, y: number, rx: number, ry: number, k: number): void {
+    ctx.globalAlpha = 0.45 * k;
+    ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); ctx.lineWidth = 12; ctx.strokeStyle = '#fff8b2'; ctx.stroke();
+    ctx.globalAlpha = 1;
   }
 
   // ---------------------------------------------------------------- input
@@ -1400,9 +1446,11 @@ export function createDinoPicnicScene(services: AppServices): DinoPicnicScene {
       releaseArt(); sprites.clearScaled(BG); bgCanvas = undefined; sizeKey = ''; madeName = '';
     },
     resize: layout,
+    hoverAt: hoverKind,
     update(dt) {
       const started = performance.now(); sceneT += dt;
       syncSoundIcon(soundButton, services); soundButton.update(dt, input.pointer.x, input.pointer.y);
+      updateHover(dt);
       if (playable()) updatePlay(dt); else updateResult(dt);
       askIdle(); updateFlights(dt); particles.update(dt);
       updateMs += performance.now() - started;

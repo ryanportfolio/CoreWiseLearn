@@ -5,7 +5,7 @@
  */
 
 import type { AppServices } from '../../app/services';
-import type { Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
+import type { CursorHover, Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
 import { playSfx, prepareSfxStep, type SfxName, type SfxOptions, type SfxVariant } from '../../audio/sfx';
 import { startMusic, stopMusic } from '../../audio/music';
 import { createButton, type Button } from '../../ui/button';
@@ -78,6 +78,8 @@ interface Piece {
   tried: boolean; drag: boolean; selected: boolean; baked: Baked | undefined;
   /** Whether this held piece's matching outline is lit now (see updateBuild); placing it while lit is assisted. */
   lit: boolean;
+  /** Mouse hover over this tray piece, eased 0..1 (a small lift and a soft ring). */
+  hover: number;
 }
 interface Stamp { active: boolean; shape: number; color: number; x: number; y: number; size: number; rot: number; t: number }
 
@@ -229,6 +231,9 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   const live: Stamp[] = Array.from({ length: LIVE_STAMPS }, () => ({ active: false, shape: 0, color: 0, x: 0, y: 0, size: 0, rot: 0, t: 0 }));
   /** Seconds into the fresh paper sweep, or -1; seconds into the empty-sheet wiggle of the button, or -1. */
   let sweepT = -1, wiggleT = -1;
+  /** Mouse hover, eased 0..1: the shape cells and swatches (lift and ring), and the sheet (a faint preview of the next stamp). */
+  const shapeHover = new Float32Array(SHAPES.length), swatchHover = new Float32Array(SWATCHES);
+  let sheetHover = 0;
   /** The big sweeping brush (handle, ferrule, bristles), baked with the free-build sheet. */
   let sweepHandle: Baked | undefined, sweepFerrule: Baked | undefined, sweepBristles: Baked | undefined;
 
@@ -551,7 +556,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   }
 
   function newPiece(shape: Shape, color: number, part: number): Piece {
-    return { shape, color, extra: part < 0, part, cell: 0, x: 0, y: 0, hx: 0, hy: 0, w: 0, h: 0, state: 'tray', t: 0, fromX: 0, fromY: 0, target: -1, tried: false, drag: false, selected: false, baked: undefined, lit: false };
+    return { shape, color, extra: part < 0, part, cell: 0, x: 0, y: 0, hx: 0, hy: 0, w: 0, h: 0, state: 'tray', t: 0, fromX: 0, fromY: 0, target: -1, tried: false, drag: false, selected: false, baked: undefined, lit: false, hover: 0 };
   }
 
   function returnPiece(p: Piece): void {
@@ -1310,7 +1315,9 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
       else if (p.state === 'nope') { rot = Math.sin(p.t * 38) * 0.22 * (1 - p.t / 0.34); }
       if (hand.kind === KIND_HINT && hand.piece === i && hand.step >= 1 && hand.step <= 3) s *= 1 + 0.1 * Math.abs(Math.sin(time * 6));
       if (p.selected) squareRing(ctx, p.hx, p.hy, cell, false);
-      drawBaked(ctx, p.baked, p.x, p.y, rot, s, s);
+      const hk = p.state === 'tray' ? p.hover : 0;
+      if (hk > 0.01) { s *= 1 + 0.08 * hk; hoverSquare(ctx, p.hx, p.hy, cell, hk); }
+      drawBaked(ctx, p.baked, p.x, p.y - hk * 5 * u, rot, s, s);
     }
     // Pieces flying into place: turn and stretch from the tray shape to the outline.
     for (const p of pieces) {
@@ -1393,6 +1400,13 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
       drawBaked(ctx, sweepFerrule, x - freeH * 0.1, y);
       drawBaked(ctx, sweepBristles, x, y);
     }
+    // Mouse over the sheet: a faint preview of the shape a click would stamp there.
+    if (sheetHover > 0.01 && inSheet(input.pointer.x, input.pointer.y)) {
+      const sc = freeW * 160 / 1000 / STAMP_REF;
+      ctx.globalAlpha = 0.3 * sheetHover;
+      drawBaked(ctx, stampBaked(selShape, selColor), input.pointer.x, input.pointer.y, 0, sc, sc);
+      ctx.globalAlpha = 1;
+    }
     if (!hand.kind && kbActive) {
       // The keyboard's stamp spot shows only after a key, so a mouse player never sees a ring that looks like a target.
       const x = freeX + cursorX * freeW, y = freeY + cursorY * freeH, r = 34 * u;
@@ -1401,14 +1415,20 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     }
     for (let i = 0; i < SHAPES.length; i++) {
       const b = trayBaked(i, selColor), sel = i === selShape;
+      const hk = shapeHover[i]!;
       if (sel) squareRing(ctx, shapeCellX[i]!, shapeCellY[i]!, freeCell, true);
-      const s = sel ? 1.08 + 0.03 * Math.sin(time * 5) : 1;
+      else if (hk > 0.01) hoverSquare(ctx, shapeCellX[i]!, shapeCellY[i]!, freeCell, hk);
+      const s = (sel ? 1.08 + 0.03 * Math.sin(time * 5) : 1) * (1 + 0.07 * hk);
       drawBaked(ctx, b, shapeCellX[i]!, shapeCellY[i]!, Math.cos(time * 1.2 + i * 1.5) * 0.04, s, s);
     }
     for (let i = 0; i < SWATCHES; i++) {
       if (swatchCycle && i !== selColor) continue;
       // The single stepping swatch on a portrait screen stays smaller so its ring fits inside the screen edge.
-      const x = swatchX[i]!, y = swatchY[i]!, r = swatchR * (i === selColor && !swatchCycle ? 0.92 : 0.8);
+      const hk = swatchHover[i]!, x = swatchX[i]!, y = swatchY[i]!, r = swatchR * (i === selColor && !swatchCycle ? 0.92 : 0.8) * (1 + 0.08 * hk);
+      if (hk > 0.01 && i !== selColor) {
+        ctx.globalAlpha = 0.7 * hk; ctx.beginPath(); ctx.arc(x, y, r + 7, 0, Math.PI * 2);
+        ctx.strokeStyle = '#fff8b2'; ctx.lineWidth = 5; ctx.stroke(); ctx.globalAlpha = 1;
+      }
       ctx.beginPath(); ctx.arc(x + 3, y + 4, r, 0, Math.PI * 2); ctx.fillStyle = 'rgba(74, 46, 28, 0.26)'; ctx.fill();
       ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = '#fffaf0'; ctx.fill();
       ctx.beginPath(); ctx.arc(x, y, r - 4, 0, Math.PI * 2); ctx.fillStyle = PAPER[i]!; ctx.fill();
@@ -1663,6 +1683,72 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     sfx('hover');
   }
 
+  // ---------------------------------------------------------------- hover (mouse cursor)
+  /** The free-build shape cell under a point (freeDown's first check), or -1. */
+  function shapeCellAt(x: number, y: number): number {
+    for (let i = 0; i < SHAPES.length; i++) if (Math.abs(x - shapeCellX[i]!) <= freeCell / 2 && Math.abs(y - shapeCellY[i]!) <= freeCell / 2) return i;
+    return -1;
+  }
+  /** The swatch under a point (freeDown's second check), or -1. */
+  function swatchAt(x: number, y: number): number {
+    for (let i = 0; i < SWATCHES; i++) if (Math.hypot(x - swatchX[i]!, y - swatchY[i]!) <= swatchR) return i;
+    return -1;
+  }
+  /** A piece is held by a press or picked up by a click. */
+  function carrying(): boolean {
+    if (held && held.state === 'held') return true;
+    for (let i = 0; i < pieces.length; i++) if (pieces[i]!.selected) return true;
+    return false;
+  }
+  const buildOpen = (): boolean => (phase === 'play' || phase === 'deal') && !artPending && hand.kind !== KIND_DEMO;
+  const freeOpen = (): boolean => hand.kind !== KIND_FREE && sweepT < 0;
+  /**
+   * What the next press does with a piece carried after a click (buildDown): over another tray piece it picks that
+   * one up, over its own tray cell it puts it back, inside any open empty outline it is set down there. Every
+   * outline answers alike, so the hand never tells a matching outline from a wrong one.
+   */
+  function carriedHover(x: number, y: number): CursorHover {
+    const i = pieceAt(x, y);
+    if (i >= 0) return pieces[i]!.selected ? 'press' : 'grab';
+    for (const s of spots) if (s.open && !s.placed && !s.reserved && insideOutline(s, x, y, 0)) return 'press';
+    return 'carry';
+  }
+  function hoverAt(x: number, y: number): CursorHover {
+    if (mode === 'build' && held && held.state === 'held') return 'carry';
+    if (mode === 'build' && carrying()) return buildOpen() ? carriedHover(x, y) : 'carry';
+    // The top buttons report their own hover.
+    if (performance.now() < inputAfter) return null;
+    if (mode === 'build') {
+      if (phase === 'alive') return phaseT > SKIP_AFTER ? 'press' : null;
+      return buildOpen() && pieceAt(x, y) >= 0 ? 'grab' : null;
+    }
+    if (mode === 'free') return freeOpen() && (shapeCellAt(x, y) >= 0 || swatchAt(x, y) >= 0 || inSheet(x, y)) ? 'press' : null;
+    return frameAt(x, y) >= 0 ? 'press' : null;
+  }
+  /** Eases the hover cues toward what the mouse is over; the gallery frames ease in update() as before. */
+  function updateHover(dt: number): void {
+    const pt = input.pointer, mouse = pt.inside && pt.type === 'mouse' && performance.now() >= inputAfter;
+    if (mode === 'build') {
+      const hi = mouse && buildOpen() && !carrying() ? pieceAt(pt.x, pt.y) : -1;
+      for (let i = 0; i < pieces.length; i++) { const p = pieces[i]!; p.hover = approach(p.hover, i === hi && p.state === 'tray' ? 1 : 0, 14, dt); }
+    } else if (mode === 'free') {
+      const open = mouse && freeOpen(), sc = open ? shapeCellAt(pt.x, pt.y) : -1;
+      let sw = open && sc < 0 ? swatchAt(pt.x, pt.y) : -1;
+      if (sw >= 0 && swatchCycle) sw = selColor;
+      for (let i = 0; i < SHAPES.length; i++) shapeHover[i] = approach(shapeHover[i]!, i === sc ? 1 : 0, 14, dt);
+      for (let i = 0; i < SWATCHES; i++) swatchHover[i] = approach(swatchHover[i]!, i === sw ? 1 : 0, 14, dt);
+      sheetHover = approach(sheetHover, open && sc < 0 && sw < 0 && !pointerDown && inSheet(pt.x, pt.y) ? 1 : 0, 14, dt);
+    }
+  }
+  /** Soft cream square ring behind a hovered tray piece or shape cell. */
+  function hoverSquare(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, k: number): void {
+    const h = size / 2 - 6;
+    ctx.globalAlpha = 0.7 * k;
+    ctx.beginPath(); ctx.rect(x - h, y - h, h * 2, h * 2);
+    ctx.lineJoin = 'round'; ctx.strokeStyle = '#fff8b2'; ctx.lineWidth = 5; ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
   // ---------------------------------------------------------------- stats for checks
   const stats: WorkshopStats = {
     get mode() { return mode; }, get phase() { return phase; }, get phaseTime() { return phaseT; }, get picture() { return pic.id; },
@@ -1716,6 +1802,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     },
     exit() { stopMusic(audio); stopIdle(); stopVoice(); flushLive(); services.save.flush(); },
     resize: layout,
+    hoverAt,
     update(dt) {
       const started = performance.now();
       time += dt; sceneT += dt;
@@ -1736,6 +1823,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
       if (mode === 'build') updateBuild(dt);
       else if (mode === 'free') updateFree(dt);
       else for (let i = 0; i < 12; i++) frameHover[i] = approach(frameHover[i]!, (i === galleryFocus && (kbActive || frameAt(input.pointer.x, input.pointer.y) === i)) ? 1 : 0, 14, dt);
+      updateHover(dt);
       fx.update(dt);
       updateMs += performance.now() - started;
     },

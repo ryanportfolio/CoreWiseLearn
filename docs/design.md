@@ -40,6 +40,18 @@ Any pull request that crosses one of these is wrong, whatever else it improves.
 - Browser and operating-system reduced-motion preferences are ignored by explicit owner direction. Full normal animation remains, including brief reward reveals and a still rest screen.
 - Hosted on Vercel at https://corewise.fun, a static build served from the site root.
 
+## Cursor
+
+Owner (2026-10-05): a big custom cursor across the whole hub that animates on a click, and an effect when the pointer is over something clickable. `src/engine/cursor.ts` draws it on the main canvas after every scene, so it sits on top of games, overlays, celebrations and the break nudge. CSS `cursor: none` hides the system cursor over the canvas.
+
+- Size: about 56 CSS px tall at 1366x768, scaled like the corner buttons (`min(width / 1366, height / 768)` clamped to 0.75 to 1.5, times `uiScale`). The hotspot is the arrow's tip, the pointing finger's tip, or the middle of the open and closed hands.
+- Looks: an arrow over nothing, a pointing hand over something to press, an open hand over something to pick up, a closed hand while a piece is carried. All four share the hub's warm yellow fill, a dark outline and a white rim, so they read on light and dark scenes. Each look is baked once per size onto a CPU canvas.
+- Motion: a slow sway and breath while the arrow shows. When the look changes it dips to 90 percent and springs to its new size, 115 percent for the hands and 100 percent for the arrow, settling within about 120 ms. Any mouse button squashes it at the hotspot (20 percent flatter), and it springs back within about 105 ms. Each press also sends a ring ripple out from the hotspot, drawn over the cursor so it shows from its first frame: 340 ms with six small dots over something clickable, a smaller 260 ms ring over nothing. Nothing flashes.
+- Reduced motion: the cursor ignores `prefers-reduced-motion`, like the rest of the hub (owner decision above), and moves the same everywhere.
+- Hover cues are plain path draws (a ring or rounded square stroked each frame while something is hovered), not baked images: each is one stroke, and a bake per size and per object would add more code than it saves.
+- Touch and pen input draw no cursor. Keyboard play leaves it where the mouse last was.
+- Hover: buttons made with `src/ui/button.ts` report their own hover and draw a soft halo and a short wiggle. Only the top scene's buttons count: the break nudge drops any hover the covered scene's buttons report while it lets that scene finish its entry. Every other clickable thing is reported by the scene's `hoverAt(x, y)` (see `docs/adding-a-game.md`), and the scene draws its own soft hover cue on that object.
+
 ## Pull request checklist
 
 - [ ] Navigation needs no reading; learning text has a demonstration or spoken support.

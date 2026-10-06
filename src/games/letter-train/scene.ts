@@ -3,14 +3,14 @@ import { rewards, type AppServices } from '../../app/services';
 import { STICKERS, stickerSpriteName } from '../../app/stickers';
 import type { Tier } from '../../engine/difficulty';
 import { createParticleSystem, type ParticleSpawn } from '../../engine/particles';
-import type { Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
+import type { CursorHover, Scene, SceneContext, SceneInputEvent } from '../../engine/scene';
 import { playSfx, prepareSfxStep, type SfxOptions } from '../../audio/sfx';
 import { startMusic, stopMusic } from '../../audio/music';
 import { chunkyCircle, chunkyPanel, drawSprite, DISPLAY_FONT, OUTLINE, roundedRect } from '../../ui/draw';
 import { BOOK_GLIDE, BOOK_ICON, BOOK_ICON_PATH, createStickerOffers, leaveAlpha, leaveDrop, onBook, PICK_FLY, PICK_LIFT, PICK_SECONDS, placeBook } from '../../ui/sticker-offer';
 import { confettiRain } from '../../ui/celebrate';
 import { drawEnterFade } from '../../ui/motion';
-import { clamp01, easeInCubic, easeInOutSine, easeOutBack, easeOutCubic, lerp, slamScale } from '../../ui/tween';
+import { approach, clamp01, easeInCubic, easeInOutSine, easeOutBack, easeOutCubic, lerp, slamScale } from '../../ui/tween';
 import { createSoundButton, soundArt, syncSoundIcon } from '../../scenes/hub/shared';
 import {
   letterIndex, matches, nameLetters, planRound, stageDown, stageUp, toStage, WORDS,
@@ -197,6 +197,9 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
   let holdResult = false;
   let fanfareStarted = false, fanfareAsked = false, idleHandle = 0;
   const roundPassengers: number[] = [];
+  /** Mouse hover, eased 0..1: per platform block (lift), per car slot (glow ring) and the corner Home button (ring). */
+  const blockHover = new Float32Array(MAX_CARS), carHover = new Float32Array(MAX_CARS);
+  let homeHover = 0;
 
   const playable = () => phase === 'arrive' || phase === 'play' || phase === 'toot' || phase === 'depart';
   const guard = (seconds: number) => { inputAfter = performance.now() + seconds * 1000; };
@@ -1023,6 +1026,7 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
           ctx.drawImage(plate, wx - s / 2, bottom - wh * 0.6 - s / 2, s, s);
         }
       }
+      if (carHover[i]! > 0.01) hoverRing(ctx, sx, sy, C, carHover[i]!);
     }
     const ex = engineX();
     if (ex - engineW() / 2 < W + 20 && ex + engineW() / 2 > -20) {
@@ -1050,9 +1054,12 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
       let scale = 1, y = b.y;
       if (b.state === 'idle' && b.t < 0.4) scale = 0.3 + 0.7 * easeOutBack(b.t / 0.4);
       if (hintT >= 0 && i === hintBlock && hintT > 0.55 && hintT < 0.9) y -= Math.sin(((hintT - 0.55) / 0.35) * Math.PI) * B * 0.15;
+      const hk = blockHover[i]!;
+      if (hk > 0.01) { y -= hk * B * 0.06; scale *= 1 + hk * 0.07; }
       ctx.globalAlpha = 0.22; ctx.fillStyle = '#4a2c12';
       ctx.beginPath(); ctx.ellipse(b.homeX, b.homeY + B * 0.52, B * 0.46, B * 0.09, 0, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
       drawBlock(ctx, b, b.x, y, scale);
+      if (hk > 0.01) hoverRing(ctx, b.x, y, B * scale, hk);
       if (i === kbBlock) kbRing(ctx, b.x, y);
     }
     if (kbActive && (phase === 'play' || phase === 'arrive') && kbCar >= 0 && kbBlock >= 0) {
@@ -1226,6 +1233,10 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
   function drawCorners(ctx: CanvasRenderingContext2D): void {
     chunkyCircle(ctx, homeX, cornerY, cornerRadius, '#a3c9c5', OUTLINE, 4);
     drawSprite(ctx, sprites, SPR_HOME, homeX, cornerY, Math.round(cornerRadius * 1.3));
+    if (homeHover > 0.01) {
+      ctx.globalAlpha = 0.75 * homeHover; ctx.beginPath(); ctx.arc(homeX, cornerY, cornerRadius + 7, 0, Math.PI * 2);
+      ctx.lineWidth = 6; ctx.strokeStyle = '#fff8b2'; ctx.stroke(); ctx.globalAlpha = 1;
+    }
     soundButton.render(ctx, sprites);
     if (cornerFocus >= 0) focusRing(ctx, cornerFocus === 0 ? homeX : soundX, cornerY, cornerRadius);
   }
@@ -1241,6 +1252,62 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     }
     for (let i = 0; i < 2; i++) if (Math.hypot(x - controlX(i), y - controlsY) <= controlsR) return i;
     return -1;
+  }
+
+  // ---------------------------------------------------------------- hover (mouse cursor)
+  /** The car a tap says hello to (pointerDown's last check), or -1. */
+  function carTapAt(x: number, y: number): number {
+    for (let i = 0; i < nCars; i++) if (Math.abs(x - carX(i)) < cw() / 2 && y > slotY() - C && y < trackY) return i;
+    return -1;
+  }
+  /** A block is held by the pointer or picked up by a click. */
+  const carrying = () => (held >= 0 && demoT < 0) || selectedBlock >= 0;
+  function hoverAt(x: number, y: number): CursorHover {
+    // The corner Home acts at once; the sound button reports its own hover.
+    if (Math.hypot(x - homeX, y - cornerY) <= cornerRadius) return 'press';
+    if (phase === 'celebration') return phaseT >= CELEBRATION_LOCK ? 'press' : null;
+    if (performance.now() < inputAfter) return null;
+    if (playable()) {
+      if (held >= 0 && demoT < 0) return 'carry';
+      if (selectedBlock >= 0) {
+        // Carried after a click: the next press puts it on the car it is over (as pointerDown does), or swaps
+        // it for another block under the pointer; anywhere else the hand keeps holding on.
+        const b = blocks[selectedBlock];
+        if (b && b.state === 'selected' && carAt(x + grabX, y + grabY, pullRadius()) >= 0) return 'press';
+        return blockAt(x, y, selectedBlock) >= 0 ? 'grab' : 'carry';
+      }
+      if (phase !== 'play' && phase !== 'arrive') return null;
+      if (blockAt(x, y) >= 0) return 'grab';
+      return carTapAt(x, y) >= 0 ? 'press' : null;
+    }
+    if ((phase === 'choice' || phase === 'rest') && !holdResult && hoverMenu(x, y) >= 0) return 'press';
+    return null;
+  }
+  /** Eases the hover lift and glows toward what the mouse is over; the choice and rest screens use their focus rings. */
+  function updateHover(dt: number): void {
+    const p = input.pointer;
+    let hb = -1, hc = -1, home = false;
+    if (p.inside && p.type === 'mouse') {
+      home = Math.hypot(p.x - homeX, p.y - cornerY) <= cornerRadius;
+      if (!home && (phase === 'play' || phase === 'arrive') && performance.now() >= inputAfter) {
+        if (carrying()) {
+          // While carrying, the car the block would go onto glows.
+          const b = held >= 0 && demoT < 0 ? blocks[held] : undefined;
+          hc = b ? carAt(b.x, b.y, pullRadius()) : carAt(p.x + grabX, p.y + grabY, pullRadius());
+        } else { hb = blockAt(p.x, p.y); if (hb < 0) hc = carTapAt(p.x, p.y); }
+      }
+    }
+    for (let i = 0; i < MAX_CARS; i++) {
+      blockHover[i] = approach(blockHover[i]!, i === hb ? 1 : 0, 14, dt);
+      carHover[i] = approach(carHover[i]!, i === hc ? 1 : 0, 14, dt);
+    }
+    homeHover = approach(homeHover, home ? 1 : 0, 14, dt);
+  }
+  function hoverRing(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, k: number): void {
+    ctx.globalAlpha = 0.75 * k;
+    roundedRect(ctx, x - size / 2 - 8, y - size / 2 - 8, size + 16, size + 16, size * 0.2);
+    ctx.lineWidth = 6; ctx.strokeStyle = '#fff8b2'; ctx.stroke();
+    ctx.globalAlpha = 1;
   }
 
   const stats: LetterTrainStats = {
@@ -1300,10 +1367,12 @@ export function createLetterTrainScene(services: AppServices, options: LetterTra
     // Any route away from rest (corner Home, Escape, the break nudge's Home) closes the finished round.
     exit() { stopMusic(audio); stopIdle(); offers.cancel(); closeFinishedRound(); services.save.flush(); },
     resize: layout,
+    hoverAt,
     update(dt) {
       const started = performance.now(); time += dt; sceneT += dt;
       syncSoundIcon(soundButton, services); soundButton.update(dt, input.pointer.x, input.pointer.y);
       if (playable()) updatePlay(dt); else updateResult(dt);
+      updateHover(dt);
       if (fanfareStarted && !fanfareAsked && !idleHandle && playable()) idleHandle = requestIdleCallback(prepareIdle, { timeout: 500 });
       particles.update(dt);
       updateMs += performance.now() - started;
