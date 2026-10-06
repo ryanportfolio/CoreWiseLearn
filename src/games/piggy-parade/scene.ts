@@ -426,15 +426,28 @@ export function createPiggyParadeScene(services: AppServices): PiggyParadeScene 
       if (!clash || pw * 0.95 < 96) break;
       pigH = ph * 0.95;
     }
-    const big = maxCoinD();
-    for (let k = 0; k < 4; k++) badgeD[k] = Math.round(coinD[k]! * Math.min(0.9, 0.5 * pw / coinD[QUARTER]!));
-    hayL = trayX + trayW * HAY_L; hayR = trayX + trayW * HAY_R;
     let zoneBottom = 0;
     for (let i = 0; i < pigCount; i++) zoneBottom = Math.max(zoneBottom, piggies[i]!.zone[3]!);
     // Value tags: numerals at least 20 CSS px (more on bigger screens); the row leaves room for the tag under each coin.
     tags.configure(tagFloor(), artRatio, fontReady);
+    // The coin row sits 6 px below the lowest piggy drop zone, so no coin's pick area reaches into one, with the tag
+    // under it on screen. Where a large uiScale leaves too little room for both, the coins shrink 1 px at a time
+    // toward the dime's 96 px floor until they fit.
+    const room = H - 2 - (zoneBottom + 6);
+    for (let dime = coinD[DIME]!; dime > 96;) {
+      const big = maxCoinD();
+      if (big + tags.hang(big) <= room) break;
+      dime = Math.max(96, dime - 1);
+      for (let k = 0; k < 4; k++) coinD[k] = Math.round(dime * RATIO[k]!);
+    }
+    const big = maxCoinD();
+    for (let k = 0; k < 4; k++) badgeD[k] = Math.round(coinD[k]! * Math.min(0.9, 0.5 * pw / coinD[QUARTER]!));
+    hayL = trayX + trayW * HAY_L; hayR = trayX + trayW * HAY_R;
     rowY = Math.max(trayTop + trayW * TRAY_ASPECT * HAY_ROW, zoneBottom + big / 2 + 6);
     rowY = Math.min(rowY, H - big / 2 - tags.hang(big) - 2);
+    // Only below 1366x768, with the dime already at 96 px: the tag may run off the bottom edge before a coin's pick
+    // area would reach into a drop zone.
+    rowY = Math.max(rowY, Math.min(zoneBottom + big / 2 + 6, H - big / 2 - 2));
     fitTray();
     handH = Math.round(Math.max(80, 110 * s));
     const glow = Math.round(big * 1.7);

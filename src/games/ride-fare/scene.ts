@@ -146,6 +146,8 @@ const CUPS_GRID = 0, CUPS_ROWS = 1;
 interface Flight {
   active: boolean; mode: number; kind: number; n: number; place: number;
   x0: number; y0: number; x1: number; y1: number; t: number; dur: number; giggles: number;
+  /** Numeral height of the tag drawn on the flying coin last frame, CSS px (for the checks). */
+  ink: number;
 }
 interface Rect { x: number; y: number; w: number; h: number }
 /** A coin on the tray or in flight; `count` 0 is an empty place showing its coin faint. `tag`: its value tag's text, `tagInk` its numerals' height (CSS px). */
@@ -312,7 +314,7 @@ export function createRideFareScene(services: AppServices): RideFareScene {
   const random = (): number => services.random();
   const particles = createParticleSystem(PARTICLES);
   const soundButton = createSoundButton(services), soundNames = soundArt(services).map(a => a.name);
-  const flights: Flight[] = Array.from({ length: POOL }, () => ({ active: false, mode: 0, kind: 0, n: 1, place: 0, x0: 0, y0: 0, x1: 0, y1: 0, t: 0, dur: 1, giggles: 0 }));
+  const flights: Flight[] = Array.from({ length: POOL }, () => ({ active: false, mode: 0, kind: 0, n: 1, place: 0, x0: 0, y0: 0, x1: 0, y1: 0, t: 0, dur: 1, giggles: 0, ink: 0 }));
   const work = new Float32Array(240);
   const sfx: SfxOptions = { index: 0, volume: 1, variant: 'A' };
   const pos = { x: 0, y: 0 };
@@ -350,6 +352,8 @@ export function createRideFareScene(services: AppServices): RideFareScene {
   const tagKind = new Int8Array(TAG_QUEUE), tagD = new Float32Array(TAG_QUEUE), tagX = new Float32Array(TAG_QUEUE), tagY = new Float32Array(TAG_QUEUE);
   const tagSx = new Float32Array(TAG_QUEUE), tagSy = new Float32Array(TAG_QUEUE), tagA = new Float32Array(TAG_QUEUE);
   let tagN = 0, deferTags = false;
+  /** Numeral height of the last tag coin() drew, CSS px (for the checks). */
+  let drawnInk = 0;
   let phase: Phase = 'play', tier: Tier = 0, intro = false, introStage = 0, animalOffset = 0;
   let riderPhase: RiderPhase = 'enter', riderT = 0, seqT = 0, riderIndex = 0, ridersTotal = 3, enterSeconds = 1;
   let plan: RiderPlan = introRider(), fare = 0, lit = 0, reserved = 0, pourLeft = 0, pourTimer = 0, pourGap = POUR_GAP, plateN = 0, lastFare = 0;
@@ -453,6 +457,7 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     if (nPlaces) placeCoins();
     if (nCups) placeCups();
     prepareTags();
+    if (roundPanel()) layoutStand();
     // Celebration, choice and rest.
     const headerScale = Math.min(1.25, Math.max(0.6, Math.min(W / 1366, H / 768)));
     starR = 34 * headerScale; starY = 70 * headerScale;
@@ -820,11 +825,25 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     if (!plan.swap || plateState[0] !== 0 || plateCoinMade()) return false;
     return standMode() === PENNY || plateKind[0] === DIME;
   }
+  /** How far every other coin on the swap stand sits above the table row, by coin count (5 pennies, 2 nickels); 0: one row. */
+  const standUp = new Float32Array(6);
+  /**
+   * The swap stand's rows: where `n` coins side by side between its posts would bring their value tags closer than a
+   * tag's width plus 4 px, every other coin sits a tag's height plus 4 px higher (a zigzag of two rows), so no tag ever
+   * covers another. Runs after the tags for this layout are baked.
+   */
+  function layoutStand(): void {
+    for (let n = 2; n <= 5; n += 3) {
+      const d = standCoinD(n), pitch = standW * (STAND_X1 - STAND_X0) / n;
+      standUp[n] = pitch >= tags.width(n === 5 ? PENNY : NICKEL, d) + 4 ? 0 : tags.over(d) + tags.hang(d) + 4;
+    }
+  }
+  /** The swap stand's table row: the centre height of its `n` coins on the table. */
+  const standRowY = (n: number): number => standY + standH * STAND_TABLE - standCoinD(n) * 0.55;
   /** Centre of coin `i` of `n` on the swap stand's table, into pos. */
   function standSlot(i: number, n: number): void {
-    const d = standCoinD(n);
     pos.x = standX + standW * (STAND_X0 + (i + 0.5) * (STAND_X1 - STAND_X0) / n);
-    pos.y = standY + standH * STAND_TABLE - d * 0.55;
+    pos.y = standRowY(n) - (i % 2 ? standUp[n]! : 0);
   }
   const pawsCX = (): number => gateX;
   const pawsCY = (): number => (pawsY0 + pawsY1) / 2;
@@ -1322,7 +1341,9 @@ export function createRideFareScene(services: AppServices): RideFareScene {
     drawSprite(ctx, sprites, COIN_FRONTS[kind]!, x, y, d, rot, sx * scale, scale);
     note(COIN_FRONTS[kind]!, d * scale, 384);
     if (base === 0) return;
-    const b = base < 0 ? d : base, k = d * scale / b;
+    // A coin shrinking in flight (onto the stand, into the paws) keeps its tag's numerals at the 20 px floor or more.
+    const b = base < 0 ? d : base, ink = tags.ink(b), k = Math.max(d * scale / b, tags.ink(0) / ink);
+    drawnInk = ink * k;
     tag(ctx, kind, b, x, y, sx * k, k, ctx.globalAlpha);
   }
   /**
@@ -1523,68 +1544,72 @@ export function createRideFareScene(services: AppServices): RideFareScene {
   function renderFlights(ctx: CanvasRenderingContext2D): void {
     for (const f of flights) {
       if (!f.active || f.t < 0) continue;
-      const kind = f.kind;
-      if (f.mode === ARRIVE || f.mode === LEAVE || f.mode === RETURN) {
-        const k = clamp01(f.t / f.dur), e = f.mode === LEAVE ? easeInCubic(k) : easeOutCubic(k);
-        const x = lerp(f.x0, f.x1, e), y = lerp(f.y0, f.y1, e) - (f.mode === RETURN ? Math.sin(k * Math.PI) * 40 * u : 0);
-        // Sliding in, the coin spins (turning about its upright axis) and settles heads up.
-        const spin = f.mode === ARRIVE ? (1 - e) * Math.PI * 4 : 0, c = Math.cos(spin);
-        const under = Math.min(4, f.n - 1);
-        for (let j = under; j >= 1; j--) coin(ctx, kind, x + j * 3 * u, y + j * 5 * u, 1, 0, 1, 0);
-        coin(ctx, kind, x, y, 1, f.mode === RETURN ? k * 4 : 0, Math.max(0.08, Math.abs(c)));
-        continue;
+      // The flight keeps the numeral height its tag was drawn at this frame, for the checks (stats.coins).
+      drawnInk = 0; renderFlight(ctx, f); f.ink = drawnInk;
+    }
+  }
+  function renderFlight(ctx: CanvasRenderingContext2D, f: Flight): void {
+    const kind = f.kind;
+    if (f.mode === ARRIVE || f.mode === LEAVE || f.mode === RETURN) {
+      const k = clamp01(f.t / f.dur), e = f.mode === LEAVE ? easeInCubic(k) : easeOutCubic(k);
+      const x = lerp(f.x0, f.x1, e), y = lerp(f.y0, f.y1, e) - (f.mode === RETURN ? Math.sin(k * Math.PI) * 40 * u : 0);
+      // Sliding in, the coin spins (turning about its upright axis) and settles heads up.
+      const spin = f.mode === ARRIVE ? (1 - e) * Math.PI * 4 : 0, c = Math.cos(spin);
+      const under = Math.min(4, f.n - 1);
+      for (let j = under; j >= 1; j--) coin(ctx, kind, x + j * 3 * u, y + j * 5 * u, 1, 0, 1, 0);
+      coin(ctx, kind, x, y, 1, f.mode === RETURN ? k * 4 : 0, Math.max(0.08, Math.abs(c)));
+      return;
+    }
+    if (f.mode === TO_STAND || f.mode === TO_PAWS || f.mode === BACK_STAND || f.mode === BACK_PAWS) {
+      // An arc onto the stand (shrinking to the stand's coin size) or into the paws; not wanted there, a jiggle and a hop home.
+      const small = (f.mode === TO_STAND || f.mode === BACK_STAND ? standCoinD(standNeed(kind)) : coinD[kind]! * PAWS_HOLD) / coinD[kind]!;
+      if (f.t < TO_SECONDS) {
+        const k = f.t / TO_SECONDS, e = easeOutCubic(k);
+        coin(ctx, kind, lerp(f.x0, f.x1, e), lerp(f.y0, f.y1, e) - Math.sin(k * Math.PI) * 70 * u, lerp(1, small, e), 0, 1);
+        return;
       }
-      if (f.mode === TO_STAND || f.mode === TO_PAWS || f.mode === BACK_STAND || f.mode === BACK_PAWS) {
-        // An arc onto the stand (shrinking to the stand's coin size) or into the paws; not wanted there, a jiggle and a hop home.
-        const small = (f.mode === TO_STAND || f.mode === BACK_STAND ? standCoinD(standNeed(kind)) : coinD[kind]! * PAWS_HOLD) / coinD[kind]!;
-        if (f.t < TO_SECONDS) {
-          const k = f.t / TO_SECONDS, e = easeOutCubic(k);
-          coin(ctx, kind, lerp(f.x0, f.x1, e), lerp(f.y0, f.y1, e) - Math.sin(k * Math.PI) * 70 * u, lerp(1, small, e), 0, 1);
-          continue;
-        }
-        const t = f.t - TO_SECONDS;
-        // Resting there for a moment, the coin wears the tag baked for its size there, as the stand's own coins do.
-        if (t < BACK_HOLD) { coin(ctx, kind, f.x1 + Math.sin(t * 40) * 3 * u, f.y1, small, 0, 1, Math.round(coinD[kind]! * small)); continue; }
-        const k = clamp01((t - BACK_HOLD) / BACK_HOP), e = easeInOutSine(k);
-        coin(ctx, kind, lerp(f.x1, pX[f.place] ?? f.x0, e), lerp(f.y1, pY[f.place] ?? f.y0, e) - Math.sin(k * Math.PI) * 110 * u, lerp(small, 1, e), k * Math.PI * 2, 1);
-        continue;
-      }
-      if (f.mode === SWAPPED) {
-        // The swapped coin hops from the stand onto its place, its dots still glowing inside.
-        const k = clamp01(f.t / f.dur), e = easeInOutSine(k), from = standCoinD(2) / coinD[kind]!;
-        const x = lerp(f.x0, f.x1, e), y = lerp(f.y0, f.y1, e) - Math.sin(k * Math.PI) * 120 * u, sc = lerp(from, 1, e);
-        coin(ctx, kind, x, y, sc, 0, 1); coinDots(ctx, kind, x, y, 1, sc);
-        continue;
-      }
-      // SEND and REJECT: fly to the slot top, show the coin's dots, then slip in (edge-on) or hop home.
-      const sy = slotY();
-      if (f.t < SEND_FLY) {
-        const k = f.t / SEND_FLY, e = easeOutCubic(k);
-        const x = lerp(f.x0, slotX(), e), y = lerp(f.y0, sy - coinD[kind]! * 0.35, e) - Math.sin(k * Math.PI) * 60 * u;
-        coin(ctx, kind, x, y, 1, 0, 1);
-        continue;
-      }
-      if (f.mode === SEND) {
-        const t = f.t - SEND_FLY;
-        if (t < SEND_DOTS) {
-          coin(ctx, kind, slotX(), sy - coinD[kind]! * 0.35, 1, 0, 1);
-          coinDots(ctx, kind, slotX(), sy - coinD[kind]! * 0.35, Math.sin(Math.min(1, t / SEND_DOTS) * Math.PI * 0.5 + 0.3));
-        } else {
-          const k = clamp01((t - SEND_DOTS) / SEND_SLIP);
-          coin(ctx, kind, slotX(), sy - coinD[kind]! * 0.35 + k * coinD[kind]! * 0.5, 1, 0, Math.max(0.08, 1 - k));
-        }
-        continue;
-      }
+      const t = f.t - TO_SECONDS;
+      // Resting there for a moment, the coin wears the tag baked for its size there, as the stand's own coins do.
+      if (t < BACK_HOLD) { coin(ctx, kind, f.x1 + Math.sin(t * 40) * 3 * u, f.y1, small, 0, 1, Math.round(coinD[kind]! * small)); return; }
+      const k = clamp01((t - BACK_HOLD) / BACK_HOP), e = easeInOutSine(k);
+      coin(ctx, kind, lerp(f.x1, pX[f.place] ?? f.x0, e), lerp(f.y1, pY[f.place] ?? f.y0, e) - Math.sin(k * Math.PI) * 110 * u, lerp(small, 1, e), k * Math.PI * 2, 1);
+      return;
+    }
+    if (f.mode === SWAPPED) {
+      // The swapped coin hops from the stand onto its place, its dots still glowing inside.
+      const k = clamp01(f.t / f.dur), e = easeInOutSine(k), from = standCoinD(2) / coinD[kind]!;
+      const x = lerp(f.x0, f.x1, e), y = lerp(f.y0, f.y1, e) - Math.sin(k * Math.PI) * 120 * u, sc = lerp(from, 1, e);
+      coin(ctx, kind, x, y, sc, 0, 1); coinDots(ctx, kind, x, y, 1, sc);
+      return;
+    }
+    // SEND and REJECT: fly to the slot top, show the coin's dots, then slip in (edge-on) or hop home.
+    const sy = slotY();
+    if (f.t < SEND_FLY) {
+      const k = f.t / SEND_FLY, e = easeOutCubic(k);
+      const x = lerp(f.x0, slotX(), e), y = lerp(f.y0, sy - coinD[kind]! * 0.35, e) - Math.sin(k * Math.PI) * 60 * u;
+      coin(ctx, kind, x, y, 1, 0, 1);
+      return;
+    }
+    if (f.mode === SEND) {
       const t = f.t - SEND_FLY;
-      if (t < REJECT_HOLD) {
-        const jig = Math.sin(t * 40) * 3 * u;
-        coin(ctx, kind, slotX() + jig, sy - coinD[kind]! * 0.35, 1, 0, 1);
-        coinDots(ctx, kind, slotX() + jig, sy - coinD[kind]! * 0.35, 1);
+      if (t < SEND_DOTS) {
+        coin(ctx, kind, slotX(), sy - coinD[kind]! * 0.35, 1, 0, 1);
+        coinDots(ctx, kind, slotX(), sy - coinD[kind]! * 0.35, Math.sin(Math.min(1, t / SEND_DOTS) * Math.PI * 0.5 + 0.3));
       } else {
-        const k = clamp01((t - REJECT_HOLD) / REJECT_HOP), e = easeInOutSine(k);
-        const x = lerp(slotX(), pX[f.place] ?? f.x0, e), y = lerp(sy - coinD[kind]! * 0.35, pY[f.place] ?? f.y0, e) - Math.sin(k * Math.PI) * 120 * u;
-        coin(ctx, kind, x, y, 1, k * Math.PI * 2, 1);
+        const k = clamp01((t - SEND_DOTS) / SEND_SLIP);
+        coin(ctx, kind, slotX(), sy - coinD[kind]! * 0.35 + k * coinD[kind]! * 0.5, 1, 0, Math.max(0.08, 1 - k));
       }
+      return;
+    }
+    const t = f.t - SEND_FLY;
+    if (t < REJECT_HOLD) {
+      const jig = Math.sin(t * 40) * 3 * u;
+      coin(ctx, kind, slotX() + jig, sy - coinD[kind]! * 0.35, 1, 0, 1);
+      coinDots(ctx, kind, slotX() + jig, sy - coinD[kind]! * 0.35, 1);
+    } else {
+      const k = clamp01((t - REJECT_HOLD) / REJECT_HOP), e = easeInOutSine(k);
+      const x = lerp(slotX(), pX[f.place] ?? f.x0, e), y = lerp(sy - coinD[kind]! * 0.35, pY[f.place] ?? f.y0, e) - Math.sin(k * Math.PI) * 120 * u;
+      coin(ctx, kind, x, y, 1, k * Math.PI * 2, 1);
     }
   }
   /** Step 7: the swap stand with its dotted circles, the coins resting on it, and the swap itself. */
@@ -1609,12 +1634,19 @@ export function createRideFareScene(services: AppServices): RideFareScene {
       standSlot(i, n); const x = pos.x, y = pos.y - hop;
       if (i >= standCount) {
         // An empty circle says which coin goes there: the dashed ring with the coin's front and its value tag, faint.
-        if (ring && !merging) ghostCoin(ctx, mode, x, y, d, 1, ring);
+        // A circle a coin is already flying to keeps only its ring: the coin landing there brings its own tag.
+        if (ring && !merging) {
+          if (i < standCount + standIn) { const g = ring.width / artRatio; ctx.drawImage(ring, x - g / 2, y - g / 2, g, g); }
+          else ghostCoin(ctx, mode, x, y, d, 1, ring);
+        }
         continue;
       }
-      // Merging, the coins slide together to the middle.
-      const cx = lerp(x, standX + standW / 2, slide), sc = d / coinD[standKind]!;
-      coin(ctx, standKind, cx, y, sc, 0, 1, d); coinDots(ctx, standKind, cx, y, 1, sc);
+      // Merging, the coins slide together to the middle of the table row. A merging pile shows one tag, the middle
+      // coin's: the others fade out while the coins still stand apart (before the slide), so no tag ever covers another.
+      const cx = lerp(x, standX + standW / 2, slide), cy = lerp(y, standRowY(n) - hop, slide), sc = d / coinD[standKind]!;
+      coin(ctx, standKind, cx, cy, sc, 0, 1, 0); coinDots(ctx, standKind, cx, cy, 1, sc);
+      const a = merging && i !== n >> 1 ? clamp01(1 - mergeT / MERGE_SLIDE_AT) : 1;
+      if (a > 0) tag(ctx, standKind, d, cx, cy, 1, 1, a);
     }
     flushTags(ctx);
   }
@@ -2004,7 +2036,7 @@ export function createRideFareScene(services: AppServices): RideFareScene {
       const top = placeTop(p), k = pKind[p]!;
       out.push({ kind: COIN_NAMES[k]!, face: 'heads', x: pX[p]!, y: pY[p]!, d: coinD[k]!, place: p, count: pCount[p]!, dots: pDots[p] === 1, hit: { x: pX[p]! - placeW / 2, y: top, w: placeW, h: rowH }, tag: tags.text(k), tagInk: tags.ink(coinD[k]!) });
     }
-    for (const f of flights) if (f.active && f.mode !== LEAVE) out.push({ kind: COIN_NAMES[f.kind]!, face: 'heads', x: f.x1, y: f.y1, d: coinD[f.kind]!, place: f.place, count: f.n, dots: f.mode === SWAPPED, hit: null, tag: tags.text(f.kind), tagInk: tags.ink(coinD[f.kind]!) });
+    for (const f of flights) if (f.active && f.mode !== LEAVE) out.push({ kind: COIN_NAMES[f.kind]!, face: 'heads', x: f.x1, y: f.y1, d: coinD[f.kind]!, place: f.place, count: f.n, dots: f.mode === SWAPPED, hit: null, tag: tags.text(f.kind), tagInk: f.ink });
     return out;
   };
   const cupGroups = (): CupGroup[] => {
