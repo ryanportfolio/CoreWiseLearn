@@ -127,6 +127,31 @@ const neededFor = (change: number, kinds: readonly number[], dollars: boolean): 
 /** The kinds counting up needs, with pennies always there (so a child can always give ones). */
 const withPennies = (kinds: number[]): number[] => (kinds.includes(PENNY) ? kinds : [PENNY, ...kinds]);
 
+/** Scratch for payable: reach[a] = 1 when `a` can be made (reused, so a check allocates nothing). */
+const reach = new Uint8Array(1001);
+/**
+ * Whether `amount` (in the plan's unit) can be paid exactly from a till holding `n` kinds `kinds[0..n-1]`, as many of
+ * each as wanted. 0 is always payable.
+ */
+export function payable(amount: number, kinds: ArrayLike<number>, n: number, dollars: boolean): boolean {
+  if (amount <= 0) return amount === 0;
+  if (amount >= reach.length) return false;
+  reach.fill(0, 0, amount + 1); reach[0] = 1;
+  for (let a = 1; a <= amount; a++) {
+    for (let i = 0; i < n; i++) { const v = valueOf(kinds[i]!, dollars); if (v <= a && reach[a - v]) { reach[a] = 1; break; } }
+  }
+  return reach[amount] === 1;
+}
+/**
+ * The rule for every step: the scene takes a piece only when it is no more than the change still owed (`left`) and
+ * what is left after it can still be paid from the till. Every till holds the unit piece (a penny, or a $1 bill at the
+ * $ steps), so the second part never turns a piece away in play; it is the guarantee that no round can get stuck.
+ */
+export function accepts(kind: number, left: number, kinds: ArrayLike<number>, n: number, dollars: boolean): boolean {
+  const v = valueOf(kind, dollars);
+  return v <= left && payable(left - v, kinds, n, dollars);
+}
+
 /**
  * Content step for customer `index` of round number `round` at learning step `step`: the first customer above step 1
  * warms up with the step below. At the top step the warm-up comes from step 7 and step 8 in turn (round by round) and
@@ -146,10 +171,14 @@ export const CUP_STEPS = 3;
 const plan = (step: number, content: number, dollars: boolean, price: number, pay: number[], change: number, till: number[], parts = [price]): CustomerPlan =>
   ({ step, content, dollars, price, parts, pay, change, till });
 
-/** A dollars-and-cents customer: price in cents paid with $2 (two $1 bills) or $5; change in coins and $1 bills. */
+/**
+ * A dollars-and-cents customer: price in cents paid with $2 (two $1 bills) or $5; change in coins and $1 bills. The
+ * till always holds pennies: without them a $1.70 item paid with $2 got a till of dimes and quarters at tier 1, and a
+ * quarter (accepted, 25¢ of 30¢) left 5¢ that nothing in the till could pay (round RD2).
+ */
 function mixedPlan(step: number, content: number, price: number, five: boolean, tier: Tier, parts = [price]): CustomerPlan {
   const pay = five ? [K_FIVE] : [K_DOLLAR, K_DOLLAR], total = five ? 500 : 200;
-  return plan(step, content, false, price, pay, total - price, tillKinds(countUpKinds(price, total, false, MIXED), MIXED, tier), parts);
+  return plan(step, content, false, price, pay, total - price, tillKinds(withPennies(countUpKinds(price, total, false, MIXED)), MIXED, tier), parts);
 }
 
 /** A customer for learning step `step` (content from contentOf(step)). `last` is the previous customer's price, avoided where there is a choice. */
@@ -261,7 +290,7 @@ const push = (list: number[], value: number, max: number): void => { list.push(v
 const sum = (list: readonly number[]): number => { let s = 0; for (const n of list) s += n; return s; };
 
 /** Record one counted customer at the current step. Step changes wait for applyLearning between rounds. */
-export function recordCustomer(data: StallData, right: boolean): void { push(data.learn, right ? 1 : 0, LEARN_WINDOW); }
+export function recordCustomer(data: StallData, right: boolean): void { push(data.cashLearn, right ? 1 : 0, LEARN_WINDOW); }
 
 /**
  * Between rounds: `counted` is the round's counted customers (1 = right). Moves up on a clean round of three or more,
@@ -269,15 +298,15 @@ export function recordCustomer(data: StallData, right: boolean): void { push(dat
  * steps 1 and 2 moves up after three rounds, up to step 3. Never above TOP_STEP.
  */
 export function applyLearning(data: StallData, counted: readonly number[]): void {
-  const before = data.step, top = TOP_STEP;
-  if (data.step <= 2 && counted.length === 0) data.quietRounds++; else data.quietRounds = 0;
-  const recent = data.learn.slice(-6);
-  if (counted.length >= 3 && sum(counted) === counted.length) data.step++;
-  else if (data.learn.length >= LEARN_WINDOW && sum(data.learn) >= 6) data.step++;
-  else if (recent.length >= 6 && sum(recent) <= 2 && data.step > 1) data.step--;
-  if (data.step === before && data.quietRounds >= 3 && data.step < 3) data.step++;
-  data.step = Math.max(1, Math.min(top, data.step));
-  if (data.step !== before) { data.learn.length = 0; data.quietRounds = 0; }
+  const before = data.cashStep, top = TOP_STEP;
+  if (data.cashStep <= 2 && counted.length === 0) data.cashQuiet++; else data.cashQuiet = 0;
+  const recent = data.cashLearn.slice(-6);
+  if (counted.length >= 3 && sum(counted) === counted.length) data.cashStep++;
+  else if (data.cashLearn.length >= LEARN_WINDOW && sum(data.cashLearn) >= 6) data.cashStep++;
+  else if (recent.length >= 6 && sum(recent) <= 2 && data.cashStep > 1) data.cashStep--;
+  if (data.cashStep === before && data.cashQuiet >= 3 && data.cashStep < 3) data.cashStep++;
+  data.cashStep = Math.max(1, Math.min(top, data.cashStep));
+  if (data.cashStep !== before) { data.cashLearn.length = 0; data.cashQuiet = 0; }
 }
 
 /** Between rounds: motor tier from pointer carries only (keys, demonstrations and hints never count). */

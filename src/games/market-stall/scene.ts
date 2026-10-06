@@ -17,9 +17,9 @@ import { BOOK_GLIDE, BOOK_ICON_PATH, createStickerOffers, leaveAlpha, leaveDrop,
 import { approach, clamp01, easeInCubic, easeInOutSine, easeOutBack, easeOutCubic, lerp } from '../../ui/tween';
 import { bakeShadow, createFx, INK_COUNT, PENNY_INKS, SILVER_INKS } from './fx';
 import { createSoundButton, soundArt, syncSoundIcon } from '../../scenes/hub/shared';
-import { CUSTOMER_COUNT, defaultData, GAME_ID, GOODS_COUNT, sanitizeStallData, TOP_STEP, type PendingRound, type StallData } from './data';
+import { bagDefaults, cashierStart, CUSTOMER_COUNT, defaultData, GAME_ID, GOODS_COUNT, sanitizeStallData, TOP_STEP, type PendingRound, type StallData } from './data';
 import {
-  applyLearning, applyMotor, B1, B5, BILL_NAMES, BILL_VALUE, COIN_MM, COIN_NAMES, COIN_VALUE, contentOf, CUP_STEPS, customerStep, DEMO_PLAN_STEPS, demoPlan, DIME, DIME_MM,
+  accepts, applyLearning, applyMotor, B1, B5, BILL_NAMES, BILL_VALUE, COIN_MM, COIN_NAMES, COIN_VALUE, contentOf, CUP_STEPS, customerStep, DEMO_PLAN_STEPS, demoPlan, DIME, DIME_MM,
   goalCustomer, K_DOLLAR, K_FIVE, MIN_BILL_PX, MIN_DIME_PX, nextPiece, NICKEL, paid, PENNY, planCustomer, QUARTER, recordCustomer, ROUND_STARS, roundSize, taughtCustomer, TIERS,
   valueOf, type CustomerPlan, type TierParams,
 } from './rules';
@@ -90,6 +90,10 @@ const BILL_PX = 512, BILL_NUM_X = 0.27, BILL_NUM_H = 0.34;
  * is TAG_PILL_H of the font size tall and centred on the coin's lower edge, so it hangs TAG_HANG of the diameter below.
  */
 const TAG_FONT = 0.46, TAG_PILL_H = 0.96, TAG_HANG = (TAG_FONT * TAG_PILL_H) / 2;
+/** Value tags queued per frame (they draw after every coin of the layer). */
+const TAGS_MAX = 160;
+/** An emptied well (its piece carried): the coin's front and its tag at these strengths, a bill at EMPTY_BILL_ALPHA. */
+const EMPTY_COIN_ALPHA = 0.18, EMPTY_TAG_ALPHA = 0.35, EMPTY_BILL_ALPHA = 0.3;
 /** In a till well a coin sits this far (of its diameter) above the well's centre, so the coin and its tag are centred. */
 const WELL_LIFT = 0.1;
 /** Layout units (u = 1 at 1366x768): board, customer, item, tag, dish. */
@@ -298,6 +302,23 @@ function bakeCoinTag(kind: number, d: number, ratio: number): HTMLCanvasElement 
   g.getImageData(0, 0, 1, 1);
   return c;
 }
+/**
+ * An emptied place's outline, baked once per size: a dashed ring a little wider than a coin `w` across (`bill` false),
+ * cream so it shows in the dark well, or a dashed deep-ink rounded rectangle round a bill w x h on the pale slot, each
+ * over a faint fill (as Coin Count Vault's empty places).
+ */
+function bakeEmpty(w: number, h: number, ratio: number, bill: boolean): HTMLCanvasElement {
+  const pad = 6, { c, g } = cpuCanvas((w * 1.06 + pad) * ratio, (h * 1.06 + pad) * ratio); if (!g) return c;
+  g.scale(ratio, ratio);
+  const cw = w * 1.06 + pad, ch = h * 1.06 + pad, lw = Math.max(2.5, Math.min(w, h) * 0.05), dash = Math.min(w, h) * 0.11;
+  g.beginPath();
+  if (bill) g.roundRect(pad / 2, pad / 2, cw - pad, ch - pad, Math.min(w, h) * 0.14);
+  else g.arc(cw / 2, ch / 2, (cw - pad) / 2 - lw / 2, 0, Math.PI * 2);
+  g.fillStyle = bill ? 'rgba(74, 47, 28, 0.16)' : 'rgba(251, 243, 222, 0.14)'; g.fill();
+  g.setLineDash([dash, dash * 0.75]); g.lineWidth = lw; g.strokeStyle = bill ? INK : CREAM; g.stroke();
+  g.getImageData(0, 0, 1, 1);
+  return c;
+}
 function bakeStrip(px: number, ratio: number, fill: string): Strip {
   const probe = cpuCanvas(1, 1).g, font = `700 ${Math.round(px)}px ${DISPLAY_FONT}`, x = new Float32Array(GLYPHS.length), w = new Float32Array(GLYPHS.length);
   if (probe) probe.font = font;
@@ -473,6 +494,13 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
   /** Each coin kind's value tag, baked at its diameter (coinTagD). */
   const coinTagCanvas: (HTMLCanvasElement | undefined)[] = [undefined, undefined, undefined, undefined];
   const coinTagD = new Float32Array(4);
+  /** Emptied wells' outlines: one ring per coin kind (at coinTagD's sizes), one for a bill (at bakedEmptyBill's width). */
+  const emptyRingCanvas: (HTMLCanvasElement | undefined)[] = [undefined, undefined, undefined, undefined];
+  let emptyBillCanvas: HTMLCanvasElement | undefined, bakedEmptyBill = 0;
+  /** The value tags waiting for this layer's flushTags. */
+  const qKind = new Int8Array(TAGS_MAX), qX = new Float32Array(TAGS_MAX), qY = new Float32Array(TAGS_MAX), qS = new Float32Array(TAGS_MAX);
+  const qSx = new Float32Array(TAGS_MAX), qRot = new Float32Array(TAGS_MAX), qA = new Float32Array(TAGS_MAX);
+  let tagN = 0;
   let inkBoard: Strip | undefined, redBoard: Strip | undefined, inkTag: Strip | undefined, inkClose: Strip | undefined;
   let shadowCanvas: HTMLCanvasElement | undefined, slateCanvas: HTMLCanvasElement | undefined, ctrayCanvas: HTMLCanvasElement | undefined;
   let bakedClose = 0, bakedSlate = '', bakedCtray = '', closeCupCanvas: HTMLCanvasElement | undefined, bakedCloseCup = 0;
@@ -642,6 +670,14 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     if (!inWin(L.till)) out.push(`till outside the window ${show(L.till)}`);
     if (!inWin(L.stack)) out.push(`paw stack outside the window ${show(L.stack)}`);
     if (over(L.stack, L.till)) out.push(`paw stack over the till ${show(L.stack)}`);
+    // Each well's stack (the rims below offset down and right) and the top coin's value tag stay inside the till.
+    for (let i = 0; i < tillN; i++) {
+      const kind = tillKind[i]!, b = isBill(kind), d = coinD[kind]!, t = coinTagSize(kind, d), off = 3 * 3 * u, offY = 3 * 4 * u;
+      const cy = b ? wellY[i]! : wellY[i]! - wellLift(i), hw = b ? billW / 2 : Math.max(d, t.w) / 2, up = b ? billH / 2 : d / 2;
+      const down = b ? billH / 2 + offY : Math.max(d / 2 + t.h / 2, d / 2 + offY);
+      const c = setBox(box(), wellX[i]! - hw, cy - up, hw * 2 + off, up + down);
+      if (c.x < L.till.x || c.y < L.till.y || c.x + c.w > L.till.x + L.till.w || c.y + c.h > L.till.y + L.till.h) out.push(`well${i} ${name(kind)} with its tag outside the till ${show(c)}`);
+    }
     if (over(L.frontAll, L.till) || over(L.frontAll, L.pawZone)) out.push('till or paw zone over the goods');
     return out;
   }
@@ -659,7 +695,12 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     if (!cupCanvas[0] || reratio || cupD !== bakedCup) { bakedCup = cupD; for (let k = 0; k < 4; k++) cupCanvas[k] = bakeCup(cupD, artRatio, k); }
     if (!inkBoard || reratio || numPx !== bakedNum) { bakedNum = numPx; inkBoard = bakeStrip(numPx, artRatio, INK); redBoard = bakeStrip(numPx, artRatio, RED); }
     if (!inkTag || reratio || tagPx !== bakedTag) { bakedTag = tagPx; inkTag = bakeStrip(tagPx, artRatio, INK); }
-    for (let k = 0; k < 4; k++) if (!coinTagCanvas[k] || reratio || coinTagD[k] !== coinD[k]) { coinTagD[k] = coinD[k]!; coinTagCanvas[k] = bakeCoinTag(k, coinD[k]!, artRatio); }
+    for (let k = 0; k < 4; k++) {
+      if (!coinTagCanvas[k] || reratio || coinTagD[k] !== coinD[k]) {
+        coinTagD[k] = coinD[k]!; coinTagCanvas[k] = bakeCoinTag(k, coinD[k]!, artRatio); emptyRingCanvas[k] = bakeEmpty(coinD[k]!, coinD[k]!, artRatio, false);
+      }
+    }
+    if (!emptyBillCanvas || reratio || bakedEmptyBill !== billW) { bakedEmptyBill = billW; emptyBillCanvas = bakeEmpty(billW, billH, artRatio, true); }
     if (!inkClose || reratio || closePx !== bakedClose) { bakedClose = closePx; inkClose = bakeStrip(closePx, artRatio, INK); shadowCanvas = bakeShadow(64, artRatio); }
     if (!closeCupCanvas || reratio || closeCup !== bakedCloseCup) { bakedCloseCup = closeCup; closeCupCanvas = bakeCup(closeCup, artRatio, CUP_PAID); }
     const dollarCup = dollarCupD(closePitch);
@@ -971,14 +1012,34 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
   }
   /** The change in the paw: a stack of up to four pieces drawn inside the paw zone, newest at its centre, older ones up and left. */
   function placeStack(): void {
-    const bills = billChange(), d = bills ? billW : coinD[QUARTER]!, dh = bills ? billH : d, z = L.pawZone;
-    // A coin's value tag hangs below it (a dollars-and-cents paw holds coins too).
-    const hang = plan.dollars ? 0 : coinD[QUARTER]! * TAG_HANG;
-    const x = Math.min(W - 4 - d / 2, Math.max(4 + d * 0.86, z.x + z.w / 2)), y = Math.max(4 + dh * 0.74, Math.min(z.y + z.h / 2, z.y + z.h - dh / 2));
-    setBox(L.stack, x - d / 2 - d * 0.36, y - dh / 2 - dh * 0.24, d * 1.36, dh * 1.24 + hang);
-    let yy = y;
-    if (meets(L.stack, L.till, 2)) { yy = Math.max(4 + dh * 0.74, L.till.y - 4 - dh / 2 - hang); L.stack.y += yy - y; }
-    stackX = x; stackY = yy;
+    const bills = billChange(), bigW = bills ? billW : coinD[QUARTER]!, bigH = bills ? billH : bigW, z = L.pawZone;
+    // Extents of everything the paw can show, relative to the newest piece's centre: every till kind (a coin with its
+    // value tag, which is taller than a bill for a quarter) in each of the fan's places (pawPiece), and the settled
+    // column beside the fan, rising 0.45 of a piece. `down0` is the newest piece's own reach below its centre.
+    let fx0 = 0, fx1 = 0, y0 = 0, y1 = 0, down0 = 0, colHw = 0;
+    for (let i = 0; i < tillN; i++) {
+      const kind = tillKind[i]!, b = isBill(kind), d = coinD[kind]!, tag = b ? 0 : coinTagSize(kind, d).h, tagW = b ? 0 : coinTagSize(kind, d).w;
+      const hw = b ? billW / 2 : Math.max(d, tagW) / 2, up = b ? billH / 2 : d / 2, down = b ? billH / 2 : d / 2 + tag / 2;
+      for (let k = 0; k < PAW_FAN; k++) {
+        const ox = b ? -k * billW * 0.06 : -k * d * 0.12, oy = b ? -k * billH * 0.12 : -k * d * 0.08;
+        fx0 = Math.min(fx0, ox - hw); fx1 = Math.max(fx1, ox + hw); y0 = Math.min(y0, oy - up); y1 = Math.max(y1, oy + down);
+      }
+      y0 = Math.min(y0, -bigH * 0.45 - up); down0 = Math.max(down0, down); colHw = Math.max(colHw, hw);
+    }
+    let x = Math.min(W - 4 - fx1, Math.max(4 - fx0, z.x + z.w / 2));
+    let y = Math.max(4 - y0, Math.min(z.y + z.h / 2, z.y + z.h - down0));
+    const fit = (): void => {
+      const colX = Math.max(4 + bigW / 2, x - bigW * (bills ? 0.18 : 0.36) - bigW * 1.04), left = Math.min(x + fx0, colX - colHw);
+      setBox(L.stack, left, y + y0, x + fx1 - left, y1 - y0);
+    };
+    fit();
+    // Clear of the till: first slide left (keeping the newest piece over the paw zone), else rise above the till.
+    if (meets(L.stack, L.till, 2)) {
+      const xl = L.till.x - 4 - fx1;
+      if (xl >= z.x && xl + fx0 >= 4) { x = xl; fit(); }
+      if (meets(L.stack, L.till, 2)) { y = Math.max(4 - y0, L.till.y - 4 - y1); fit(); }
+    }
+    stackX = x; stackY = y;
   }
   /** The paw zone: centred on the open paw where it fits, else shifted (always keeping the paw inside it). */
   function placePaw(tp: TierParams): boolean {
@@ -1015,15 +1076,15 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
   /** Demonstration bit for this customer's new idea (bit n for step n), or -1 when none is due. */
   function demoBit(): number {
     if (intro) return -1;
-    return (data.demos & (1 << plan.content)) === 0 ? plan.content : -1;
+    return (data.cashDemos & (1 << plan.content)) === 0 ? plan.content : -1;
   }
   function startCustomer(i: number): void {
     customerIndex = i;
-    const step = customerStep(data.step, i, data.rounds), content = contentOf(step);
+    const step = customerStep(data.cashStep, i, data.rounds), content = contentOf(step);
     if (intro && introStage === 2 && i === 0) plan = taughtCustomer(tier);
     // Steps 2, 4, 7 and 8 show their first demonstration with fixed numbers (13¢ paid with a quarter; 23¢ paid with two
     // quarters; $13 paid with $20; 75¢ paid with $2).
-    else if (!intro && (DEMO_PLAN_STEPS as readonly number[]).includes(content) && (data.demos & (1 << content)) === 0) plan = demoPlan(content, step, tier);
+    else if (!intro && (DEMO_PLAN_STEPS as readonly number[]).includes(content) && (data.cashDemos & (1 << content)) === 0) plan = demoPlan(content, step, tier);
     else plan = planCustomer(step, tier, random, lastPrice);
     lastPrice = plan.price;
     who = intro ? (introStage === 1 ? 1 : i === 0 ? 0 : (2 + i) % CUSTOMER_COUNT) : (data.turn + i) % CUSTOMER_COUNT;
@@ -1061,7 +1122,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
   function startMerge(): void {
     moment = MERGE; momentT = 0; mergeDur = MERGE_SECONDS; mergePopped = false;
     const bit = demoBit();
-    if (bit >= 0) { data.demos |= 1 << bit; assisted = true; mergeDur = MERGE_DEMO; startPoints(TG_TAG2, TG_TAG); }
+    if (bit >= 0) { data.cashDemos |= 1 << bit; assisted = true; mergeDur = MERGE_DEMO; startPoints(TG_TAG2, TG_TAG); }
   }
   /**
    * How far step 9's tags have slid together (1 when they are one, and for every other customer): the tags slide
@@ -1075,9 +1136,9 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     moment = CHANGE; momentT = 0; idleT = 0; counter = 0;
     focusHelpful();
     if (intro && introStage === 1) return;
-    if (intro && introStage === 2 && customerIndex === 0) { data.demos |= 1 << 1; startCarryDemo(); return; }
+    if (intro && introStage === 2 && customerIndex === 0) { data.cashDemos |= 1 << 1; startCarryDemo(); return; }
     if (two()) return;
-    const bit = demoBit(); if (bit >= 0) { data.demos |= 1 << bit; assisted = true; startCarryDemo(); }
+    const bit = demoBit(); if (bit >= 0) { data.cashDemos |= 1 << bit; assisted = true; startCarryDemo(); }
   }
   function startGlide(): void { moment = GLIDE; momentT = 0; play('go', 'C', 0, 0.7); if (cheerT < 0) startCheer(); }
   /** The customer is happy: it cheers (bigger with each customer of the round) and carved chips fly. */
@@ -1118,12 +1179,15 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
   }
   /** Learning evidence for the customer that just finished: one result, only for deliberate unaided play at the current step. */
   function recordEvidence(right: boolean): void {
-    if (intro || assisted || !deliberate || actions === 0 || plan.step !== data.step) return;
+    if (intro || assisted || !deliberate || actions === 0 || plan.step !== data.cashStep) return;
     recordCustomer(data, right); roundCounted.push(right ? 1 : 0);
   }
   // ---------------------------------------------------------------- change
-  /** Whether a piece of this kind still fits the change owed (counting pieces already on their way). */
-  const fits = (kind: number): boolean => value(kind) <= plan.change - committed;
+  /**
+   * Whether a piece of this kind still fits the change owed (counting pieces already on their way) and leaves an amount
+   * the till can still pay (rules' accepts).
+   */
+  const fits = (kind: number): boolean => accepts(kind, plan.change - committed, tillKind, tillN, plan.dollars);
   const wellOf = (kind: number): number => { for (let i = 0; i < tillN; i++) if (tillKind[i] === kind) return i; return -1; };
   /**
    * The well of the next piece when counting up from the price, as the demonstrations teach (rules' nextPiece): ones
@@ -1278,7 +1342,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     tier = services.debug.tier ?? toTier(data.tier);
     intro = data.rounds === 0;
     phase = 'play'; phaseT = time = idleT = 0;
-    customersTotal = intro ? 3 : roundSize(data.step, tier);
+    customersTotal = intro ? 3 : roundSize(data.cashStep, tier);
     // Nothing of the harbour carries over: no bunting, no crowd, no improvement until this round's own end.
     salesN = 0; takenCoins = 0; takenBills = 0; buntN = 0; crowdN = 0; buy = -1; buyK = 0; roundT = 0; buntAt.fill(-1); crowdAt.fill(-1);
     hits = misses = bounces = 0; stars = 1; starsPlayed = 0; roundCounted.length = 0; roundWho.length = 0; roundGoods.length = 0;
@@ -1658,11 +1722,26 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     const d = coinD[kind]!;
     drawSprite(ctx, sprites, COIN_FACES[kind]![face]!, x, y, d, rot, sx * scale, scale);
     note(COIN_FACES[kind]![face]!, d * scale * Math.max(1, sx), COIN_PX);
-    const t = coinTagCanvas[kind];
-    if (!tagged || face !== 0 || !t) return;
-    const w = t.width / artRatio * scale * sx, h = t.height / artRatio * scale, oy = d * 0.5 * scale;
-    if (rot === 0) ctx.drawImage(t, x - w / 2, y + oy - h / 2, w, h);
-    else { ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.drawImage(t, -w / 2, oy - h / 2, w, h); ctx.restore(); }
+    if (tagged && face === 0) queueTag(kind, x, y, scale, sx, rot, ctx.globalAlpha);
+  }
+  /**
+   * Value tags wait in a list and draw after every coin of the layer (flushTags), so no coin ever covers part of a tag
+   * and makes it read another value. Typed arrays: queuing allocates nothing.
+   */
+  function queueTag(kind: number, x: number, y: number, scale: number, sx: number, rot: number, alpha: number): void {
+    if (tagN >= TAGS_MAX) return;
+    qKind[tagN] = kind; qX[tagN] = x; qY[tagN] = y; qS[tagN] = scale; qSx[tagN] = sx; qRot[tagN] = rot; qA[tagN] = alpha; tagN++;
+  }
+  function flushTags(ctx: CanvasRenderingContext2D): void {
+    for (let i = 0; i < tagN; i++) {
+      const kind = qKind[i]!, t = coinTagCanvas[kind]; if (!t) continue;
+      const scale = qS[i]!, x = qX[i]!, y = qY[i]!, rot = qRot[i]!;
+      const w = t.width / artRatio * scale * qSx[i]!, h = t.height / artRatio * scale, oy = coinD[kind]! * 0.5 * scale;
+      ctx.globalAlpha = qA[i]!;
+      if (rot === 0) ctx.drawImage(t, x - w / 2, y + oy - h / 2, w, h);
+      else { ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.drawImage(t, -w / 2, oy - h / 2, w, h); ctx.restore(); }
+    }
+    ctx.globalAlpha = 1; tagN = 0;
   }
   /** A bill at full size anywhere (dish, till, paw, in flight); it never squashes below its size. `kind` is the bill art ($1, $5, $10, $20). */
   function bill(ctx: CanvasRenderingContext2D, kind: number, x: number, y: number, scale: number, rot = 0, sx = 1): void {
@@ -1885,16 +1964,25 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
       const hop = wellHop[i]! < 0.3 ? Math.sin(wellHop[i]! / 0.3 * Math.PI) * 10 * u : 0;
       // A coin and its tag sit centred in the well (the coin a little above the middle).
       const py = b ? y : y - wellLift(i);
+      // The piece the child (or the demonstrating hand) is carrying has left its well: the well reads empty, as in Coin
+      // Count Vault and Ride Fare. A dashed ring (a dashed outline for a bill) with the coin's front faint and its value
+      // tag a little stronger, so it still says what it holds and never reads as a second real coin.
+      if ((carry.active && carry.well === i) || (hand.mode === HAND_DEMO && hand.taken && !hand.released && hand.well === i)) { emptyPlace(ctx, kind, x, py - hop); continue; }
       // An endless stack: rims of the pieces below show offset down and right, fronts up, the tag on the top one only.
       for (let k = 3; k >= 1; k--) {
         if (b) bill(ctx, billOf(kind), x + k * 3 * u, py + k * 4 * u - hop, 1);
         else coin(ctx, kind, 0, x + k * 3 * u, py + k * 4 * u - hop, 1, 0, 1, false);
       }
-      // The piece the child is carrying (by click or drag) has left the top of its stack: a faint copy keeps the
-      // well's kind and value showing.
-      if (carry.active && carry.well === i) { ctx.globalAlpha = 0.4; piece(ctx, kind, x, py - hop, 1); ctx.globalAlpha = 1; }
-      else piece(ctx, kind, x, py - hop - hv * 4 * u, 1 + hv * 0.06);
+      piece(ctx, kind, x, py - hop - hv * 4 * u, 1 + hv * 0.06);
     }
+  }
+  /** An emptied place of `kind` centred at (x, y): its baked dashed outline, the piece faint, a coin's tag stronger. */
+  function emptyPlace(ctx: CanvasRenderingContext2D, kind: number, x: number, y: number): void {
+    const b = isBill(kind), ring = b ? emptyBillCanvas : emptyRingCanvas[kind];
+    if (ring) { const rw = ring.width / artRatio, rh = ring.height / artRatio; ctx.drawImage(ring, x - rw / 2, y - rh / 2, rw, rh); }
+    if (b) { ctx.globalAlpha = EMPTY_BILL_ALPHA; bill(ctx, billOf(kind), x, y, 1); ctx.globalAlpha = 1; return; }
+    ctx.globalAlpha = EMPTY_COIN_ALPHA; coin(ctx, kind, 0, x, y, 1, 0, 1, false); ctx.globalAlpha = 1;
+    queueTag(kind, x, y, 1, 1, 0, EMPTY_TAG_ALPHA);
   }
   /** How far well i's coin sits above the well's centre: WELL_LIFT of the coin, less when the well is tight, so the coin stays inside it. */
   const wellLift = (i: number): number => Math.min(coinD[tillKind[i]!]! * WELL_LIFT, Math.max(0, (wellHs[i]! - coinD[tillKind[i]!]!) / 2 - 2));
@@ -1951,11 +2039,16 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     }
     // The newest piece lands with a squash that settles in 0.3 s.
     const land = pawHop < 0.3 ? Math.cos(pawHop / 0.3 * Math.PI * 1.5) * (1 - pawHop / 0.3) : 0, sy = 1 - 0.16 * land, sx = (1 + 0.12 * land) / sy;
+    // The fan and the settled column are stacks: each shows only its top coin's tag (the newest coin of the fan; the
+    // highest coin of the column), so no tag sits half under the piece above it.
+    let fanCoin = -1, colCoin = -1;
+    for (let i = pawN - 1; i >= 0 && fanCoin < 0 && i >= pawN - PAW_FAN; i--) if (!isBill(pawKind[i]!)) fanCoin = i;
+    for (let i = pawN - PAW_FAN - 1; i >= 0 && colCoin < 0; i--) if (!isBill(pawKind[i]!)) colCoin = i;
     for (let i = 0; i < pawN; i++) {
       pawPiece(i);
       const kind = pawKind[i]!, top = i === pawN - 1, px = pos.x + dx, py = pos.y + dy;
       if (isBill(kind)) bill(ctx, billOf(kind), px, py + (top ? billH * (1 - sy) * 0.5 : 0), top ? sy : 1, 0, top ? sx : 1);
-      else coin(ctx, kind, 0, px, py + (top ? coinD[kind]! * (1 - sy) * 0.5 : 0), top ? sy : 1, 0, top ? sx : 1);
+      else coin(ctx, kind, 0, px, py + (top ? coinD[kind]! * (1 - sy) * 0.5 : 0), top ? sy : 1, 0, top ? sx : 1, i === fanCoin || i === colCoin);
     }
     const settled = pawN - PAW_FAN, s = inkTag;
     if (settled <= 0 || !s) return;
@@ -2021,7 +2114,8 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
       piece(ctx, f.kind, lerp(f.x1, wellX[f.idx] ?? f.x0, e), lerp(f.y1, wellY[f.idx] ?? f.y0, e) - Math.sin(k * Math.PI) * 110 * u, 1, isBill(f.kind) ? 0 : k * Math.PI * 2);
     }
   }
-  function renderHand(ctx: CanvasRenderingContext2D): void {
+  /** The helper hand (`pieceOnly`: just the piece it carries, drawn before the layer's value tags; else just the hand). */
+  function renderHand(ctx: CanvasRenderingContext2D, pieceOnly: boolean): void {
     if (!hand.mode) return;
     handTip();
     const img = sprites.get(HAND); if (!img) return;
@@ -2031,7 +2125,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
       if (t > HAND_DROP_AT) alpha *= 1 - clamp01((t - HAND_DROP_AT) / HAND_FADE);
       if (t < HAND_PRESS_AT) alpha *= clamp01(t / 0.3);
       const carrying = t >= HAND_CARRY_AT && t < HAND_DROP_AT && (hand.mode === HAND_HINT || hand.taken);
-      if (carrying) {
+      if (carrying && pieceOnly) {
         const ghost = hand.mode === HAND_HINT;
         if (ghost && glowCanvas) { const g = glowSize; ctx.globalAlpha = alpha * (0.85 + Math.sin(time * 7) * 0.15); ctx.drawImage(glowCanvas, pos.x - g / 2, pos.y - g / 2, g, g); }
         ctx.globalAlpha = ghost ? alpha * 0.6 : 1; piece(ctx, hand.kind, pos.x, pos.y, 1); ctx.globalAlpha = 1;
@@ -2041,6 +2135,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
       if (t > end) alpha *= 1 - clamp01((t - end) / HAND_FADE);
       if (t < 0.3) alpha *= clamp01(t / 0.3);
     }
+    if (pieceOnly) return;
     ctx.globalAlpha = alpha;
     const pressed = (hand.mode === HAND_DEMO || hand.mode === HAND_HINT) ? t >= HAND_PRESS_AT && t < HAND_CARRY_AT
       : hand.mode === HAND_TAP ? Math.abs(Math.sin(t * 3.2)) < 0.15 : (t % SEG) > SEG * 0.5 && (t % SEG) < SEG * 0.75;
@@ -2127,6 +2222,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
       let x = tb.x + (tb.w - (row * fit + gap * (n - 1))) / 2;
       for (let k = 0; k < 4; k++) if ((takenCoins >> k) & 1) { const w = coinD[k]! * cs; coin(ctx, k, 0, x + w / 2, cy - coinD[k]! * cs * TAG_HANG / 2, cs); x += w + gap; }
       for (let k = 0; k < 4; k++) if ((takenBills >> k) & 1) { const w = billW * bs; bill(ctx, k, x + w / 2, cy, bs); x += w + gap; }
+      flushTags(ctx);
     }
     const sh = L.slate.y + L.slate.h + 20, sdy = -(1 - easeOutBack(clamp01(t / CLOSE_OPEN), 1.1)) * sh - away * sh;
     if (slateCanvas) { ctx.drawImage(slateCanvas, L.slate.x, L.slate.y + sdy, L.slate.w, L.slate.h); note(BOARD, closeKS, 1); }
@@ -2167,8 +2263,11 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     renderHoverCues(ctx);
     renderFlights(ctx);
     renderCarry(ctx);
+    renderHand(ctx, true);
+    // Every value tag after every coin (dish, till, paw, flights, carried, the hand's piece).
+    flushTags(ctx);
     particles.render(ctx);
-    renderHand(ctx);
+    renderHand(ctx, false);
   }
   function focusRing(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
     ctx.beginPath(); ctx.arc(x, y, r + 8, 0, Math.PI * 2); ctx.strokeStyle = OUTLINE; ctx.lineWidth = 10; ctx.stroke();
@@ -2371,7 +2470,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
   const name = (k: number): string => (plan.dollars ? `$${BILL_VALUE[k]}` : k === K_DOLLAR ? '$1' : k === K_FIVE ? '$5' : COIN_NAMES[k]!);
   const r = (b: Box): Box => ({ x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.w), h: Math.round(b.h) });
   const stats: MarketStallStats = {
-    get step() { return data.step; }, get tier() { return tier; }, get rounds() { return data.rounds; }, get phase() { return phase; },
+    get step() { return data.cashStep; }, get tier() { return tier; }, get rounds() { return data.rounds; }, get phase() { return phase; },
     get moment() { return MOMENTS[moment]!; }, get intro() { return intro; }, get introStage() { return introStage; },
     get customer() { return customerIndex; }, get customers() { return customersTotal; }, get hits() { return hits; }, get misses() { return misses; },
     get bounces() { return bounces; }, get stars() { return stars; }, get stickerId() { return pending?.chosen ?? ''; }, get choiceIds() { return pending?.choices ?? []; },
@@ -2384,7 +2483,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     },
     get harbour() { return { buy: buy >= 0 ? BUY_NAMES[buy]! : '', reveal: buyK, bunting: buntN, crowd: crowdN }; },
     get focus() { return moment === CHANGE ? `well:${focus}` : ''; },
-    get counted() { return roundCounted.slice(); }, get learn() { return data.learn.slice(); }, get demos() { return data.demos; },
+    get counted() { return roundCounted.slice(); }, get learn() { return data.cashLearn.slice(); }, get demos() { return data.cashDemos; },
     get task() {
       if (!playable()) return null;
       return {
@@ -2490,7 +2589,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     if (!services.debug.enabled || debugApplied) return;
     debugApplied = true;
     const params = new URLSearchParams(location.search), step = Number(params.get('step')), rounds = Number(params.get('rounds'));
-    if (params.has('step') && Number.isSafeInteger(step) && step >= 1 && step <= TOP_STEP) { data.step = step; data.learn.length = 0; data.quietRounds = 0; }
+    if (params.has('step') && Number.isSafeInteger(step) && step >= 1 && step <= TOP_STEP) { data.cashStep = step; data.cashLearn.length = 0; data.cashQuiet = 0; }
     if (params.has('rounds') && Number.isSafeInteger(rounds) && rounds >= 0) { data.rounds = rounds; data.pending = null; }
     else if (params.has('step') && data.rounds === 0) data.rounds = 1;
   }
@@ -2499,8 +2598,9 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     enter() {
       void loadMarketStallArt(services).then(() => { bakedTray = ''; bakedBoard = ''; bakedBills = ''; layout(services.canvas.width, services.canvas.height); });
       preloadVoice(audio, services.base);
-      data = services.save.gameData<StallData>(GAME_ID, defaultData());
+      data = services.save.gameData<StallData>(GAME_ID, bagDefaults());
       sanitizeStallData(data, () => services.save.protect());
+      cashierStart(data);
       applyDebug();
       if (!(services.debug.enabled && new URLSearchParams(location.search).has('rounds'))) data.rounds = Math.max(data.rounds, rewards(services).rounds[GAME_ID] ?? 0);
       sceneT = 0; bookGlide = false; startMusic(audio, 'market-stall');
@@ -2543,6 +2643,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
       if (bgCanvas) ctx.drawImage(bgCanvas, bgX, bgY, bgCanvas.width / sprites.pixelRatio, bgCanvas.height / sprites.pixelRatio);
       else { ctx.fillStyle = '#f3e3c0'; ctx.fillRect(0, 0, W, H); }
       renderHarbour(ctx);
+      tagN = 0;
       if (playable()) renderPlay(ctx); else if (phase === 'closing') { renderClosing(ctx); particles.render(ctx); } else renderResult(ctx);
       drawCorners(ctx); drawEnterFade(ctx, W, H, sceneT);
       work[workHead] = updateMs + performance.now() - started; workHead = (workHead + 1) % work.length; workCount = Math.min(work.length, workCount + 1); updateMs = 0;
