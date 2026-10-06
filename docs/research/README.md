@@ -34,6 +34,10 @@ Canvas 2D on a weak GPU, loop and pooling, assets, Web Audio, PWA delivery and i
 
 Which money skills are realistic for 4 to 6 year olds, the pitfalls of teaching money, and six candidate games. The core at 4 is telling coins apart; values arrive around 7, so value enters at 5 as a stretch shown with visible dots and becomes the main content at 6. No US standard asks for coin values before first grade. Pictures of coins are legal to use; colour pictures of paper money are restricted, so the games use coins only. Recommended pair: Piggy Parade (what coins look like) and Ride Fare (what coins are worth), neither with a shop.
 
+### [08. Money for grades 1 and 2](08-money-grades-1-2.md)
+
+Money skills for ages 6 to 8, the standards, US rules on pictures of paper money, and learning progressions for Market Stall and Coin Count Vault. Counting a mixed pile of coins is hard in grade 1 (7 of 35 first graders managed it after teaching) and mostly in place by spring of grade 2, with quarters lagging; giving change is the last skill to settle (21% of 24 children aged 6 to 8 got it right). Common Core 2.MD.C.8 says only "using $ and ¢ symbols appropriately"; guidance documents and Florida keep grade 2 to whole cents or whole dollars with no decimal point, while Texas and Virginia teach the decimal point in grade 2. Colour pictures of real notes must be one-sided, under 75% or over 150% of real size, and made from files destroyed after final use, which a web game cannot meet. An original, stylized play bill that copies no part of a real note (no portrait, seals, serials, signatures, lettering, real colours or proportions) is not an illustration of currency, so bills are safe within the listed design limits. Market Stall runs from "is this payment enough?" to change from $1 and $20 and two-item sales; Coin Vault runs from counting a sorted pile to bill collections, several ways, fewest coins and $ against ¢.
+
 ## Where the sections disagree
 
 The sections were written in parallel and give different values in a few places. Editorial calls, carried into the prompt amendments:
