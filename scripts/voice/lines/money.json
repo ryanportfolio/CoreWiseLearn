@@ -1,0 +1,965 @@
+{
+  "folder": "money",
+  "role": "londoner",
+  "lines": [
+    {
+      "file": "cents-1",
+      "text": "One cent."
+    },
+    {
+      "file": "cents-2",
+      "text": "Two cents."
+    },
+    {
+      "file": "cents-3",
+      "text": "Three cents."
+    },
+    {
+      "file": "cents-4",
+      "text": "Four cents."
+    },
+    {
+      "file": "cents-5",
+      "text": "Five cents."
+    },
+    {
+      "file": "cents-6",
+      "text": "Six cents."
+    },
+    {
+      "file": "cents-7",
+      "text": "Seven cents."
+    },
+    {
+      "file": "cents-8",
+      "text": "Eight cents."
+    },
+    {
+      "file": "cents-9",
+      "text": "Nine cents."
+    },
+    {
+      "file": "cents-10",
+      "text": "Ten cents."
+    },
+    {
+      "file": "cents-11",
+      "text": "Eleven cents."
+    },
+    {
+      "file": "cents-12",
+      "text": "Twelve cents."
+    },
+    {
+      "file": "cents-13",
+      "text": "Thirteen cents."
+    },
+    {
+      "file": "cents-14",
+      "text": "Fourteen cents."
+    },
+    {
+      "file": "cents-15",
+      "text": "Fifteen cents."
+    },
+    {
+      "file": "cents-16",
+      "text": "Sixteen cents."
+    },
+    {
+      "file": "cents-17",
+      "text": "Seventeen cents."
+    },
+    {
+      "file": "cents-18",
+      "text": "Eighteen cents."
+    },
+    {
+      "file": "cents-19",
+      "text": "Nineteen cents."
+    },
+    {
+      "file": "cents-20",
+      "text": "Twenty cents."
+    },
+    {
+      "file": "cents-21",
+      "text": "Twenty-one cents."
+    },
+    {
+      "file": "cents-22",
+      "text": "Twenty-two cents."
+    },
+    {
+      "file": "cents-23",
+      "text": "Twenty-three cents."
+    },
+    {
+      "file": "cents-24",
+      "text": "Twenty-four cents."
+    },
+    {
+      "file": "cents-25",
+      "text": "Twenty-five cents."
+    },
+    {
+      "file": "cents-26",
+      "text": "Twenty-six cents."
+    },
+    {
+      "file": "cents-27",
+      "text": "Twenty-seven cents."
+    },
+    {
+      "file": "cents-28",
+      "text": "Twenty-eight cents."
+    },
+    {
+      "file": "cents-29",
+      "text": "Twenty-nine cents."
+    },
+    {
+      "file": "cents-30",
+      "text": "Thirty cents."
+    },
+    {
+      "file": "cents-31",
+      "text": "Thirty-one cents."
+    },
+    {
+      "file": "cents-32",
+      "text": "Thirty-two cents."
+    },
+    {
+      "file": "cents-33",
+      "text": "Thirty-three cents."
+    },
+    {
+      "file": "cents-34",
+      "text": "Thirty-four cents."
+    },
+    {
+      "file": "cents-35",
+      "text": "Thirty-five cents."
+    },
+    {
+      "file": "cents-36",
+      "text": "Thirty-six cents."
+    },
+    {
+      "file": "cents-37",
+      "text": "Thirty-seven cents."
+    },
+    {
+      "file": "cents-38",
+      "text": "Thirty-eight cents."
+    },
+    {
+      "file": "cents-39",
+      "text": "Thirty-nine cents."
+    },
+    {
+      "file": "cents-40",
+      "text": "Forty cents."
+    },
+    {
+      "file": "cents-41",
+      "text": "Forty-one cents."
+    },
+    {
+      "file": "cents-42",
+      "text": "Forty-two cents."
+    },
+    {
+      "file": "cents-43",
+      "text": "Forty-three cents."
+    },
+    {
+      "file": "cents-44",
+      "text": "Forty-four cents."
+    },
+    {
+      "file": "cents-45",
+      "text": "Forty-five cents."
+    },
+    {
+      "file": "cents-46",
+      "text": "Forty-six cents."
+    },
+    {
+      "file": "cents-47",
+      "text": "Forty-seven cents."
+    },
+    {
+      "file": "cents-48",
+      "text": "Forty-eight cents."
+    },
+    {
+      "file": "cents-49",
+      "text": "Forty-nine cents."
+    },
+    {
+      "file": "cents-50",
+      "text": "Fifty cents."
+    },
+    {
+      "file": "cents-51",
+      "text": "Fifty-one cents."
+    },
+    {
+      "file": "cents-52",
+      "text": "Fifty-two cents."
+    },
+    {
+      "file": "cents-53",
+      "text": "Fifty-three cents."
+    },
+    {
+      "file": "cents-54",
+      "text": "Fifty-four cents."
+    },
+    {
+      "file": "cents-55",
+      "text": "Fifty-five cents."
+    },
+    {
+      "file": "cents-56",
+      "text": "Fifty-six cents."
+    },
+    {
+      "file": "cents-57",
+      "text": "Fifty-seven cents."
+    },
+    {
+      "file": "cents-58",
+      "text": "Fifty-eight cents."
+    },
+    {
+      "file": "cents-59",
+      "text": "Fifty-nine cents."
+    },
+    {
+      "file": "cents-60",
+      "text": "Sixty cents."
+    },
+    {
+      "file": "cents-61",
+      "text": "Sixty-one cents."
+    },
+    {
+      "file": "cents-62",
+      "text": "Sixty-two cents."
+    },
+    {
+      "file": "cents-63",
+      "text": "Sixty-three cents."
+    },
+    {
+      "file": "cents-64",
+      "text": "Sixty-four cents."
+    },
+    {
+      "file": "cents-65",
+      "text": "Sixty-five cents."
+    },
+    {
+      "file": "cents-66",
+      "text": "Sixty-six cents."
+    },
+    {
+      "file": "cents-67",
+      "text": "Sixty-seven cents."
+    },
+    {
+      "file": "cents-68",
+      "text": "Sixty-eight cents."
+    },
+    {
+      "file": "cents-69",
+      "text": "Sixty-nine cents."
+    },
+    {
+      "file": "cents-70",
+      "text": "Seventy cents."
+    },
+    {
+      "file": "cents-71",
+      "text": "Seventy-one cents."
+    },
+    {
+      "file": "cents-72",
+      "text": "Seventy-two cents."
+    },
+    {
+      "file": "cents-73",
+      "text": "Seventy-three cents."
+    },
+    {
+      "file": "cents-74",
+      "text": "Seventy-four cents."
+    },
+    {
+      "file": "cents-75",
+      "text": "Seventy-five cents."
+    },
+    {
+      "file": "cents-76",
+      "text": "Seventy-six cents."
+    },
+    {
+      "file": "cents-77",
+      "text": "Seventy-seven cents."
+    },
+    {
+      "file": "cents-78",
+      "text": "Seventy-eight cents."
+    },
+    {
+      "file": "cents-79",
+      "text": "Seventy-nine cents."
+    },
+    {
+      "file": "cents-80",
+      "text": "Eighty cents."
+    },
+    {
+      "file": "cents-81",
+      "text": "Eighty-one cents."
+    },
+    {
+      "file": "cents-82",
+      "text": "Eighty-two cents."
+    },
+    {
+      "file": "cents-83",
+      "text": "Eighty-three cents."
+    },
+    {
+      "file": "cents-84",
+      "text": "Eighty-four cents."
+    },
+    {
+      "file": "cents-85",
+      "text": "Eighty-five cents."
+    },
+    {
+      "file": "cents-86",
+      "text": "Eighty-six cents."
+    },
+    {
+      "file": "cents-87",
+      "text": "Eighty-seven cents."
+    },
+    {
+      "file": "cents-88",
+      "text": "Eighty-eight cents."
+    },
+    {
+      "file": "cents-89",
+      "text": "Eighty-nine cents."
+    },
+    {
+      "file": "cents-90",
+      "text": "Ninety cents."
+    },
+    {
+      "file": "cents-91",
+      "text": "Ninety-one cents."
+    },
+    {
+      "file": "cents-92",
+      "text": "Ninety-two cents."
+    },
+    {
+      "file": "cents-93",
+      "text": "Ninety-three cents."
+    },
+    {
+      "file": "cents-94",
+      "text": "Ninety-four cents."
+    },
+    {
+      "file": "cents-95",
+      "text": "Ninety-five cents."
+    },
+    {
+      "file": "cents-96",
+      "text": "Ninety-six cents."
+    },
+    {
+      "file": "cents-97",
+      "text": "Ninety-seven cents."
+    },
+    {
+      "file": "cents-98",
+      "text": "Ninety-eight cents."
+    },
+    {
+      "file": "cents-99",
+      "text": "Ninety-nine cents."
+    },
+    {
+      "file": "dollars-1",
+      "text": "One dollar."
+    },
+    {
+      "file": "dollars-2",
+      "text": "Two dollars."
+    },
+    {
+      "file": "dollars-3",
+      "text": "Three dollars."
+    },
+    {
+      "file": "dollars-4",
+      "text": "Four dollars."
+    },
+    {
+      "file": "dollars-5",
+      "text": "Five dollars."
+    },
+    {
+      "file": "dollars-6",
+      "text": "Six dollars."
+    },
+    {
+      "file": "dollars-7",
+      "text": "Seven dollars."
+    },
+    {
+      "file": "dollars-8",
+      "text": "Eight dollars."
+    },
+    {
+      "file": "dollars-9",
+      "text": "Nine dollars."
+    },
+    {
+      "file": "dollars-10",
+      "text": "Ten dollars."
+    },
+    {
+      "file": "dollars-11",
+      "text": "Eleven dollars."
+    },
+    {
+      "file": "dollars-12",
+      "text": "Twelve dollars."
+    },
+    {
+      "file": "dollars-13",
+      "text": "Thirteen dollars."
+    },
+    {
+      "file": "dollars-14",
+      "text": "Fourteen dollars."
+    },
+    {
+      "file": "dollars-15",
+      "text": "Fifteen dollars."
+    },
+    {
+      "file": "dollars-16",
+      "text": "Sixteen dollars."
+    },
+    {
+      "file": "dollars-17",
+      "text": "Seventeen dollars."
+    },
+    {
+      "file": "dollars-18",
+      "text": "Eighteen dollars."
+    },
+    {
+      "file": "dollars-19",
+      "text": "Nineteen dollars."
+    },
+    {
+      "file": "dollars-20",
+      "text": "Twenty dollars."
+    },
+    {
+      "file": "dollars-and-1",
+      "text": "One dollar and"
+    },
+    {
+      "file": "dollars-and-2",
+      "text": "Two dollars and"
+    },
+    {
+      "file": "dollars-and-3",
+      "text": "Three dollars and"
+    },
+    {
+      "file": "dollars-and-4",
+      "text": "Four dollars and"
+    },
+    {
+      "file": "count-1",
+      "text": "One!"
+    },
+    {
+      "file": "count-2",
+      "text": "Two!"
+    },
+    {
+      "file": "count-3",
+      "text": "Three!"
+    },
+    {
+      "file": "count-4",
+      "text": "Four!"
+    },
+    {
+      "file": "count-5",
+      "text": "Five!"
+    },
+    {
+      "file": "count-6",
+      "text": "Six!"
+    },
+    {
+      "file": "count-7",
+      "text": "Seven!"
+    },
+    {
+      "file": "count-8",
+      "text": "Eight!"
+    },
+    {
+      "file": "count-9",
+      "text": "Nine!"
+    },
+    {
+      "file": "count-10",
+      "text": "Ten!"
+    },
+    {
+      "file": "count-11",
+      "text": "Eleven!"
+    },
+    {
+      "file": "count-12",
+      "text": "Twelve!"
+    },
+    {
+      "file": "count-13",
+      "text": "Thirteen!"
+    },
+    {
+      "file": "count-14",
+      "text": "Fourteen!"
+    },
+    {
+      "file": "count-15",
+      "text": "Fifteen!"
+    },
+    {
+      "file": "count-16",
+      "text": "Sixteen!"
+    },
+    {
+      "file": "count-17",
+      "text": "Seventeen!"
+    },
+    {
+      "file": "count-18",
+      "text": "Eighteen!"
+    },
+    {
+      "file": "count-19",
+      "text": "Nineteen!"
+    },
+    {
+      "file": "count-20",
+      "text": "Twenty!"
+    },
+    {
+      "file": "count-21",
+      "text": "Twenty-one!"
+    },
+    {
+      "file": "count-22",
+      "text": "Twenty-two!"
+    },
+    {
+      "file": "count-23",
+      "text": "Twenty-three!"
+    },
+    {
+      "file": "count-24",
+      "text": "Twenty-four!"
+    },
+    {
+      "file": "count-25",
+      "text": "Twenty-five!"
+    },
+    {
+      "file": "count-26",
+      "text": "Twenty-six!"
+    },
+    {
+      "file": "count-27",
+      "text": "Twenty-seven!"
+    },
+    {
+      "file": "count-28",
+      "text": "Twenty-eight!"
+    },
+    {
+      "file": "count-29",
+      "text": "Twenty-nine!"
+    },
+    {
+      "file": "count-30",
+      "text": "Thirty!"
+    },
+    {
+      "file": "count-31",
+      "text": "Thirty-one!"
+    },
+    {
+      "file": "count-32",
+      "text": "Thirty-two!"
+    },
+    {
+      "file": "count-33",
+      "text": "Thirty-three!"
+    },
+    {
+      "file": "count-34",
+      "text": "Thirty-four!"
+    },
+    {
+      "file": "count-35",
+      "text": "Thirty-five!"
+    },
+    {
+      "file": "count-36",
+      "text": "Thirty-six!"
+    },
+    {
+      "file": "count-37",
+      "text": "Thirty-seven!"
+    },
+    {
+      "file": "count-38",
+      "text": "Thirty-eight!"
+    },
+    {
+      "file": "count-39",
+      "text": "Thirty-nine!"
+    },
+    {
+      "file": "count-40",
+      "text": "Forty!"
+    },
+    {
+      "file": "count-41",
+      "text": "Forty-one!"
+    },
+    {
+      "file": "count-42",
+      "text": "Forty-two!"
+    },
+    {
+      "file": "count-43",
+      "text": "Forty-three!"
+    },
+    {
+      "file": "count-44",
+      "text": "Forty-four!"
+    },
+    {
+      "file": "count-45",
+      "text": "Forty-five!"
+    },
+    {
+      "file": "count-46",
+      "text": "Forty-six!"
+    },
+    {
+      "file": "count-47",
+      "text": "Forty-seven!"
+    },
+    {
+      "file": "count-48",
+      "text": "Forty-eight!"
+    },
+    {
+      "file": "count-49",
+      "text": "Forty-nine!"
+    },
+    {
+      "file": "count-50",
+      "text": "Fifty!"
+    },
+    {
+      "file": "count-51",
+      "text": "Fifty-one!"
+    },
+    {
+      "file": "count-52",
+      "text": "Fifty-two!"
+    },
+    {
+      "file": "count-53",
+      "text": "Fifty-three!"
+    },
+    {
+      "file": "count-54",
+      "text": "Fifty-four!"
+    },
+    {
+      "file": "count-55",
+      "text": "Fifty-five!"
+    },
+    {
+      "file": "count-56",
+      "text": "Fifty-six!"
+    },
+    {
+      "file": "count-57",
+      "text": "Fifty-seven!"
+    },
+    {
+      "file": "count-58",
+      "text": "Fifty-eight!"
+    },
+    {
+      "file": "count-59",
+      "text": "Fifty-nine!"
+    },
+    {
+      "file": "count-60",
+      "text": "Sixty!"
+    },
+    {
+      "file": "count-61",
+      "text": "Sixty-one!"
+    },
+    {
+      "file": "count-62",
+      "text": "Sixty-two!"
+    },
+    {
+      "file": "count-63",
+      "text": "Sixty-three!"
+    },
+    {
+      "file": "count-64",
+      "text": "Sixty-four!"
+    },
+    {
+      "file": "count-65",
+      "text": "Sixty-five!"
+    },
+    {
+      "file": "count-66",
+      "text": "Sixty-six!"
+    },
+    {
+      "file": "count-67",
+      "text": "Sixty-seven!"
+    },
+    {
+      "file": "count-68",
+      "text": "Sixty-eight!"
+    },
+    {
+      "file": "count-69",
+      "text": "Sixty-nine!"
+    },
+    {
+      "file": "count-70",
+      "text": "Seventy!"
+    },
+    {
+      "file": "count-71",
+      "text": "Seventy-one!"
+    },
+    {
+      "file": "count-72",
+      "text": "Seventy-two!"
+    },
+    {
+      "file": "count-73",
+      "text": "Seventy-three!"
+    },
+    {
+      "file": "count-74",
+      "text": "Seventy-four!"
+    },
+    {
+      "file": "count-75",
+      "text": "Seventy-five!"
+    },
+    {
+      "file": "count-76",
+      "text": "Seventy-six!"
+    },
+    {
+      "file": "count-77",
+      "text": "Seventy-seven!"
+    },
+    {
+      "file": "count-78",
+      "text": "Seventy-eight!"
+    },
+    {
+      "file": "count-79",
+      "text": "Seventy-nine!"
+    },
+    {
+      "file": "count-80",
+      "text": "Eighty!"
+    },
+    {
+      "file": "count-81",
+      "text": "Eighty-one!"
+    },
+    {
+      "file": "count-82",
+      "text": "Eighty-two!"
+    },
+    {
+      "file": "count-83",
+      "text": "Eighty-three!"
+    },
+    {
+      "file": "count-84",
+      "text": "Eighty-four!"
+    },
+    {
+      "file": "count-85",
+      "text": "Eighty-five!"
+    },
+    {
+      "file": "count-86",
+      "text": "Eighty-six!"
+    },
+    {
+      "file": "count-87",
+      "text": "Eighty-seven!"
+    },
+    {
+      "file": "count-88",
+      "text": "Eighty-eight!"
+    },
+    {
+      "file": "count-89",
+      "text": "Eighty-nine!"
+    },
+    {
+      "file": "count-90",
+      "text": "Ninety!"
+    },
+    {
+      "file": "count-91",
+      "text": "Ninety-one!"
+    },
+    {
+      "file": "count-92",
+      "text": "Ninety-two!"
+    },
+    {
+      "file": "count-93",
+      "text": "Ninety-three!"
+    },
+    {
+      "file": "count-94",
+      "text": "Ninety-four!"
+    },
+    {
+      "file": "count-95",
+      "text": "Ninety-five!"
+    },
+    {
+      "file": "count-96",
+      "text": "Ninety-six!"
+    },
+    {
+      "file": "count-97",
+      "text": "Ninety-seven!"
+    },
+    {
+      "file": "count-98",
+      "text": "Ninety-eight!"
+    },
+    {
+      "file": "count-99",
+      "text": "Ninety-nine!"
+    },
+    {
+      "file": "count-100",
+      "text": "One hundred!"
+    },
+    {
+      "file": "penny",
+      "text": "Penny."
+    },
+    {
+      "file": "nickel",
+      "text": "Nickel."
+    },
+    {
+      "file": "dime",
+      "text": "Dime!"
+    },
+    {
+      "file": "quarter",
+      "text": "Quarter."
+    },
+    {
+      "file": "bill-1",
+      "text": "One-dollar bill."
+    },
+    {
+      "file": "bill-5",
+      "text": "Five-dollar bill."
+    },
+    {
+      "file": "bill-10",
+      "text": "Ten-dollar bill."
+    },
+    {
+      "file": "bill-20",
+      "text": "Twenty-dollar bill."
+    },
+    {
+      "file": "costs",
+      "text": "That costs"
+    },
+    {
+      "file": "pay",
+      "text": "Here's,",
+      "accept": [
+        "here is"
+      ]
+    },
+    {
+      "file": "change-please",
+      "text": "My change, please!"
+    },
+    {
+      "file": "too-much",
+      "text": "Ooh, that's too much!",
+      "accept": [
+        "Oh, that's too much!",
+        "Ooh, that is too much!"
+      ]
+    },
+    {
+      "file": "thanks-1",
+      "text": "Thank you!"
+    },
+    {
+      "file": "thanks-2",
+      "text": "Cheers!"
+    },
+    {
+      "file": "thanks-3",
+      "text": "Lovely, thanks!"
+    }
+  ]
+}
