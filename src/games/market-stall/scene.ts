@@ -1154,7 +1154,8 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     // The total waits for a coin or bill name still being said (the last one handed over), so they never overlap.
     leaveSayAt = pawN && planned() <= 100 ? voiceRemaining(audio) : -1;
   }
-  /** During LEAVE: say the change's total once its turn comes (leaveSayAt, -1 when there is none or it was said). */
+  /** During LEAVE: say the change's total once its turn comes (leaveSayAt, -1 when there is none or it was said). The next
+   * customer waits until it has been said in full, so its price never cuts the total off. */
   function updateLeaveSay(): void {
     if (leaveSayAt < 0 || momentT < leaveSayAt) return;
     leaveSayAt = -1;
@@ -1655,7 +1656,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
       updateCount(dt); checkPaid(); idleTick(dt);
     } else if (moment === PAID) { updateCount(dt); if (momentT >= PAID_PULSE) startGlide(); }
     else if (moment === GLIDE) { itemFly = clamp01(momentT / GLIDE_SECONDS); if (momentT >= GLIDE_SECONDS) startLeave(); }
-    else if (moment === LEAVE) { updateLeaveSay(); if (momentT >= LEAVE_SECONDS && leaveSayAt < 0) customerDone(); }
+    else if (moment === LEAVE) { updateLeaveSay(); if (momentT >= LEAVE_SECONDS && leaveSayAt < 0 && voiceRemaining(audio) === 0) customerDone(); }
     updateHand(dt);
   }
   /**

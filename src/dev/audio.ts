@@ -113,7 +113,7 @@ function offlineAudio(ctx: OfflineAudioContext): Audio {
     setMusicVolume: noop,
     unlock: () => Promise.resolve(),
     blip: noop,
-    playBuffer: noop,
+    playBuffer: () => undefined,
     setMusic: noop,
     decode: () => Promise.reject(new Error('offline preview')),
     context: ctx as unknown as AudioContext,

@@ -36,15 +36,16 @@ export function preloadVoice(audio: Audio, base: string): void {
   audio.onUnlock(() => { for (const name of AVAILABLE.keys()) load(audio, base, name); });
 }
 
-/** When the last clip started will have finished, in the audio clock's seconds. */
-let speechEnds = 0;
+/** The clip playing now (one channel: voices never stack) and when it ends, in the audio clock's seconds. */
+let speaking: AudioBufferSourceNode | undefined, speechEnds = 0;
 
-/** Play a clip if its file exists and has decoded; otherwise do nothing. */
+/** Play a clip if its file exists and has decoded; otherwise do nothing. A new clip stops the one playing. */
 export function playVoice(audio: Audio, name: VoiceClip): void {
   const buffer = buffers.get(name);
   if (!buffer || audio.muted || !audio.context) return;
-  audio.playBuffer(buffer, 1);
-  speechEnds = Math.max(speechEnds, audio.context.currentTime + buffer.duration);
+  if (speaking) { try { speaking.stop(); } catch { /* already ended */ } }
+  speaking = audio.playBuffer(buffer, 1);
+  speechEnds = speaking ? audio.context.currentTime + buffer.duration : 0;
 }
 
 /** Seconds until the clips already playing have finished (0 when none is). */
