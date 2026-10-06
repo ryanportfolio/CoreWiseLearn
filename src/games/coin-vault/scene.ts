@@ -377,8 +377,11 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
   let matCanvas: HTMLCanvasElement | undefined, glowCanvas: HTMLCanvasElement | undefined, cupOff: HTMLCanvasElement | undefined, cupOn: HTMLCanvasElement | undefined;
   const tagStrip = strip(), lockStrip = strip(), doorStrip = strip(), billStrip = strip(), boardStrip = strip(), symStrip = strip();
   // Bills baked once per size and notation: the art with its numerals (index = bill kind - BILL1), and the board's $1.
+  // Bills are baked at the tier's largest lifted size for this window (billBakeW), so a task whose row shrinks them
+  // draws the same canvases smaller and never rebakes; billMade* hold what each canvas was baked for.
   const billCanvas: (HTMLCanvasElement | undefined)[] = [undefined, undefined, undefined, undefined];
-  let boardCanvas: HTMLCanvasElement | undefined, billKey = '', boardKey = '';
+  const billMadeW = new Float32Array(4), billMadePx = new Float32Array(4), billMadeRatio = new Float32Array(4), billMadeDollar = new Int8Array(4).fill(-1);
+  let boardCanvas: HTMLCanvasElement | undefined, boardKey = '', billBakeW = 0;
   // Step 5's dashed slot ring and the dark rings under dish coins (one per coin kind).
   let slotCanvas: HTMLCanvasElement | undefined, slotBaked = 0;
   const ringCanvas: (HTMLCanvasElement | undefined)[] = [undefined, undefined, undefined, undefined], ringBaked = new Float32Array(4);
@@ -484,6 +487,7 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     bgScale = Math.max(W / iw, H / ih); bgX = (W - iw * bgScale) / 2; bgY = (H - ih * bgScale) / 2;
     E = Math.round(bgY + EDGE_PX * (ih / BG_H) * bgScale);
     const tp = TIERS[tier];
+    billBakeW = Math.round(Math.min(BILL_MAX_W * Math.max(1, u), Math.max(BILL_MIN_W, tp.bill * u)) * 1.08);
     // Visitor, stump and board shrink first (to 0.6); where that is not enough (a large uiScale), the coins and their
     // spacing shrink in 10 percent steps toward the dime's 96 px floor, and the band tries again.
     const rowMin = Math.min(1, 0.45 / u);
@@ -526,21 +530,26 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     }
     if (resized || reratio || !bgCanvas) { sprites.clearScaled(BG); bgCanvas = undefined; }
   }
-  /** Glyph strips for the tags, the lock plates and the door's plate, rebaked when their size or the font changes. */
+  /**
+   * Glyph strips for the tags, the lock plates and the door's plate, rebaked when their size or the font changes. The
+   * lock plates' strip, the bills' and the board's are baked only for a task that draws them, since their sizes follow
+   * the mat and the band, which change from task to task with the row's lines.
+   */
   function bakeStrips(force: boolean): void {
     const tagPx = Math.max(16, Math.round(tagH * 0.42)), lockPx = Math.max(14, Math.round(lockH * 0.45));
     const doorPx = Math.max(14, Math.round(doorD * (PLATE_Y1 - PLATE_Y0) * 0.8));
     if (force || tagStrip.px !== tagPx || !tagStrip.canvas) bakeStrip(tagStrip, tagPx, artRatio);
-    if (force || lockStrip.px !== lockPx || !lockStrip.canvas) bakeStrip(lockStrip, lockPx, artRatio);
+    if (force) lockStrip.px = 0;
+    if (isLock() && (lockStrip.px !== lockPx || !lockStrip.canvas)) bakeStrip(lockStrip, lockPx, artRatio);
     if (force || doorStrip.px !== doorPx || !doorStrip.canvas) bakeStrip(doorStrip, doorPx, artRatio);
     const goalPx = Math.max(14, Math.round(gtagH * 0.5));
     if (force || goalStrip.px !== goalPx || !goalStrip.canvas) bakeStrip(goalStrip, goalPx, artRatio);
     // Bill numerals at 0.52 of the bill's height (baked for the lifted size), the board's $1 likewise, the blocks' symbol
-    // at 0.6. These are baked only once a task needs them (bills, step 6 and up, step 8b), so opening the game bakes three strips.
+    // at 0.6. These are baked only once a task needs them (bills; the board's $1 in a cents task over a dollar; step 8b).
     if (force) { billStrip.px = 0; boardStrip.px = 0; symStrip.px = 0; }
-    const billPx = Math.max(14, Math.round(billH * 1.08 * 0.52)), boardPx = Math.max(12, Math.round(boardBillH * 0.52)), symPx = Math.max(24, Math.round(blockS * 1.08 * 0.6));
-    if (billsWanted && billStrip.px !== billPx) { bakeStrip(billStrip, billPx, artRatio); billKey = ''; }
-    if (plan.step >= 6 && boardStrip.px !== boardPx) { bakeStrip(boardStrip, boardPx, artRatio); boardKey = ''; }
+    const billPx = billStripPx(), boardPx = Math.max(12, Math.round(boardBillH * 0.52)), symPx = Math.max(24, Math.round(blockS * 1.08 * 0.6));
+    if (billsWanted && billStrip.px !== billPx) bakeStrip(billStrip, billPx, artRatio);
+    if (boardWanted() && boardStrip.px !== boardPx) { bakeStrip(boardStrip, boardPx, artRatio); boardKey = ''; }
     if (plan.kind === 'symbol' && symStrip.px !== symPx) bakeStrip(symStrip, symPx, artRatio);
   }
   /**
@@ -549,14 +558,9 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
    * ratio, the notation or the font changes.
    */
   function bakePieces(force: boolean): void {
-    const dollar = plan.step >= 6, key = `${billW}@${artRatio}/${dollar}/${billStrip.px}`;
-    if (billsWanted && billStrip.px > 0 && (force || key !== billKey)) {
-      let ok = true;
-      for (let i = 0; i < 4; i++) { const c = bakeBill(i, Math.round(billW * 1.08), billStrip, dollar); if (c) billCanvas[i] = c; else ok = false; }
-      billKey = ok ? key : '';
-    }
+    if (billsWanted) for (let i = 0; i < 4; i++) if (force || !billFresh(i)) bakeBillAt(i);
     const bkey = `${boardBillW}@${artRatio}/${boardStrip.px}`;
-    if (plan.step >= 6 && boardBillW > 0 && boardStrip.px > 0 && (force || bkey !== boardKey)) {
+    if (boardWanted() && boardBillW > 0 && boardStrip.px > 0 && (force || bkey !== boardKey)) {
       const c = bakeBill(0, boardBillW, boardStrip, true); if (c) { boardCanvas = c; boardKey = bkey; }
     }
     if (isFewest() && slotD > 0 && (force || !slotCanvas || slotBaked !== slotD)) { slotBaked = slotD; slotCanvas = bakeSlot(slotD, artRatio); }
@@ -599,6 +603,39 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
   function placeJar(): void {
     jarH = Math.round(Math.max(60, Math.min(boardH * 0.95, matH * 0.92))); jarW = Math.round(jarH * JAR_AR);
     jarX = Math.round((portrait ? matX + matW / 2 : boardX - 10 * u - jarW / 2)); jarY = Math.round(matY + matH - 6 * u - jarH / 2);
+  }
+  /** Whether this task can put the $1 bill on the board: a cents task over a dollar (step 6's trade, or step 8a's $1). */
+  const boardWanted = (): boolean => plan.unit === CENTS && (plan.total > 100 || plan.bills[0]! > 0);
+  /** The bills' numeral size: 0.52 of the baked bill's height. */
+  const billStripPx = (): number => Math.max(14, Math.round(billBakeW / 2 * 0.52));
+  /** Whether bill i's canvas was baked for this window, tier, pixel ratio, notation and numeral strip. */
+  const billFresh = (i: number): boolean => billCanvas[i] !== undefined && billMadeW[i] === billBakeW && billMadePx[i] === billStrip.px
+    && billMadeRatio[i] === artRatio && billMadeDollar[i] === (plan.step >= 6 ? 1 : 0);
+  /** Whether bill i still needs baking (its art loaded; a missing sprite is drawn plain, never waited for). */
+  const billDue = (i: number): boolean => !billFresh(i) && sprites.get(BILL_NAMES[i]!) !== undefined;
+  function bakeBillAt(i: number): void {
+    if (billStrip.px <= 0) return;
+    const dollar = plan.step >= 6, c = bakeBill(i, billBakeW, billStrip, dollar); if (!c) return;
+    billCanvas[i] = c; billMadeW[i] = billBakeW; billMadePx[i] = billStrip.px; billMadeRatio[i] = artRatio; billMadeDollar[i] = dollar ? 1 : 0;
+  }
+  /** A round at step 7 or 8 may bring bills in any task after its warm-up: bake them ahead, in idle time. */
+  const billsSoon = (): boolean => !intro && data.step >= 7;
+  function billsPending(): boolean {
+    if (!billsSoon()) return false;
+    if (billStrip.px !== billStripPx()) return true;
+    for (let i = 0; i < 4; i++) if (billDue(i)) return true;
+    return false;
+  }
+  /**
+   * One idle step of the bills' bake: the numeral strip (one long step, so it waits for a long idle period or the
+   * IDLE_WAIT_MS limit), then one bill per step. False when there was nothing to do.
+   */
+  function prepareBills(deadline: IdleDeadline, overdue: boolean): boolean {
+    if (!billsPending()) return false;
+    const px = billStripPx();
+    if (billStrip.px !== px) { if (overdue || deadline.timeRemaining() >= 12) { bakeStrip(billStrip, px, artRatio); idleWaitFrom = -1; } return true; }
+    for (let i = 0; i < 4; i++) if (billDue(i)) { bakeBillAt(i); idleWaitFrom = -1; return true; }
+    return false;
   }
   /** One bill `w` wide (2:1): the art, then its numeral in both plain side panels (the left one "$20" where $ is used). */
   function bakeBill(i: number, w: number, s: Strip, dollar: boolean): HTMLCanvasElement | undefined {
@@ -716,9 +753,10 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
       boardBillW = Math.round(Math.min(aw * 0.98, ah * 2 * 0.98, BILL_MAX_W * Math.max(1, u))); boardBillH = Math.round(boardBillW / 2);
       boardBillX = ax + (aw - boardBillW) / 2; boardBillY = ay + (ah - boardBillH) / 2;
     }
-    // The mat's zone: the mat plus the snap distance, never over the row or a corner button.
-    zoneX0 = Math.max(0, matX - snap); zoneX1 = Math.min(portrait ? boardX - 2 : boardX - 2, matX + matW + snap);
-    zoneY0 = Math.max(cornerY + cornerRadius + 4, matY - snap); zoneY1 = Math.min(rowY - 2, matY + matH + snap);
+    // The mat's zone: the whole drawn mat plus the snap distance, never over the row; the corner buttons' own circles
+    // are cut out of it where they overlap (onMat).
+    zoneX0 = Math.max(0, matX - snap); zoneX1 = Math.min(boardX - 2, matX + matW + snap);
+    zoneY0 = Math.max(0, matY - snap); zoneY1 = Math.min(rowY - 2, matY + matH + snap);
     // Tags: three across the whole row (the purse slides away first), or stacked from the bottom over the mat and row
     // (portrait, or a landscape window too narrow for three).
     blockS = Math.max(96, Math.round(120 * u));
@@ -1548,6 +1586,7 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
       return;
     }
     if (madeName || (!overdue && deadline.timeRemaining() < 4)) return;
+    if (prepareBills(deadline, overdue)) return;
     for (; warmIndex < warmNames.length; warmIndex++) {
       const name = warmNames[warmIndex]!, size = warmSizes[warmIndex]!, key = `${name}@${size}`;
       if (warmDone.has(key) || size <= 0) continue;
@@ -1562,7 +1601,7 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
   }
   function askIdle(): void {
     if (idleHandle) return;
-    if ((fanfareStarted && !fanfareAsked) || (playable() && time >= 0.5 && warmIndex < warmNames.length)) {
+    if ((fanfareStarted && !fanfareAsked) || (playable() && time >= 0.5 && (warmIndex < warmNames.length || billsPending()))) {
       const now = performance.now();
       if (idleWaitFrom < 0) idleWaitFrom = now;
       IDLE_OPTIONS.timeout = Math.max(1, IDLE_WAIT_MS - (now - idleWaitFrom));
@@ -2414,7 +2453,8 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     }
     return -1;
   }
-  const onMat = (x: number, y: number): boolean => x >= zoneX0 && x <= zoneX1 && y >= zoneY0 && y <= zoneY1;
+  /** The mat's zone, less the corner buttons' circles (a press there is the button's, never a drop). */
+  const onMat = (x: number, y: number): boolean => x >= zoneX0 && x <= zoneX1 && y >= zoneY0 && y <= zoneY1 && !onCorner(x, y);
   const onTag = (x: number, y: number): number => {
     for (let i = 0; i < 3; i++) if (tagState[i] === 0 && x >= tagX[i]! && x <= tagX[i]! + tagW && y >= tagY[i]! && y <= tagY[i]! + tagH) return i;
     return -1;
@@ -2442,11 +2482,15 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     carry.active = false; carry.keyed = false;
     launch(RETURN, carry.kind, carry.face, 1, carry.place, x, y, pX[carry.place]! + pNx[carry.place]!, pY[carry.place]! + pNy[carry.place]!, RETURN_SECONDS);
   }
-  /** Let go of the carried piece at (x, y): on the mat it goes to its dish, the pile, the board or the open lock; elsewhere it slides home. */
+  /**
+   * Let go of the carried piece at (x, y): on the mat it goes to its dish, the pile, the board or the open lock (a hit);
+   * anywhere else it slides home and counts one miss (quietly over the row, with a soft whoosh elsewhere).
+   */
   function release(x: number, y: number): void {
     carry.active = false; carry.keyed = false;
     if (onMat(x, y)) { hits++; dropToMat(carry.kind, carry.face, carry.place, x, y, carry.deliberate, false); return; }
-    if (!onRow(x, y)) { misses++; play('whoosh', 'D', 0, 0.55); }
+    misses++;
+    if (!onRow(x, y)) play('whoosh', 'D', 0, 0.55);
     launch(RETURN, carry.kind, carry.face, 1, carry.place, x, y, pX[carry.place]! + pNx[carry.place]!, pY[carry.place]! + pNy[carry.place]!, RETURN_SECONDS);
   }
   const coinPhase = (): boolean => taskPhase === 'count' || taskPhase === 'lock';
