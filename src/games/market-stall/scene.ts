@@ -1148,7 +1148,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     if (cheerLevel >= 2) particles.glints(custX, Yc - custH * 0.5, cheerLevel, custW * 0.4);
   }
   /** Say the price when a clip for it exists (the number clips run to 100). */
-  function sayPrice(): void { if (!plan.dollars && plan.price <= 100 && (plan.price <= 20 || plan.price % 10 === 0)) playVoice(audio, NUMBER_CLIPS[plan.price]!); else if (plan.dollars && plan.price <= 20) playVoice(audio, NUMBER_CLIPS[plan.price]!); }
+  function sayPrice(): void { if (!plan.dollars && plan.price <= 100 && (plan.price <= 20 || plan.price === 25 || plan.price === 75 || plan.price % 10 === 0)) playVoice(audio, NUMBER_CLIPS[plan.price]!); else if (plan.dollars && plan.price <= 20) playVoice(audio, NUMBER_CLIPS[plan.price]!); }
   function startLeave(): void {
     moment = LEAVE; momentT = 0; play('whoosh', 'A', 0, 0.5);
     if (pawN && planned() <= 100) playVoice(audio, NUMBER_CLIPS[planned()]!);

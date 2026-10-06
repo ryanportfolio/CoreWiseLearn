@@ -42,4 +42,10 @@ export function playVoice(audio: Audio, name: VoiceClip): void {
   if (buffer && !audio.muted) audio.playBuffer(buffer, 1);
 }
 
+/** How long `playVoice(audio, name)` would speak now: the clip's length, or 0 when it would stay silent. */
+export function voiceSeconds(audio: Audio, name: VoiceClip): number {
+  const buffer = buffers.get(name);
+  return buffer && !audio.muted ? buffer.duration : 0;
+}
+
 export const voiceClipCount = (): number => AVAILABLE.size;
