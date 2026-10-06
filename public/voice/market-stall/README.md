@@ -1,6 +1,6 @@
 # Market Stall voice clips
 
-Optional short spoken clips for Market Stall. None ship yet: naming coins, bills and numbers waits until the owner records a voice. The game plays a clip only when its file is in this folder when the app is built; a missing clip is skipped without a sound or a request.
+Short spoken clips for Market Stall. All 38 below ship as MP3, in the market-stall lad's voice: Gemini's Puck with a light London accent, rendered by `scripts/voice/generate.mjs` from `scripts/voice/lines/market-stall.json`. Edit the lines there and run the generator rather than replacing files by hand. The game plays a clip only when its file is in this folder when the app is built; a missing clip is skipped without a sound or a request.
 
 Put files here with these exact names, as MP3 (or OGG when there is no MP3):
 

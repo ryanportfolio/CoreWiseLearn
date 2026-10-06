@@ -1,7 +1,8 @@
 /**
- * Optional spoken clips for Market Stall. A clip plays only when its file is in
- * public/voice/market-stall/ at build time; a missing clip is skipped silently
- * and causes no request. No clips ship yet (see that folder's README).
+ * Spoken clips for Market Stall, in the London market-stall voice, rendered
+ * from scripts/voice/lines/market-stall.json (see that folder's README). A clip
+ * plays only when its file is in public/voice/market-stall/ at build time; a
+ * missing clip is skipped silently and causes no request.
  */
 import type { Audio } from '../../engine/audio';
 

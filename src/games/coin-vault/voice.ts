@@ -1,7 +1,8 @@
 /**
- * Optional spoken clips for Coin Vault. A clip plays only when its file is in
- * public/voice/coin-vault/ at build time; a missing clip is skipped silently
- * and causes no request. No clips ship yet (see that folder's README).
+ * Spoken clips for Coin Vault, in the narrator voice, rendered from
+ * scripts/voice/lines/coin-vault.json (see that folder's README). A clip plays
+ * only when its file is in public/voice/coin-vault/ at build time; a missing
+ * clip is skipped silently and causes no request.
  */
 import type { Audio } from '../../engine/audio';
 

@@ -9,6 +9,7 @@ A browser game hub for the owner's niece and nephew, aged 4 and 5, who cannot re
 Won't compromise on:
 
 - No instruction text; navigation never needs reading. Text on screen is a child's name, numbers, the letter keys on the name-entry screen, and letters (uppercase and lowercase), words and shape names used as learning material. Mechanics are taught by demonstration.
+- Every game speaks: Wibble says its name on the hub, and the game says the words, numbers and letters it teaches, in the house voices. A new game ships its clips in the same change; `npm run build` fails when a registered game has no voice lines or a line has no clip (`scripts/check-voice.mjs`). How to make clips and art: `.claude/reference/voice-and-art.md`.
 - Nothing is ever wrong, locked or lost. No game over; misses only ease the hidden adaptive difficulty; every round ends with at least one star.
 - Every interactive target is at least 96 CSS px on its shortest side. Mouse, trackpad and any key all work; there is no wrong button.
 - 60 fps at 1366x768 on an integrated GPU. No per-frame allocations in update or render, no shadowBlur, no per-frame gradients or fillText.
@@ -79,6 +80,7 @@ Topical reference lives in `.claude/reference/`. Consult BEFORE non-trivial work
 | `commands.md` | Build / dev / test commands |
 | `tech-stack.md` | Non-default picks + why |
 | `deployment.md` | Deploy target, artifacts |
+| `voice-and-art.md` | Voice clips, sound, generated art: tools, roles, steps |
 
 New quirk bites → save it to `.claude/reference/pitfalls.md` before the task ends, without asking, when it cost a retry, a backed-out change, or a user correction and its cause is confirmed. Amend an existing entry over adding one. Other reference edits stay behind `/recall save`.
 

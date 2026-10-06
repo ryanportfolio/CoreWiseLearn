@@ -1,6 +1,6 @@
 # Coin Vault voice clips
 
-Optional short spoken clips for Coin Vault. None ship yet: naming coins, bills and numbers waits until the owner records a voice. The game plays a clip only when its file is in this folder when the app is built; a missing clip is skipped without a sound or a request.
+Short spoken clips for Coin Vault. All 37 below ship as MP3, in the narrator's voice: Gemini's Charon, a warm southern English children's television narrator, rendered by `scripts/voice/generate.mjs` from `scripts/voice/lines/coin-vault.json`. Edit the lines there and run the generator rather than replacing files by hand. The game plays a clip only when its file is in this folder when the app is built; a missing clip is skipped without a sound or a request.
 
 Put files here with these exact names, as MP3 (or OGG when there is no MP3):
 
