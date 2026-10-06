@@ -448,6 +448,8 @@ export function createNameEntryScene(services: AppServices, options: { renamePro
       if (renaming) void sprites.load(avatarSpriteName(renaming), services.art(avatarPath(renaming))).catch(() => undefined);
       resetMascotMotion(motion); spelling = false;
       voice.preload(WIBBLE);
+      // Letter names and the greeting after Go first; the hub's lines can follow.
+      voice.prioritize(WIBBLE, WIBBLE.clips.filter((c) => c.startsWith('greet-') || c.startsWith('letter-')));
       void loadMascotMouths(services, [IDLE, CHEER]);
       startMusic(audio, 'name-entry');
     },
