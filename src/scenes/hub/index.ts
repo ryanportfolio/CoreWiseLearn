@@ -13,7 +13,8 @@ import { chunkyCircle, chunkyPanel, drawSprite, groundShadow, OUTLINE, roundedRe
 import { starPath } from '../../ui/celebrate';
 import { approach, arriveAlpha, arriveScale, springStep } from '../../ui/tween';
 import { drawEnterFade } from '../../ui/motion';
-import { drawMascotAt } from '../../ui/mascot';
+import { createMascotMotion, drawMascotMoving, loadMascotMouths, pokeMascot, resetMascotMotion, stepMascotMotion } from '../../ui/mascot';
+import { WIBBLE, greetedThisSession, hasGameName, markGreeted, sayCommentary, sayGameName, sayTickle, wibbleVoice } from '../../ui/wibble';
 import { playSfx } from '../../audio/sfx';
 import { startMusic, stopMusic } from '../../audio/music';
 import {
@@ -58,17 +59,36 @@ const TOP_GAP = 12;
 const MIN_RADIUS = 52;
 /** Space between neighbouring tiles, as a fraction of the tile side. */
 const TILE_GAP = 0.14;
-/** Mascot size limits, px, and the number of steps the tile layout may shrink it in between. */
+/**
+ * Mascot size limits, px, and the number of steps the tile layout may shrink it in between.
+ * Its full size is MASCOT_SHARE of the window height, within these limits.
+ */
 const MASCOT_MIN = 150;
-const MASCOT_MAX = 340;
-const MASCOT_STEPS = 8;
+const MASCOT_MAX = 420;
+const MASCOT_SHARE = 0.42;
+const MASCOT_STEPS = 16;
 /**
  * Where the mascot's art can appear, as fractions of its size from its feet (mascotX,
  * mascotGround). The idle, wave and point art spans 0.10 to 0.90 of its square across and
  * 0.17 to 0.83 down; this adds the feet offsets, the 5 percent bob, the wave's tilt and the
- * pop-in overshoot. Tiles keep out of this box.
+ * pop-in overshoot. Tiles keep out of this box. Talking and a poke's hop can reach above it for
+ * a moment; the mascot is drawn behind the tiles.
  */
 const MASCOT_BOX = { left: -0.45, right: 0.47, top: -0.73, bottom: 0.03 } as const;
+/**
+ * Wibble's press area, an ellipse over its body: centred BODY_Y of its size above the feet,
+ * with half-axes BODY_RX across and BODY_RY down, each at least MIN_HIT (96 px across).
+ * At MASCOT_MIN that is 120 by 99 px.
+ */
+const BODY_Y = 0.33;
+const BODY_RX = 0.4;
+const BODY_RY = 0.33;
+/** Seconds a tile must hold the pointer or keyboard focus before Wibble says the game's name. */
+const NAME_DWELL = 0.4;
+/** Seconds into a visit before Wibble's hello or welcome-back line. */
+const LINE_DELAY = 0.6;
+/** Chance of a welcome-back line when the child comes back from a game. */
+const BACK_CHANCE = 1 / 3;
 
 /**
  * The game the hub last launched, until the hub is left some other way. Every
@@ -198,6 +218,19 @@ export function createHubScene(services: AppServices): Scene {
   let accent = '#e0e7ff';
   let singleGame = false;
 
+  const voice = wibbleVoice(services);
+  const motion = createMascotMotion();
+  /** The hello or welcome-back line due this visit, if any; it plays LINE_DELAY seconds in. */
+  let lineDue: '' | 'hello' | 'back' = '';
+  /** The tile the child is on (by pointer or keyboard), for how long, and the tile whose name was said. */
+  let dwellTile: Tile | null = null;
+  let dwell = 0;
+  let namedTile: Tile | null = null;
+  /** The pointer moved, or a key was pressed, during this visit; the later of the two decides which tile counts. */
+  let pointerMoved = false;
+  let keyUsed = false;
+  let lastByKey = false;
+
   const avatarButton = createButton({
     x: 0,
     y: 0,
@@ -232,11 +265,25 @@ export function createHubScene(services: AppServices): Scene {
   const soundButton = createSoundButton(services);
   const renameButton = createButton({ x: 0, y: 0, radius: 48, fill: '#ffd23f', onPress: () => { if (cooldown > 0) return; const profile = services.profile(); if (profile) { cooldown = 0.6; launchedGame = null; nav.toNameEntry(profile.id); } } });
   const buttons: Button[] = [avatarButton, renameButton, stickerButton, soundButton];
+  // Wibble joins the keyboard order as one more control, so any activating key pokes it. The scene
+  // draws it (not as a round button) and its press area is the ellipse over its body.
+  const wibbleButton = createButton({ x: 0, y: 0, radius: MIN_HIT, fill: '', onPress: poke });
+  wibbleButton.contains = (px, py) => {
+    const dx = (px - mascotX) / Math.max(MIN_HIT, mascotSize * BODY_RX);
+    const dy = (py - (mascotGround - mascotSize * BODY_Y)) / Math.max(MIN_HIT, mascotSize * BODY_RY);
+    return dx * dx + dy * dy <= 1;
+  };
   const hoverPrev: boolean[] = [false, false, false];
 
   const tiles: Tile[] = [];
   const tileButtons: Button[] = [];
-  const keyboard = createKeyboardNavigation(() => [...tileButtons, ...buttons], { anyKey: true, input });
+  const keyboard = createKeyboardNavigation(() => [...tileButtons, ...buttons, wibbleButton], { anyKey: true, input });
+
+  /** Wibble jiggles (with the sound off too) and, unless it is already talking, says a ticklish line. */
+  function poke(): void {
+    pokeMascot(motion);
+    sayTickle(services);
+  }
 
   const layoutInfo: HubLayout = { targets: [] };
 
@@ -276,6 +323,9 @@ export function createHubScene(services: AppServices): Scene {
     mascotSize = size;
     mascotX = margin + size * 0.4;
     mascotGround = height - margin;
+    // Keyboard arrows aim at the middle of the body.
+    wibbleButton.x = mascotX;
+    wibbleButton.y = mascotGround - size * BODY_Y;
   }
 
   /** Lay tiles out in `rows` rows of the same width, the last row centred or, with `alignLast`, flush right. */
@@ -435,7 +485,7 @@ export function createHubScene(services: AppServices): Scene {
     let bandTop = margin + ar * 2 + h * 0.05 + (w < 1000 ? 50 : 0);
     if (twoRows) bandTop = Math.max(bandTop, stickerButton.y + br + margin);
     const n = tiles.length;
-    const fullMascot = Math.max(MASCOT_MIN, Math.min(MASCOT_MAX, h * 0.36));
+    const fullMascot = Math.max(MASCOT_MIN, Math.min(MASCOT_MAX, h * MASCOT_SHARE));
     setMascot(fullMascot);
 
     // First the usual layout: one row up to four tiles, two rows above that, in a band that
@@ -468,6 +518,13 @@ export function createHubScene(services: AppServices): Scene {
         circleTarget('rename', renameButton),
         circleTarget('sticker-book', stickerButton),
         circleTarget('sound', soundButton),
+        {
+          id: 'wibble',
+          x: mascotX - Math.max(MIN_HIT, mascotSize * BODY_RX),
+          y: mascotGround - mascotSize * BODY_Y - Math.max(MIN_HIT, mascotSize * BODY_RY),
+          w: 2 * Math.max(MIN_HIT, mascotSize * BODY_RX),
+          h: 2 * Math.max(MIN_HIT, mascotSize * BODY_RY),
+        },
         ...tiles.map((t, i) => ({ id: `tile:${t.id ?? `placeholder-${i}`}`, x: t.x - t.size / 2, y: t.y - t.size / 2, w: t.size, h: t.size })),
       ];
       const ms = mascotSize;
@@ -532,6 +589,31 @@ export function createHubScene(services: AppServices): Scene {
     nav.toGame(t.id);
   }
 
+  /**
+   * When the child stays on a tile for NAME_DWELL seconds, by pointer or keyboard (whichever was
+   * used last), Wibble says the game's name once. Moving away first cancels it; coming back says it
+   * again. The keyboard's starting focus does not count until a key is pressed.
+   */
+  function updateTileNames(dt: number): void {
+    let on: Tile | null = null;
+    if (!lastByKey && pointerMoved) {
+      for (const t of tiles) if (t.hovered) { on = t; break; }
+    } else if (lastByKey && keyUsed) {
+      for (let i = 0; i < tiles.length; i++) if (tileButtons[i]?.focused) { on = tiles[i] ?? null; break; }
+    }
+    if (on !== dwellTile) {
+      dwellTile = on;
+      dwell = 0;
+      namedTile = null;
+    }
+    if (!on || on === namedTile || !on.id || !hasGameName(on.id)) return;
+    dwell += dt;
+    if (dwell >= NAME_DWELL) {
+      namedTile = on;
+      sayGameName(services, on.id);
+    }
+  }
+
   function renderTile(ctx: CanvasRenderingContext2D, t: Tile, i: number): void {
     if (t.delay > 0) return;
     const alpha = arriveAlpha(t.pop);
@@ -580,7 +662,10 @@ export function createHubScene(services: AppServices): Scene {
 
   const scene: Scene & { layout?: HubLayout } = {
     pause() {
-      /* covered by the break nudge: keep music and layout as they are */
+      // Covered by the break nudge: music and layout stay; Wibble goes quiet, as the nudge speaks.
+      voice.stop();
+      lineDue = '';
+      dwellTile = namedTile = null;
     },
     resume() {
       cooldown = 0.4;
@@ -597,6 +682,15 @@ export function createHubScene(services: AppServices): Scene {
       time = 0;
       mascotT = 0;
       cooldown = 0.4;
+      resetMascotMotion(motion);
+      voice.preload(WIBBLE);
+      void loadMascotMouths(services, [WAVE, IDLE, POINT]);
+      // Hello once a page session, unless name entry already greeted; back from a game, now and then a welcome-back line.
+      lineDue = !greetedThisSession() ? 'hello' : launchedGame !== null && services.random() < BACK_CHANCE ? 'back' : '';
+      markGreeted();
+      dwellTile = namedTile = null;
+      dwell = 0;
+      pointerMoved = keyUsed = lastByKey = false;
       // Back from a game, focus waits on that game's tile; otherwise on the first tile.
       const returned = launchedGame === null ? -1 : tiles.findIndex((t) => t.id === launchedGame);
       launchedGame = null;
@@ -621,6 +715,9 @@ export function createHubScene(services: AppServices): Scene {
       startMusic(audio, 'hub');
     },
     exit() {
+      // Nothing plays as the child leaves.
+      voice.stop();
+      lineDue = '';
       stopMusic(audio);
     },
     update(dt) {
@@ -652,6 +749,15 @@ export function createHubScene(services: AppServices): Scene {
         springStep(t.squash, t.pressed ? 1 : 0, TILE_OMEGA * 1.4, TILE_ZETA, dt);
         t.wobble += dt;
       }
+
+      wibbleButton.update(dt, inside ? px : -9999, inside ? py : -9999);
+      // A line waits for audio to unlock (the first click or key); with the sound off it is dropped.
+      if (lineDue && time >= LINE_DELAY && audio.state !== 'waiting') {
+        sayCommentary(services, lineDue);
+        lineDue = '';
+      }
+      updateTileNames(dt);
+      stepMascotMotion(motion, dt, voice.isSpeaking(), voice.speakingLevel());
     },
     render(view: SceneContext) {
       const { ctx } = view;
@@ -671,7 +777,15 @@ export function createHubScene(services: AppServices): Scene {
       const malpha = arriveAlpha(pop);
       ctx.globalAlpha = malpha;
       groundShadow(ctx, mascotX, mascotGround, (mascotSize * 0.3 - lift * 0.6) * ms, mascotSize * 0.055 * ms, 0.2 * malpha);
-      drawMascotAt(ctx, services.sprites, artName(pose), pose, mascotX, mascotGround, mascotSize, lift, rot, ms, ms);
+      if (wibbleButton.focused || wibbleButton.hovered) {
+        // Focus or hover shows as a ring on the ground around Wibble's feet, the colour of a button's ring.
+        ctx.beginPath();
+        ctx.ellipse(mascotX, mascotGround, mascotSize * 0.38 * ms, mascotSize * 0.075 * ms, 0, 0, Math.PI * 2);
+        ctx.lineWidth = 6;
+        ctx.strokeStyle = '#fff8b2';
+        ctx.stroke();
+      }
+      drawMascotMoving(ctx, services.sprites, motion, artName(pose), pose, mascotX, mascotGround, mascotSize, lift, rot, ms, ms);
       ctx.globalAlpha = 1;
 
       for (let i = 0; i < tiles.length; i++) renderTile(ctx, tiles[i] as Tile, i);
@@ -709,9 +823,15 @@ export function createHubScene(services: AppServices): Scene {
         if (dispatchDown(buttons, event.info.x, event.info.y)) return;
         const tile = tileAt(event.info.x, event.info.y);
         if (tile) activate(tile);
+        else wibbleButton.pointerDown(event.info.x, event.info.y);
       } else if (event.type === 'pointerup') {
         dispatchUp(buttons, event.info.x, event.info.y);
+        wibbleButton.pointerUp(event.info.x, event.info.y);
+      } else if (event.type === 'pointermove') {
+        pointerMoved = true;
+        lastByKey = false;
       } else if (event.type === 'keydown' && !event.info.repeat) {
+        keyUsed = lastByKey = true;
         keyboard.key(event.info.key);
       } else if (event.type === 'keyup') {
         keyboard.keyUp(event.info.key);
@@ -734,6 +854,7 @@ export function createHubScene(services: AppServices): Scene {
     layoutInfo.focus = () => {
       const i = tileButtons.findIndex((b) => b.focused);
       if (i >= 0) return `tile:${tiles[i]?.id ?? 'placeholder'}`;
+      if (wibbleButton.focused) return 'wibble';
       return ['avatar', 'rename', 'sticker-book', 'sound'][buttons.findIndex((b) => b.focused)];
     };
     scene.layout = layoutInfo;

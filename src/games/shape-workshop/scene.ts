@@ -43,6 +43,8 @@ const SKIP_AFTER = 1.2;
 const FOCUS_HOLD_MS = 400;
 /** Seconds a piece is held (clicked or dragged) before its matching outline lights up. */
 const HELD_RING = 1;
+/** A press released within CLICK_MS and CLICK_PX is a click: the piece it picked up follows the pointer until the next press. */
+const CLICK_MS = 300, CLICK_PX = 24;
 /** Gap between the screen edge and Home or the speaker: Bubble Bay's corner place. */
 const CORNER_PAD = 12;
 /** Drop tolerance: half the 96 px minimum target around an outline's centre, and a rim around the drawn outline. */
@@ -199,7 +201,13 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
    */
   let trayRows = 1, trayCap = 3;
   const shown = (p: Piece): boolean => p.cell < trayCap;
+  /**
+   * The piece the pressed button holds. A piece picked up by a click (`selected`) stays in the held state after the
+   * button comes up and follows the pointer until the next press.
+   */
   let held: Piece | undefined;
+  /** When the current press began (performance.now(), ms): a release within CLICK_MS and CLICK_PX of it is a click. */
+  let downAt = 0;
   let keyPiece = 0;
   let learnHits = 0, learnMisses = 0, motorHits = 0, motorMisses = 0, pointerPlacements = 0, keyPlacements = 0;
   let cue = 0;
@@ -384,7 +392,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     const aspect = upright ? 1 / TRAY_ASPECT[p.shape] : TRAY_ASPECT[p.shape], s = cell * 0.74;
     if (aspect >= 1) { p.w = s; p.h = s / aspect; } else { p.h = s; p.w = s * aspect; }
     if (bakeNow) bakePiece(p); else p.baked = undefined;
-    if (p.state === 'tray' || (p.state === 'held' && p.selected)) { p.x = p.hx; p.y = p.hy; }
+    if (p.state === 'tray') { p.x = p.hx; p.y = p.hy; }
   }
 
   function bakePiece(p: Piece): void {
@@ -932,7 +940,7 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
         const delay = phase === 'deal' ? i * 0.05 : 0;
         if (phase !== 'deal' || phaseT > delay) { p.x = approach(p.x, p.hx, 14, dt); p.y = approach(p.y, p.hy, 14, dt); }
       } else if (p.state === 'held') {
-        if (p.drag) { p.x = approach(p.x, input.pointer.x, 32, dt); p.y = approach(p.y, input.pointer.y, 32, dt); }
+        if (p.drag || p.selected) { p.x = approach(p.x, input.pointer.x, 32, dt); p.y = approach(p.y, input.pointer.y, 32, dt); }
         else if (hand.kind === KIND_DEMO && hand.piece === i) { p.x = hand.x; p.y = hand.y + p.h * 0.35; }
         else { p.x = approach(p.x, p.hx, 18, dt); p.y = approach(p.y, p.hy - 6 * u, 18, dt); }
       } else if (p.state === 'fly') {
@@ -1300,7 +1308,10 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
       if (p.state === 'fly') continue;
       const sway = p.state === 'tray' ? Math.cos(time * 1.3 + i * 1.5) * 0.05 : 0;
       let s = 1, rot = sway;
-      if (p.state === 'held') { s = p.drag ? 1.14 : 1.1 + 0.03 * Math.sin(time * 7); rot = p.drag ? Math.max(-0.25, Math.min(0.25, (input.pointer.x - p.x) * 0.004)) : sway; }
+      if (p.state === 'held') {
+        const carried = p.drag || p.selected;
+        s = carried ? 1.14 : 1.1 + 0.03 * Math.sin(time * 7); rot = carried ? Math.max(-0.25, Math.min(0.25, (input.pointer.x - p.x) * 0.004)) : sway;
+      }
       else if (p.state === 'nope') { rot = Math.sin(p.t * 38) * 0.22 * (1 - p.t / 0.34); }
       if (hand.kind === KIND_HINT && hand.piece === i && hand.step >= 1 && hand.step <= 3) s *= 1 + 0.1 * Math.abs(Math.sin(time * 6));
       if (p.selected) squareRing(ctx, p.hx, p.hy, cell, false);
@@ -1526,15 +1537,17 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     const selected = pieces.find(p => p.selected);
     if (i >= 0) {
       const p = pieces[i]!;
-      if (selected && selected !== p) { selected.selected = false; selected.state = 'tray'; }
+      // A press on the tray puts a carried piece back; on another piece, that piece is picked up instead.
+      if (selected && selected !== p) returnPiece(selected);
       keyPiece = i;
-      if (p.selected) { p.selected = false; p.state = 'tray'; sfx('button', 'B', 0, 0.6); return; }
+      if (p.selected) { returnPiece(p); sfx('button', 'B', 0, 0.6); return; }
       held = p; p.state = 'held'; p.drag = false; p.selected = false; p.t = 0;
-      downX = x; downY = y;
+      downX = x; downY = y; downAt = performance.now();
       sfx('button', 'B'); sfx('whoosh', 'C', 0, 0.3);
       return;
     }
-    if (selected) tryPlace(selected, x, y, false);
+    // A piece carried after a click: this press puts it down at the pointer, as a drag let go there would.
+    if (selected) tryPlace(selected, x, y, true);
   }
 
   function buildMove(x: number, y: number): void {
@@ -1545,14 +1558,16 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
     const p = held;
     if (!p || p.state !== 'held') { held = undefined; return; }
     held = undefined;
-    if (p.drag) tryPlace(p, x, y, true);
-    else { p.selected = true; }
+    // A click picks the piece up: it follows the pointer until the next press. A long press in place puts it back.
+    if (performance.now() - downAt < CLICK_MS && Math.hypot(x - downX, y - downY) < CLICK_PX) p.selected = true;
+    else if (p.drag) tryPlace(p, x, y, true);
+    else returnPiece(p);
   }
 
   /**
    * End a press whose release never reached the scene (the window lost focus, the pointer was cancelled, or the
    * button came up where the page could not see it). Nothing stamps or stays held: a dragged piece floats back
-   * to the tray, a clicked one stays picked up as after a click.
+   * to the tray, a pressed one stays picked up as after a click.
    */
   function endGesture(): void {
     pointerDown = false;
@@ -1687,8 +1702,20 @@ export function createShapeWorkshopScene(services: AppServices): WorkshopScene {
   }
   const buildOpen = (): boolean => (phase === 'play' || phase === 'deal') && !artPending && hand.kind !== KIND_DEMO;
   const freeOpen = (): boolean => hand.kind !== KIND_FREE && sweepT < 0;
+  /**
+   * What the next press does with a piece carried after a click (buildDown): over another tray piece it picks that
+   * one up, over its own tray cell it puts it back, inside any open empty outline it is set down there. Every
+   * outline answers alike, so the hand never tells a matching outline from a wrong one.
+   */
+  function carriedHover(x: number, y: number): CursorHover {
+    const i = pieceAt(x, y);
+    if (i >= 0) return pieces[i]!.selected ? 'press' : 'grab';
+    for (const s of spots) if (s.open && !s.placed && !s.reserved && insideOutline(s, x, y, 0)) return 'press';
+    return 'carry';
+  }
   function hoverAt(x: number, y: number): CursorHover {
-    if (mode === 'build' && carrying()) return 'carry';
+    if (mode === 'build' && held && held.state === 'held') return 'carry';
+    if (mode === 'build' && carrying()) return buildOpen() ? carriedHover(x, y) : 'carry';
     // The top buttons report their own hover.
     if (performance.now() < inputAfter) return null;
     if (mode === 'build') {

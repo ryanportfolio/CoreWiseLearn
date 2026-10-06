@@ -50,6 +50,8 @@ const DOT_STEP = 20;
 const DOT_BAND = 26;
 /** Arrow-key step, in px, for a picked-up sticker. */
 const NUDGE: Readonly<Record<string, readonly [number, number]>> = { ArrowLeft: [-32, 0], ArrowRight: [32, 0], ArrowUp: [0, -32], ArrowDown: [0, 32] };
+/** A press on a sticker released within CLICK_MS and CLICK_PX is a click: the sticker follows the pointer until the next press. */
+const CLICK_MS = 300, CLICK_PX = 24;
 
 const PLACEHOLDER_HUES = ['#ff8a5c', '#5fd36b', '#c084fc', '#ffd23f', '#ff6b6b', '#ffb84d', '#a855f7', '#facc15', '#60a5fa', '#38bdf8'];
 
@@ -364,6 +366,12 @@ export function createStickerBookScene(services: AppServices, options: StickerBo
   let time = 0, page = 0, leaving = false;
   let bag: RewardsBag | undefined;
   let selected: Slot | undefined;
+  /**
+   * A sticker picked up with the pointer follows it: dragged while the button is held, or carried after a click
+   * (`sticky`: a release within CLICK_MS and CLICK_PX of the press) until the next press puts it down there.
+   * gx, gy keep the sticker where it was grabbed relative to the pointer.
+   */
+  const carry = { active: false, sticky: false, downAt: 0, downX: 0, downY: 0, gx: 0, gy: 0 };
   let dirty = true;
   /** Top edge of the bottom control row; a placed sticker stays above it. */
   let controlsTop = 0;
@@ -402,13 +410,24 @@ export function createStickerBookScene(services: AppServices, options: StickerBo
     playSfx(audio, 'sticker');
   }
   function place(slot: Slot, x: number, y: number): void {
+    follow(slot, x, y);
+    savePosition(slot);
+  }
+  /** Move a sticker (and its button) to x, y inside the page, without saving: a carried sticker saves when put down. */
+  function follow(slot: Slot, x: number, y: number): void {
     slot.x = Math.max(slot.r + 12, Math.min(width - slot.r - 12, x));
     slot.y = Math.max(slot.r + 12, Math.min(controlsTop - 8 - slot.r, y));
     const b = slotButtons[slot.index]!; b.x = slot.x; b.y = slot.y;
-    savePosition(slot);
+  }
+  /** Put a pointer-carried sticker down at the pointer and save where it went. */
+  function putDown(x: number, y: number): void {
+    const slot = selected;
+    carry.active = false; selected = undefined;
+    if (slot) place(slot, x + carry.gx, y + carry.gy);
   }
   function changePage(step: number): void {
-    selected = undefined;
+    // A carried sticker not yet put down goes back to its saved place when the page is laid out again.
+    selected = undefined; carry.active = false;
     page = (page + step + pageCount) % pageCount;
     layout(); markVisibleSeen(); keyboard.focus(step > 0 ? next : previous);
     playSfx(audio, 'whoosh');
@@ -481,7 +500,7 @@ export function createStickerBookScene(services: AppServices, options: StickerBo
   void loadStickerBookAssets(services, stickers).then(bindArt);
   const scene: Scene & { layout?: StickerBookLayout } = {
     enter() {
-      width = services.canvas.width; height = services.canvas.height; time = 0; leaving = false; selected = undefined;
+      width = services.canvas.width; height = services.canvas.height; time = 0; leaving = false; selected = undefined; carry.active = false;
       refresh(); layout(); markVisibleSeen(); keyboard.focus(keyboardButtons.find((b) => b.enabled) ?? home);
       startMusic(audio, 'sticker-book');
     },
@@ -509,25 +528,10 @@ export function createStickerBookScene(services: AppServices, options: StickerBo
       ctx.drawImage(albumFor(services, width, height), 0, 0, width, height);
       if (dirty) { for (const slot of visibleSlots()) slot.ready = false; dirty = false; }
       fillSlotArt(frameStart);
-      for (const slot of visibleSlots()) {
-        const b = slotButtons[slot.index]!;
-        const owned = slot.count > 0;
-        ctx.save(); ctx.translate(slot.x, slot.y);
-        if (slot.bounce >= 0 && owned) {
-          const amount = Math.sin(Math.PI * slot.bounce / 3);
-          ctx.rotate(Math.sin(slot.bounce * 6) * 0.12 * amount);
-          const scale = 1 + Math.sin(slot.bounce * 4) * 0.1 * amount; ctx.scale(scale, scale);
-        }
-        if (owned && (selected === slot || b.focused || b.hovered)) {
-          chunkyCircle(ctx, 0, 0, slot.r, selected === slot ? '#ffe48c' : '#fff4dc', OUTLINE, 4);
-        }
-        if (!owned) {
-          ctx.setLineDash(DASH); ctx.beginPath(); ctx.arc(0, 0, slot.r * DASH_RADIUS, 0, Math.PI * 2); ctx.strokeStyle = '#9283a5'; ctx.lineWidth = DASH_WIDTH; ctx.stroke(); ctx.setLineDash(SOLID);
-        }
-        const image = owned ? slot.color : slot.grey;
-        if (image) ctx.drawImage(image, -slot.r, -slot.r, slot.r * 2, slot.r * 2);
-        ctx.restore();
-      }
+      // A sticker carried by the pointer draws last, on top of the others, with its picked-up ring.
+      const carried = carry.active ? selected : undefined;
+      for (const slot of visibleSlots()) if (slot !== carried) drawSlot(ctx, slot);
+      if (carried) drawSlot(ctx, carried);
       for (const b of controls) b.render(ctx, services.sprites);
       drawPageArrow(ctx, previous, -1); drawPageArrow(ctx, next, 1);
       for (let i = 0; i < pageCount; i++) chunkyCircle(ctx, dotX(i), dotY, DOT_R, i === page ? '#ffd23f' : '#d8c9ef', OUTLINE, 2);
@@ -538,11 +542,29 @@ export function createStickerBookScene(services: AppServices, options: StickerBo
       if (event.type === 'pointerdown') {
         const { x, y } = event.info;
         if (dispatchDown(controls, x, y)) return;
-        if (selected) { place(selected, x, y); selected = undefined; return; }
+        if (selected) {
+          // A sticker carried after a click goes down where it is drawn; one picked up with a key goes to the press.
+          if (carry.active) putDown(x, y); else { place(selected, x, y); selected = undefined; }
+          return;
+        }
         dispatchDown(slotHitOrder, x, y);
-      } else if (event.type === 'pointerup') dispatchUp(activeButtons, event.info.x, event.info.y);
-      else if (event.type === 'keydown' && !event.info.repeat) {
+        if (selected) {
+          const s: Slot = selected;
+          carry.active = true; carry.sticky = false; carry.downAt = performance.now(); carry.downX = x; carry.downY = y; carry.gx = s.x - x; carry.gy = s.y - y;
+        }
+      } else if (event.type === 'pointermove') {
+        if (carry.active && selected) follow(selected, event.info.x + carry.gx, event.info.y + carry.gy);
+      } else if (event.type === 'pointerup') {
+        dispatchUp(activeButtons, event.info.x, event.info.y);
+        if (!carry.active || carry.sticky) return;
+        const { x, y } = event.info;
+        // A click: the sticker follows the pointer until the next press. Otherwise it was dragged and goes down here.
+        if (performance.now() - carry.downAt < CLICK_MS && Math.hypot(x - carry.downX, y - carry.downY) < CLICK_PX) carry.sticky = true;
+        else putDown(x, y);
+      } else if (event.type === 'keydown' && !event.info.repeat) {
         const key = event.info.key;
+        // A key takes over a sticker the pointer carries: it is saved where it is and the keys move or put it down.
+        if (carry.active && selected) { carry.active = false; place(selected, selected.x, selected.y); }
         if (selected) {
           // Arrows move the picked-up sticker; any other key puts it down, and Tab then moves focus too.
           const vector = NUDGE[key];
@@ -564,6 +586,25 @@ export function createStickerBookScene(services: AppServices, options: StickerBo
       } else if (event.type === 'keyup') keyboard.keyUp(event.info.key);
     },
   };
+  function drawSlot(ctx: CanvasRenderingContext2D, slot: Slot): void {
+    const b = slotButtons[slot.index]!;
+    const owned = slot.count > 0;
+    ctx.save(); ctx.translate(slot.x, slot.y);
+    if (slot.bounce >= 0 && owned) {
+      const amount = Math.sin(Math.PI * slot.bounce / 3);
+      ctx.rotate(Math.sin(slot.bounce * 6) * 0.12 * amount);
+      const scale = 1 + Math.sin(slot.bounce * 4) * 0.1 * amount; ctx.scale(scale, scale);
+    }
+    if (owned && (selected === slot || b.focused || b.hovered)) {
+      chunkyCircle(ctx, 0, 0, slot.r, selected === slot ? '#ffe48c' : '#fff4dc', OUTLINE, 4);
+    }
+    if (!owned) {
+      ctx.setLineDash(DASH); ctx.beginPath(); ctx.arc(0, 0, slot.r * DASH_RADIUS, 0, Math.PI * 2); ctx.strokeStyle = '#9283a5'; ctx.lineWidth = DASH_WIDTH; ctx.stroke(); ctx.setLineDash(SOLID);
+    }
+    const image = owned ? slot.color : slot.grey;
+    if (image) ctx.drawImage(image, -slot.r, -slot.r, slot.r * 2, slot.r * 2);
+    ctx.restore();
+  }
   if (import.meta.env.DEV) scene.layout = layoutInfo;
   return scene;
 }

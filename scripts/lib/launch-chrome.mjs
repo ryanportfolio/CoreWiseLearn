@@ -75,6 +75,8 @@ export async function launchPlacedChrome({ place, args = [], ...opts } = {}) {
 
   const launchArgs = [
     ...BACKGROUNDING_ARGS,
+    // test runs stay silent for the owner; audio still runs inside the page. CHROME_SOUND=1 lets it out
+    ...(process.env.CHROME_SOUND === '1' ? [] : ['--mute-audio']),
     ...(spot ? [`--window-position=${spot.x},${spot.y}`, `--window-size=${spot.width},${spot.height}`] : []),
     ...args,
   ];

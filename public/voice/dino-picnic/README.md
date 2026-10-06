@@ -1,6 +1,6 @@
 # Dino Picnic voice clips
 
-Optional short spoken clips for Dino Picnic. None ship yet. The game plays a clip only when its file is in this folder when the app is built; a missing clip is skipped without a sound or a request.
+Short spoken clips for Dino Picnic. All 11 below ship as MP3, in the teacher's voice: Gemini's Vindemiatrix with a soft Scottish accent, rendered by `scripts/voice/generate.mjs` from `scripts/voice/lines/dino-picnic.json`. Edit the lines there and run the generator rather than replacing files by hand. The game plays a clip only when its file is in this folder when the app is built; a missing clip is skipped without a sound or a request.
 
 Put files here with these exact names, as MP3 (or OGG when there is no MP3):
 
