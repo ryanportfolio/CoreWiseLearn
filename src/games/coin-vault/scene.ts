@@ -715,7 +715,7 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
       tagSlot(k, coinD[k]!, tagMinInk, 0);
       if (isLock()) tagSlot(k, lockCoinD(k), lockTagInk);
       // A dish's coins lie in rows far enough apart that their tags never overlap (up to four a row, fewer in a small
-      // dish); each row lies a little higher than the one in front, whose coins cover the tags behind them.
+      // dish); each row lies a little higher than the one in front, and only the front row is tagged.
       const d = dishCoinD(k), t = tagSlot(k, d, tagMinInk, 1), tw = t >= 0 ? tagWs[t]! : d, pitch = Math.max(d * 0.53, tw + 2);
       dishPer[k] = Math.max(1, Math.min(4, Math.floor((dishW[k]! * 0.95 - tw) / pitch) + 1)); dishPitch[k] = pitch;
     }
@@ -1246,7 +1246,7 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
    */
   const dishCoinD = (k: number): number => Math.min(coinD[k]! * 0.6, dishW[k]! * 0.8 / 2.6);
   function dishSlot(k: number, i: number, n: number): void {
-    // Every row keeps the front row's columns, so a coin behind sits right behind one in front, which hides its tag.
+    // Every row keeps the front row's columns, so a coin behind sits right behind one in front.
     const per = dishPer[k]!, d = dishCoinD(k), row = Math.floor(i / per), col = i % per, cols = Math.min(per, Math.max(n, i + 1)), rowsN = Math.ceil(Math.max(n, i + 1) / per);
     pos.x = dishX[k]! + (col - (cols - 1) / 2) * dishPitch[k]!;
     pos.y = dishY[k]! + dishH[k]! * 0.04 + ((rowsN - 1) / 2 - row) * d * 0.42;
@@ -2237,12 +2237,17 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
       const n = Math.min(DISH_MAX, dishN[k]!), d = dishCoinD(k);
       // An empty dish still says what it holds: its coin, faint, with the value tag where the first coin will lie.
       if (n === 0) { dishSlot(k, 0, 1); ghostCoin(ctx, k, dishX[k]! + (pos.x - dishX[k]!) * s, dishY[k]! + (pos.y - dishY[k]!) * s, d, s, 1); }
-      // Back rows first, so each row's coins cover the tags hanging from the row behind and the front tags stay clear.
+      // Back rows first. Only the front row carries value tags, drawn after every coin, so each tag is whole: a back
+      // row's tag would peek out between and above the front coins as a fragment that can read as another amount.
       const per = dishPer[k]!;
       for (let row = Math.floor((n - 1) / per); row >= 0; row--) for (let i = row * per; i < Math.min(n, row * per + per); i++) {
         // The coin that just landed settles with a little bounce.
         const b = i === n - 1 && p < 0.3 ? 1 + 0.2 * Math.sin(p / 0.3 * Math.PI * 2) * (1 - p / 0.3) : 1;
-        dishSlot(k, i, n); smallCoin(ctx, k, dishFace[k * DISH_MAX + i]!, dishX[k]! + (pos.x - dishX[k]!) * s, dishY[k]! + (pos.y - dishY[k]!) * s, d, s * b, true);
+        dishSlot(k, i, n); smallCoin(ctx, k, dishFace[k * DISH_MAX + i]!, dishX[k]! + (pos.x - dishX[k]!) * s, dishY[k]! + (pos.y - dishY[k]!) * s, d, s * b, true, false);
+      }
+      // The front row's tags at the dish's pulse only (not the landing bounce), so neighbouring tags never overlap.
+      for (let i = 0; i < Math.min(n, per); i++) {
+        dishSlot(k, i, n); coinTag(ctx, k, d, dishX[k]! + (pos.x - dishX[k]!) * s, dishY[k]! + (pos.y - dishY[k]!) * s, s, s, 0);
       }
     }
   }
@@ -3065,7 +3070,11 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
       out.push({ kind: COIN_NAMES[k]!, face: face(pFace[p]!), x, y, d: coinD[k]!, where: pUnlimited[p] ? 'stack' : 'row', count: pUnlimited[p] ? -1 : pCount[p]!, hit: placeHit(p), ...tagInfo(k, coinD[k]!), tagBox });
     }
     for (const k of DISH_ORDER) for (let i = 0; i < Math.min(DISH_MAX, dishN[k]!); i++) {
-      dishSlot(k, i, dishN[k]!); out.push({ kind: COIN_NAMES[k]!, face: face(dishFace[k * DISH_MAX + i]!), x: pos.x, y: pos.y, d: dishCoinD(k), where: 'dish', count: 1, hit: null, ...tagInfo(k, dishCoinD(k)) });
+      // Only the front row is tagged (renderMat); behind it, `tag` is '' and there is no tagBox.
+      const d = dishCoinD(k), front = i < dishPer[k]!, t = front ? tagSlot(k, d, tagMinInk, 1) : -1;
+      dishSlot(k, i, dishN[k]!);
+      const tagBox = t >= 0 ? { x: pos.x - tagWs[t]! / 2, y: pos.y + tagOff[t]! - tagHs[t]! / 2, w: tagWs[t]!, h: tagHs[t]! } : undefined;
+      out.push({ kind: COIN_NAMES[k]!, face: face(dishFace[k * DISH_MAX + i]!), x: pos.x, y: pos.y, d, where: 'dish', count: 1, hit: null, ...(front ? tagInfo(k, d) : { tag: '', tagGlyph: 0 }), tagBox });
     }
     for (let l = 0; l < 2; l++) for (let i = 0; i < Math.min(LOCK_MAX, lockN[l]!); i++) {
       const k = lockKind[l * LOCK_MAX + i]!;
