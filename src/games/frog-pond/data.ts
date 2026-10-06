@@ -1,12 +1,14 @@
 /** Frog Pond save bag: hidden tier, word help, the last target, and the unresolved round gift. */
 import { STICKERS } from '../../app/stickers';
 import type { Tier } from '../../engine/difficulty';
-import { COMPOUNDS } from './content';
+import { COMPOUNDS, RETIRED_COMPOUNDS } from './content';
 
 export const GAME_ID = 'frog-pond';
 /** The activities that exist. Each later activity adds its id here and a spot on the pond. */
 export const ACTIVITY_IDS = ['rhyme', 'pot', 'sentences'] as const;
 export type ActivityId = (typeof ACTIVITY_IDS)[number];
+/** Rounds in a set: each earns one star, and only the set's last ends with the celebration and the sticker offer. */
+export const SET_ROUNDS = 3;
 
 export interface PendingRound {
   /** Names this round across tabs, so two rounds with the same fields stay apart. */
@@ -28,23 +30,23 @@ export interface FrogPondData extends Record<string, unknown> {
   /** The last round's rhyme family (its rime, such as 'AT'), so the next round picks another. */
   lastRime: string;
   pending: PendingRound | null;
-  /** Word pot's own progress, kept apart from Rhyme snack's. */
+  /** Word fountain's own progress, kept apart from Rhyme snack's. The key keeps its first name, `pot`. */
   pot: PotData;
   /** Lily-pad sentences' own hidden tier, round count, word help and last sentence. */
   sentences: SentenceBag;
 }
 
-/** Word pot's part of the bag. A bag from before Word pot gets the default on load (the validator adds it). */
+/** Word fountain's part of the bag. A bag from before Word fountain gets the default on load (the validator adds it). */
 export interface PotData {
-  /** Hidden tier: words and decoys per pot, and how fast the bubbles drift. */
+  /** Hidden tier: words and decoys per round, and how fast the bubbles drift. */
   tier: number;
-  /** Finished Word pot rounds. 0 means the next one is its introduction. */
+  /** Finished Word fountain rounds. 0 means the next one is its introduction. */
   rounds: number;
   /** 1 while pressing a bubble says its word (after a long pause or several bonks). */
   assist: number;
-  /** Every compound word the child has made, oldest first, each once: the pictures swimming in the pond. */
+  /** Every compound word the child has made, oldest first, each once: the pictures swimming in the pond. Retired words stay. */
   made: string[];
-  /** The last round's words, so the next pot picks others. */
+  /** The last round's words, so the next round picks others. */
   last: string[];
 }
 
@@ -96,26 +98,28 @@ export function sanitizeFrogPondData(bag: Record<string, unknown>, protect: () =
   }
 }
 
-const COMPOUND_SET = new Set(COMPOUNDS.map(c => c.word));
+/** Every word the collection may hold: the offered words and the retired ones (BEDBUG, ZIPLINE, HAIRBALL), so a word made
+ * before it was retired is never dropped. */
+const COMPOUND_SET = new Set([...COMPOUNDS, ...RETIRED_COMPOUNDS].map(c => c.word));
 /** A list of distinct compound words, at most `max` long. */
 const words = (v: unknown, max: number): v is string[] =>
   Array.isArray(v) && v.length <= max && v.every(w => typeof w === 'string' && COMPOUND_SET.has(w)) && new Set(v).size === v.length;
 
 /**
- * Word pot's part of the bag, repaired field by field. The collection is never reset: a list with a bad entry keeps
+ * Word fountain's part of the bag, repaired field by field. The collection is never reset: a list with a bad entry keeps
  * its good ones.
  */
 function sanitizePot(bag: Record<string, unknown>, protect: () => void): void {
   if (!('pot' in bag)) { bag.pot = defaultPot(); return; }
   if (!record(bag.pot)) { protect(); bag.pot = defaultPot(); return; }
   const p = bag.pot, d = defaultPot();
-  const checks: Record<string, (v: unknown) => boolean> = { tier: v => range(v, 2), rounds: count, assist: v => range(v, 1), made: v => words(v, COMPOUNDS.length), last: v => words(v, 4) };
+  const checks: Record<string, (v: unknown) => boolean> = { tier: v => range(v, 2), rounds: count, assist: v => range(v, 1), made: v => words(v, COMPOUND_SET.size), last: v => words(v, 4) };
   for (const [key, valid] of Object.entries(checks)) {
     if (!(key in p)) { p[key] = d[key as keyof PotData]; continue; }
     if (valid(p[key])) continue;
     protect();
     const v = p[key];
-    p[key] = (key === 'made' || key === 'last') && Array.isArray(v) ? [...new Set(v.filter(w => typeof w === 'string' && COMPOUND_SET.has(w)))].slice(0, key === 'last' ? 4 : COMPOUNDS.length) : d[key as keyof PotData];
+    p[key] = (key === 'made' || key === 'last') && Array.isArray(v) ? [...new Set(v.filter(w => typeof w === 'string' && COMPOUND_SET.has(w)))].slice(0, key === 'last' ? 4 : COMPOUND_SET.size) : d[key as keyof PotData];
   }
 }
 
