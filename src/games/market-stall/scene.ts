@@ -207,7 +207,7 @@ const inside = (b: Box, x: number, y: number, pad = 0): boolean => x >= b.x - pa
 
 function artList(): { name: string; path: string }[] {
   const paths = [BG, BOARD, TAG, DISH, TRAY, WELL, SLOT, HAND, PURSE_SHUT, PURSE_OPEN, ...BILLS, ...GOOD_NAMES, ...HARBOUR.map(o => o.name)].map(p => `${p}.webp`);
-  paths.push(`${BUTTON_PLAY}.png`, `${BUTTON_HOME}.png`, BOOK_ICON_PATH);
+  paths.push(`${BUTTON_PLAY}.webp`, `${BUTTON_HOME}.webp`, BOOK_ICON_PATH);
   for (const pair of CUST_NAMES) for (const n of pair) paths.push(`${n}.webp`);
   for (const pair of COIN_FACES) for (const n of pair) paths.push(`${n}.webp`);
   return [...paths.map(path => ({ name: spriteName(path), path })), ...STICKERS.filter(s => s.game === GAME_ID).map(s => ({ name: stickerSpriteName(s.id), path: s.path }))];
