@@ -1,5 +1,6 @@
 /**
- * Word pot, the third Frog Pond activity. Word bubbles rise out of a bubbling pot and drift above it: the halves of
+ * Word fountain, the third Frog Pond activity (internal id 'pot'). Word bubbles rise out of the spray of a small stone
+ * fountain in the pond and drift above it: the halves of
  * two to four compound words and a few words that fit nothing. Pressing one lifts it and makes it glow; pressing a
  * second slams the two together, the halves in reading order whichever was pressed first. A real word goes poof, the
  * postman says it, and its picture swims out into the pond, where every word the child has made stays (the collection
@@ -18,25 +19,31 @@ import { clamp01, easeInCubic, easeInOutSine, easeOutBack, easeOutCubic, lerp, s
 import type { WordArt } from './cards';
 import type { Compound } from './content';
 import { bakeBubble, bakeJoined, type BubbleArt } from './pot-cards';
-import { COMPOUND_WORDS, joinWord, potParams, type PotPlan, type PotTier } from './pot-rules';
+import { COLLECTION_WORDS, COMPOUND_WORDS, joinWord, potParams, type PotPlan, type PotTier } from './pot-rules';
 import { HAND } from './rhyme';
 import { FROG_VOICE, sayWord } from './voice';
 
 const ART = 'frog-pond/';
-export const POT = `${ART}pot`;
+export const FOUNTAIN = `${ART}fountain`;
 export const pictureName = (word: string): string => `${ART}cw-${word}`;
-export const POT_ART = [POT, ...COMPOUND_WORDS.map(pictureName)];
+/** The fountain, then every picture the pond can show (retired words included, since a saved collection may hold them). */
+export const POT_ART = [FOUNTAIN, ...COLLECTION_WORDS.map(pictureName)];
 
 const MAX_BUBBLES = 12;
-const MAX_SWIMMERS = COMPOUND_WORDS.length;
+const MAX_SWIMMERS = COLLECTION_WORDS.length;
 const MAX_REVEALS = 4;
 /** Bubble states. */
 const FREE = 0, LIFTED = 1, JOINING = 2, GONE = 3;
-/** Layout units at 1366x768: pot image, bubble letters, a swimming picture, the picture as it appears, cards. */
-const POT_SIZE = 280, BUBBLE_PX = 36, SWIM_SIZE = 104, REVEAL_SIZE = 190, REVEAL_CARD = 60, LABEL_H = 30;
-/** The pot art's own proportions on its 512 px sprite: its feet, the water's surface in its mouth, its sides. */
-const POT_FEET = 0.88, POT_MOUTH = 0.3, POT_TOP = 0.12, POT_HALF_W = 0.42;
-/** Bubbles rise out of the pot one after another, then drift. */
+/** Layout units at 1366x768: fountain image, bubble letters, a swimming picture, the picture as it appears, cards. */
+const FOUNTAIN_SIZE = 280, BUBBLE_PX = 36, SWIM_SIZE = 104, REVEAL_SIZE = 190, REVEAL_CARD = 60, LABEL_H = 30;
+/**
+ * The fountain art's own proportions on its 512 px sprite: the basin's bottom, the tip of the centre jet (where the word
+ * bubbles come out), the top of the bubbles drawn above it, and the basin's half width.
+ */
+const FOUNTAIN_FEET = 0.9, SPRAY_TOP = 0.22, FOUNTAIN_TOP = 0.1, FOUNTAIN_HALF_W = 0.4;
+/** Spray droplets: one leaves the jet's tip this often, arcs out to one side and falls back into the basin. */
+const DROP_EVERY = 0.12;
+/** Bubbles rise out of the fountain's spray one after another, then drift. */
 const RISE_SECONDS = 0.8, RISE_STAGGER = 0.16;
 /** Two pressed bubbles slam together in this long; a bonk wobbles for BONK_SECONDS. */
 const JOIN_SECONDS = 0.24, BONK_SECONDS = 0.6;
@@ -44,7 +51,7 @@ const JOIN_SECONDS = 0.24, BONK_SECONDS = 0.6;
 const LIFT = 14, LIFT_GROW = 0.14, LIFT_PEAK = 1.1;
 /** A made word: its picture and card hold, then swim out into the pond. */
 const REVEAL_HOLD = 1.1, REVEAL_SWIM = 0.9;
-/** After the last word lands: the pot hops, then the round is done. */
+/** After the last word lands: the fountain hops, then the round is done. */
 const DONE_HOP_AT = 0.4, DONE_AT = 1.4;
 /** Helper hand: the introduction's word, the tap loop after it, and the see-through hint after quiet seconds. */
 const HAND_DEMO = 1, HAND_TAP = 2, HAND_HINT = 3;
@@ -79,8 +86,8 @@ export interface WordPot {
   layout(width: number, height: number, u: number, top: number, ratio: number): void;
   update(dt: number): void;
   render(ctx: CanvasRenderingContext2D): void;
-  /** The pot with a word's picture above it, `height` tall, centred on x with its feet at `bottom` (celebration, rest). */
-  drawPot(ctx: CanvasRenderingContext2D, x: number, bottom: number, height: number, happy: number, time: number, word: string): void;
+  /** The fountain with a word's picture above it, `height` tall, centred on x with its feet at `bottom` (celebration, rest). */
+  drawFountain(ctx: CanvasRenderingContext2D, x: number, bottom: number, height: number, happy: number, time: number, word: string): void;
   pointerDown(x: number, y: number): void;
   pointerMove(x: number, y: number): void;
   key(code: string, shift: boolean): void;
@@ -98,7 +105,7 @@ export interface WordPot {
     readonly bubbles: PotBubbleInfo[]; readonly swimmers: PotSwimmerInfo[]; readonly selected: number; readonly focus: number;
     readonly keyMode: boolean; readonly help: boolean; readonly hand: number; readonly made: number; readonly bonks: number;
     readonly words: readonly string[]; readonly reveals: number;
-    readonly pot: { x: number; y: number; w: number; h: number };
+    readonly fountain: { x: number; y: number; w: number; h: number };
   };
 }
 
@@ -108,7 +115,7 @@ export function createWordPot(services: AppServices): WordPot {
   const particles = createParticleSystem(260);
   const sfx: SfxOptions = { index: 0, volume: 1, variant: 'A' };
   const play = (name: SfxName, variant: SfxVariant, index = 0, volume = 1): void => { sfx.index = index; sfx.volume = volume; sfx.variant = variant; playSfx(audio, name, sfx); };
-  const steam: ParticleSpawn = { x: 0, y: 0, life: 1 };
+  const drop: ParticleSpawn = { x: 0, y: 0, life: 1 };
 
   // Bubbles, preallocated.
   const words: string[] = new Array<string>(MAX_BUBBLES).fill('');
@@ -137,7 +144,7 @@ export function createWordPot(services: AppServices): WordPot {
 
   const revealCards = new Map<string, WordArt>(), labelCards = new Map<string, WordArt>();
   let W = 1366, H = 768, u = 1, top = 120, ratio = 1;
-  let potSize = POT_SIZE, potCX = 683, potCY = 640, potMouth = 560, potTopY = 520, potHalfW = 120;
+  let fountainSize = FOUNTAIN_SIZE, fountainX = 683, fountainCY = 640, sprayY = 560, fountainTopY = 520, fountainHalfW = 120;
   let bubblePx = BUBBLE_PX, swimSize = SWIM_SIZE, revealSize = REVEAL_SIZE, revealCardH = REVEAL_CARD, labelH = LABEL_H;
   let zoneL = 12, zoneR = 1354, zoneT = 120, zoneB = 560, swimT = 500, swimB = 760;
   let bakedPx = 0, bakedRatio = 0, bakedLabelH = 0, bakedCardH = 0;
@@ -145,7 +152,7 @@ export function createWordPot(services: AppServices): WordPot {
   let plan: PotPlan = { compounds: [], bubbles: [], halves: 0 };
   let params: PotTier = potParams(0, true);
   let intro = false, help = false, struggled = false, finished = false;
-  let time = 0, idleT = 0, sinceMade = 0, doneT = -1, steamT = 0, potBump = 9, potHop = 9;
+  let time = 0, idleT = 0, sinceMade = 0, doneT = -1, dropT = 0, fountainBump = 9, fountainHop = 9;
   let made = 0, madeAll = 0, bonks = 0, demoMade = false;
   let selected = -1, focus = -1, keyMode = false, keyAfter = 0, pointerX = -1, pointerY = -1;
   const hand = { mode: 0, t: 0, a: -1, b: -1, x: 0, y: 0 };
@@ -154,21 +161,21 @@ export function createWordPot(services: AppServices): WordPot {
   function layout(width: number, height: number, unit: number, topY: number, pixelRatio: number): void {
     W = width; H = height; u = unit; top = topY;
     const reratio = pixelRatio !== ratio; ratio = pixelRatio;
-    potSize = Math.round(Math.min(POT_SIZE * u, H * 0.38, W * 0.3));
-    potCX = W / 2; potCY = H - 6 - (POT_FEET - 0.5) * potSize;
-    potMouth = potCY + (POT_MOUTH - 0.5) * potSize; potTopY = potCY + (POT_TOP - 0.5) * potSize; potHalfW = potSize * POT_HALF_W;
+    fountainSize = Math.round(Math.min(FOUNTAIN_SIZE * u, H * 0.38, W * 0.3));
+    fountainX = W / 2; fountainCY = H - 6 - (FOUNTAIN_FEET - 0.5) * fountainSize;
+    sprayY = fountainCY + (SPRAY_TOP - 0.5) * fountainSize; fountainTopY = fountainCY + (FOUNTAIN_TOP - 0.5) * fountainSize; fountainHalfW = fountainSize * FOUNTAIN_HALF_W;
     bubblePx = Math.round(Math.max(28, BUBBLE_PX * u));
     swimSize = Math.round(Math.max(96, SWIM_SIZE * u));
     revealSize = Math.round(Math.max(140, REVEAL_SIZE * u));
     revealCardH = Math.round(Math.max(48, REVEAL_CARD * u));
     labelH = Math.round(Math.max(26, LABEL_H * u));
-    zoneL = 12; zoneR = W - 12; zoneT = top; zoneB = Math.max(top + 140, potMouth);
+    zoneL = 12; zoneR = W - 12; zoneT = top; zoneB = Math.max(top + 140, sprayY);
     swimT = H * 0.42; swimB = H - 6;
     rebake(reratio);
     for (let i = 0; i < nBubbles; i++) if (state[i] === FREE && riseT[i]! >= RISE_SECONDS) keepInside(i);
     for (let s = 0; s < nSwim; s++) keepSwimmerInside(s);
-    // Scale the pot, the pictures in play and the glove now, so no frame scales art.
-    warmScaled(POT, potSize);
+    // Scale the fountain, the pictures in play and the glove now, so no frame scales art.
+    warmScaled(FOUNTAIN, fountainSize);
     for (let s = 0; s < nSwim; s++) warmScaled(pictureName(swimWord[s]!), swimSize);
     for (const c of plan.compounds) { warmScaled(pictureName(c.word), swimSize); warmScaled(pictureName(c.word), revealSize); }
     warmScaled(HAND, Math.round(130 * u));
@@ -226,9 +233,9 @@ export function createWordPot(services: AppServices): WordPot {
     const hw = swimHW(s);
     sx[s] = Math.max(swimMinX(s), Math.min(swimMaxX(s), sx[s]!));
     sy[s] = Math.max(swimMinY(), Math.min(swimMaxY(sx[s]!), sy[s]!));
-    if (inPotBox(sx[s]!, sy[s]!, hw)) sx[s] = sx[s]! < potCX ? potCX - potHalfW - hw - 1 : potCX + potHalfW + hw + 1;
+    if (inFountainBox(sx[s]!, sy[s]!, hw)) sx[s] = sx[s]! < fountainX ? fountainX - fountainHalfW - hw - 1 : fountainX + fountainHalfW + hw + 1;
   }
-  const inPotBox = (x: number, y: number, hw: number): boolean => Math.abs(x - potCX) < potHalfW + hw && y + swimSize / 2 > potTopY;
+  const inFountainBox = (x: number, y: number, hw: number): boolean => Math.abs(x - fountainX) < fountainHalfW + hw && y + swimSize / 2 > fountainTopY;
   /** Half the width a swimmer takes: its picture or its label, whichever is wider. */
   const swimHW = (s: number): number => Math.max(swimSize, labels[s]?.w ?? 0) / 2;
   const swimMinX = (s: number): number => W * 0.05 + swimHW(s);
@@ -244,7 +251,7 @@ export function createWordPot(services: AppServices): WordPot {
   // ---------------------------------------------------------------- round
   function start(next: PotPlan, tier: Tier, isIntro: boolean, withHelp: boolean, collection: readonly string[]): void {
     plan = next; intro = isIntro; help = withHelp; params = potParams(tier, isIntro);
-    finished = false; struggled = false; time = 0; idleT = 0; sinceMade = 0; doneT = -1; steamT = 0; potBump = 9; potHop = 9;
+    finished = false; struggled = false; time = 0; idleT = 0; sinceMade = 0; doneT = -1; dropT = 0; fountainBump = 9; fountainHop = 9;
     made = madeAll = bonks = 0; demoMade = false;
     selected = -1; focus = -1; keyMode = false; hand.mode = 0; hand.a = hand.b = -1;
     particles.clear(); rT.fill(-1);
@@ -260,7 +267,7 @@ export function createWordPot(services: AppServices): WordPot {
       arts[k] = bakeBubble(words[k]!, bubblePx, ratio);
       state[k] = FREE; partner[k] = -1; seed[k] = random() * 100; boost[k] = 0; liftK[k] = 0; bonkT[k] = 9;
       riseT[k] = -k * RISE_STAGGER; heading[k] = random() * Math.PI * 2;
-      bx[k] = potCX; by[k] = potMouth;
+      bx[k] = fountainX; by[k] = sprayY;
     }
     placeHomes();
     // The pond: every word made before swims there already.
@@ -302,7 +309,7 @@ export function createWordPot(services: AppServices): WordPot {
     let best = -1;
     for (let n = 0; n < 12; n++) {
       const x = lerp(swimMinX(s), swimMaxX(s), random()), y = lerp(swimMinY(), swimMaxY(x), random());
-      if (inPotBox(x, y, swimHW(s))) continue;
+      if (inFountainBox(x, y, swimHW(s))) continue;
       let d = 1e9;
       for (let j = 0; j < s; j++) d = Math.min(d, Math.hypot(x - sx[j]!, y - sy[j]!));
       if (d > best) { best = d; sx[s] = x; sy[s] = y; }
@@ -375,7 +382,7 @@ export function createWordPot(services: AppServices): WordPot {
       burst(mx, my, 16, 230 * u, false); burst(mx, my, 12, 200 * u, true);
       play('pop-big', 'A', madeAll, 0.85);
       voicePlayer(audio).play(FROG_VOICE, `make-${c.word}`);
-      madeAll++; sinceMade = 0; potBump = 0;
+      madeAll++; sinceMade = 0; fountainBump = 0;
       if (kind === 2) demoMade = true;
       else { made++; pot.onAttempt?.(true); }
       pot.onMade?.(c.word);
@@ -434,15 +441,15 @@ export function createWordPot(services: AppServices): WordPot {
     }
     return -1;
   }
-  const onPot = (x: number, y: number): boolean => Math.abs(x - potCX) <= potHalfW && y >= potTopY && y <= H;
-  /** A pair of the round still to make, nearest the pot first: [a, b] into `out`, or false. */
+  const onFountain = (x: number, y: number): boolean => Math.abs(x - fountainX) <= fountainHalfW && y >= fountainTopY && y <= H;
+  /** A pair of the round still to make, nearest the fountain first: [a, b] into `out`, or false. */
   function nextPair(out: Int8Array): boolean {
     let bestD = Infinity, found = false;
     for (let i = 0; i < nBubbles; i++) {
       if (!half[i] || !pressable(i)) continue;
       for (let j = i + 1; j < nBubbles; j++) {
         if (!half[j] || !pressable(j) || !joinWord(words[i]!, words[j]!)) continue;
-        const d = Math.hypot(bx[i]! - potCX, by[i]! - potMouth);
+        const d = Math.hypot(bx[i]! - fountainX, by[i]! - sprayY);
         if (d < bestD) { bestD = d; out[0] = i; out[1] = j; found = true; }
       }
     }
@@ -456,11 +463,11 @@ export function createWordPot(services: AppServices): WordPot {
     if (riseT[i]! < RISE_SECONDS) {
       const before = riseT[i]!;
       riseT[i] = before + dt;
-      if (before < 0 && riseT[i]! >= 0) { potBump = 0; play('pop', 'A', i, 0.35); }
+      if (before < 0 && riseT[i]! >= 0) { fountainBump = 0; play('pop', 'A', i, 0.35); }
       if (riseT[i]! < 0) return;
-      // Out of the pot's mouth and up to its spot, easing out.
+      // Up out of the spray's tip to its spot, easing out.
       const k = easeOutCubic(riseT[i]! / RISE_SECONDS);
-      bx[i] = lerp(potCX, homeX[i]!, k); by[i] = lerp(potMouth, homeY[i]!, k) - Math.sin(k * Math.PI) * 30 * u;
+      bx[i] = lerp(fountainX, homeX[i]!, k); by[i] = lerp(sprayY, homeY[i]!, k) - Math.sin(k * Math.PI) * 30 * u;
       if (riseT[i]! >= RISE_SECONDS) heading[i] = random() * Math.PI * 2;
       return;
     }
@@ -522,7 +529,7 @@ export function createWordPot(services: AppServices): WordPot {
     if (x > swimMaxX(s) && c > 0) sHeading[s] = Math.PI - sHeading[s]!;
     if (y < swimMinY() && sn < 0) sHeading[s] = -sHeading[s]!;
     if (y > swimMaxY(x) && sn > 0) sHeading[s] = -sHeading[s]!;
-    if (inPotBox(x, y, swimHW(s))) { if ((x < potCX) === (c > 0)) sHeading[s] = Math.PI - sHeading[s]!; x = sx[s]!; }
+    if (inFountainBox(x, y, swimHW(s))) { if ((x < fountainX) === (c > 0)) sHeading[s] = Math.PI - sHeading[s]!; x = sx[s]!; }
     sx[s] = x; sy[s] = y;
     keepSwimmerInside(s);
   }
@@ -596,7 +603,7 @@ export function createWordPot(services: AppServices): WordPot {
   }
 
   function update(dt: number): void {
-    time += dt; idleT += dt; potBump += dt; potHop += dt;
+    time += dt; idleT += dt; fountainBump += dt; fountainHop += dt;
     if (doneT < 0 && madeAll < plan.compounds.length && !(intro && !demoMade)) {
       sinceMade += dt;
       if (sinceMade >= HELP_PAUSE) turnHelpOn();
@@ -606,19 +613,21 @@ export function createWordPot(services: AppServices): WordPot {
     const revealing = updateReveals(dt);
     updateHand(dt);
     if (keyMode && !pressable(focus)) focus = nearestFree(focus >= 0 ? bx[focus]! : W / 2, focus >= 0 ? by[focus]! : top);
-    // The pot bubbles away: a small pale bubble rises from its mouth now and then.
-    steamT += dt;
-    if (steamT >= 0.35) {
-      steamT = 0;
-      steam.x = potCX + (random() - 0.5) * potSize * 0.5; steam.y = potMouth; steam.vx = (random() - 0.5) * 20 * u; steam.vy = -(40 + random() * 40) * u;
-      steam.life = 1.1; steam.size = (4 + random() * 6) * u; steam.endSize = 2; steam.gravity = 0; steam.drag = 1;
-      steam.hue = 195; steam.saturation = 85; steam.lightness = 88; steam.alpha = 0.85;
-      particles.spawn(steam);
+    // The fountain plays: droplets leave the jet's tip, arc out to either side and fall back into the basin.
+    dropT += dt;
+    if (dropT >= DROP_EVERY) {
+      dropT = 0;
+      const side = random() < 0.5 ? -1 : 1, scale = fountainSize / FOUNTAIN_SIZE;
+      drop.x = fountainX + side * random() * 6 * scale; drop.y = sprayY + 4 * scale;
+      drop.vx = side * (50 + random() * 70) * scale; drop.vy = -(110 + random() * 70) * scale;
+      drop.life = 0.9; drop.size = (5 + random() * 4) * scale; drop.endSize = 3; drop.gravity = 440 * scale; drop.drag = 1;
+      drop.hue = 195; drop.saturation = 100; drop.lightness = 94 + random() * 5; drop.alpha = 1;
+      particles.spawn(drop);
     }
     if (doneT < 0 && madeAll >= plan.compounds.length && plan.compounds.length > 0 && !revealing) doneT = 0;
     if (doneT >= 0) {
       const before = doneT; doneT += dt;
-      if (before < DONE_HOP_AT && doneT >= DONE_HOP_AT) { potHop = 0; play('go', 'A', 0, 0.7); burst(potCX, potTopY, 24, 320 * u, true); }
+      if (before < DONE_HOP_AT && doneT >= DONE_HOP_AT) { fountainHop = 0; play('go', 'A', 0, 0.7); burst(fountainX, fountainTopY, 24, 320 * u, true); }
       if (doneT >= DONE_AT) finished = true;
     }
     particles.update(dt);
@@ -628,16 +637,16 @@ export function createWordPot(services: AppServices): WordPot {
   /** How far a lifted bubble floats up. */
   const liftOffset = (i: number): number => easeOutBack(liftK[i]!) * LIFT * u;
 
-  function drawPotAt(ctx: CanvasRenderingContext2D, x: number, cy: number, size: number, sxk: number, syk: number): void {
-    drawSprite(ctx, sprites, POT, x, cy, size, 0, sxk, syk);
+  function drawFountainAt(ctx: CanvasRenderingContext2D, x: number, cy: number, size: number, sxk: number, syk: number): void {
+    drawSprite(ctx, sprites, FOUNTAIN, x, cy, size, 0, sxk, syk);
   }
-  function potSquash(happy: number, t: number, out: Float32Array): void {
+  function fountainSquash(happy: number, t: number, out: Float32Array): void {
     let sxk = 1, syk = 1 + Math.sin(t * 2.4) * 0.012, lift = 0;
     if (happy >= 0) { const b = Math.abs(Math.sin(happy * 3.2)); lift = b * 22 * u; sxk = 1 - 0.06 * b; syk = 1 + 0.08 * b; }
     else {
-      if (potBump < 0.5) { const w = Math.exp(-6 * potBump) * Math.cos(potBump * 22); sxk += 0.06 * w; syk -= 0.05 * w; }
-      if (potHop < 0.6) {
-        const h = clamp01(potHop / 0.6); lift = Math.sin(h * Math.PI) * 36 * u;
+      if (fountainBump < 0.5) { const w = Math.exp(-6 * fountainBump) * Math.cos(fountainBump * 22); sxk += 0.06 * w; syk -= 0.05 * w; }
+      if (fountainHop < 0.6) {
+        const h = clamp01(fountainHop / 0.6); lift = Math.sin(h * Math.PI) * 36 * u;
         const squash = h < 0.15 ? 1 - h / 0.15 : h > 0.85 ? (h - 0.85) / 0.15 : 0;
         sxk += 0.12 * squash - 0.05 * Math.sin(h * Math.PI); syk += -0.12 * squash + 0.08 * Math.sin(h * Math.PI);
       }
@@ -645,23 +654,23 @@ export function createWordPot(services: AppServices): WordPot {
     out[0] = sxk; out[1] = syk; out[2] = lift;
   }
   const squashOut = new Float32Array(3);
-  /** Draw the pot squashing about its feet. */
-  function drawPotSquashed(ctx: CanvasRenderingContext2D, x: number, feet: number, size: number, happy: number, t: number): void {
-    potSquash(happy, t, squashOut);
+  /** Draw the fountain squashing about its base. */
+  function drawFountainSquashed(ctx: CanvasRenderingContext2D, x: number, feet: number, size: number, happy: number, t: number): void {
+    fountainSquash(happy, t, squashOut);
     const sxk = squashOut[0]!, syk = squashOut[1]!, lift = squashOut[2]!;
     ctx.save();
     ctx.translate(x, feet - lift);
     ctx.scale(sxk, syk);
-    drawPotAt(ctx, 0, -(POT_FEET - 0.5) * size, size, 1, 1);
+    drawFountainAt(ctx, 0, -(FOUNTAIN_FEET - 0.5) * size, size, 1, 1);
     ctx.restore();
   }
 
-  function drawPot(ctx: CanvasRenderingContext2D, x: number, bottom: number, height: number, happy: number, t: number, word: string): void {
+  function drawFountain(ctx: CanvasRenderingContext2D, x: number, bottom: number, height: number, happy: number, t: number, word: string): void {
     const size = Math.round(height * 0.6), pic = Math.round(height * 0.42);
-    drawPotSquashed(ctx, x, bottom, size, happy, t);
+    drawFountainSquashed(ctx, x, bottom, size, happy, t);
     if (word && sprites.get(pictureName(word))) {
       const bob = Math.sin(t * 2.2) * 6 * u, jump = happy >= 0 ? Math.abs(Math.sin(happy * 3.2 + 0.6)) * 26 * u : 0;
-      drawSprite(ctx, sprites, pictureName(word), x, bottom - size * (POT_FEET - POT_TOP) - pic * 0.42 + bob - jump, pic, Math.sin(t * 1.7) * 0.06);
+      drawSprite(ctx, sprites, pictureName(word), x, bottom - size * (FOUNTAIN_FEET - FOUNTAIN_TOP) - pic * 0.42 + bob - jump, pic, Math.sin(t * 1.7) * 0.06);
     }
   }
 
@@ -763,8 +772,8 @@ export function createWordPot(services: AppServices): WordPot {
 
   function render(ctx: CanvasRenderingContext2D): void {
     for (let s = 0; s < nSwim; s++) drawSwimmer(ctx, s);
-    drawPotSquashed(ctx, potCX, potCY + (POT_FEET - 0.5) * potSize, potSize, doneT >= DONE_HOP_AT && potHop >= 0.6 ? doneT - DONE_HOP_AT : -1, time);
-    // Rising bubbles first (they come out of the pot), then the drifting ones, the joining ones, the lifted one on top.
+    drawFountainSquashed(ctx, fountainX, fountainCY + (FOUNTAIN_FEET - 0.5) * fountainSize, fountainSize, doneT >= DONE_HOP_AT && fountainHop >= 0.6 ? doneT - DONE_HOP_AT : -1, time);
+    // Rising bubbles first (they come out of the spray), then the drifting ones, the joining ones, the lifted one on top.
     for (let i = 0; i < nBubbles; i++) if (state[i] === FREE) drawBubble(ctx, i);
     for (let i = 0; i < nBubbles; i++) if (state[i] === JOINING) drawBubble(ctx, i);
     if (selected >= 0 && state[selected] === LIFTED) drawBubble(ctx, selected);
@@ -784,7 +793,7 @@ export function createWordPot(services: AppServices): WordPot {
     interruptHand();
     const i = bubbleAt(x, y);
     if (i >= 0) { pressBubble(i, false); return; }
-    if (onPot(x, y)) { potBump = 0; play('button', 'D', 0, 0.5); burst(potCX, potMouth, 6, 90 * u, false); return; }
+    if (onFountain(x, y)) { fountainBump = 0; play('button', 'D', 0, 0.5); burst(fountainX, sprayY, 6, 90 * u, false); return; }
     const s = swimmerAt(x, y);
     if (s >= 0) { sHop[s] = 0; play('button', 'A', 0, 0.4); voicePlayer(audio).play(FROG_VOICE, `make-${swimWord[s]}`); return; }
     // The water: a small ring of droplets where it was pressed.
@@ -863,7 +872,7 @@ export function createWordPot(services: AppServices): WordPot {
   };
 
   const pot: WordPot = {
-    start, layout, update, render, drawPot, pointerDown, pointerMove, key,
+    start, layout, update, render, drawFountain, pointerDown, pointerMove, key,
     stop() { hand.mode = hand.mode === HAND_DEMO ? HAND_DEMO : 0; pointerX = -1; },
     get done() { return finished; },
     get target() { return plan.compounds[0]?.word ?? ''; },
@@ -873,7 +882,7 @@ export function createWordPot(services: AppServices): WordPot {
       get focus() { return keyMode ? focus : -1; }, get keyMode() { return keyMode; }, get help() { return help; }, get hand() { return hand.mode; },
       get made() { return madeAll; }, get bonks() { return bonks; }, get words() { return plan.compounds.map(c => c.word); },
       get reveals() { let n = 0; for (let k = 0; k < MAX_REVEALS; k++) if (rT[k]! >= 0) n++; return n; },
-      get pot() { return { x: potCX - potHalfW, y: potTopY, w: potHalfW * 2, h: H - potTopY }; },
+      get fountain() { return { x: fountainX - fountainHalfW, y: fountainTopY, w: fountainHalfW * 2, h: H - fountainTopY }; },
     },
   };
   return pot;

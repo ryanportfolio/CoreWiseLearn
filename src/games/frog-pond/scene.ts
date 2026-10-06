@@ -4,7 +4,7 @@
  * with Again and Home.
  *
  * This file is the shell: background, corner buttons, the activity chooser, the round end and the save bag. The
- * activities live in rhyme.ts (Rhyme snack), pot.ts (Word pot) and sentences.ts (Lily-pad sentences).
+ * activities live in rhyme.ts (Rhyme snack), pot.ts (Word fountain) and sentences.ts (Lily-pad sentences).
  */
 import { rewards, type AppServices } from '../../app/services';
 import { STICKERS, stickerSpriteName } from '../../app/stickers';
@@ -25,7 +25,7 @@ import { planRhyme, ROUND_STARS, tierParams } from './rhyme-rules';
 import { planSentence, sentenceTier } from './sentence-rules';
 import { createLilySentences, SENTENCE_ART, WORD_PAD, type LilySentences } from './sentences';
 import { preloadFrogVoice, stopFrogVoice } from './voice';
-import { createWordPot, POT, POT_ART, type WordPot } from './pot';
+import { createWordPot, FOUNTAIN, POT_ART, type WordPot } from './pot';
 import { planPot, potParams } from './pot-rules';
 
 export { GAME_ID };
@@ -48,7 +48,7 @@ export interface FrogPondStats {
   readonly bugs: readonly BugInfo[]; readonly focus: number; readonly keyMode: boolean; readonly hand: number; readonly tongue: number;
   readonly catches: number; readonly dodges: number; readonly tune: readonly number[];
   readonly frog: { x: number; y: number; w: number; h: number };
-  /** Word pot's bubbles, swimmers and state (while it is the activity). */
+  /** Word fountain's bubbles, swimmers and state (while it is the activity). */
   readonly pot: WordPot['stats'];
   readonly targets: readonly { kind: string; x: number; y: number; w: number; h: number }[];
   readonly workMean: number; readonly workMax: number; readonly workP95: number;
@@ -81,7 +81,7 @@ export function createFrogPondScene(services: AppServices): FrogPondScene {
   const adaptive = createAdaptiveTier({ windowSize: 10, minAttempts: 6, cooldownAttempts: 4, promoteAccuracy: 0.85, demoteAccuracy: 0.5 });
   snack.onAttempt = hit => { if (!intro && services.debug.tier === undefined) adaptive.record({ hit }); };
   const pot = createWordPot(services);
-  // Word pot keeps its own hidden tier: making compound words is a different skill from hearing rhymes.
+  // Word fountain keeps its own hidden tier: making compound words is a different skill from hearing rhymes.
   const potAdaptive = createAdaptiveTier({ windowSize: 10, minAttempts: 6, cooldownAttempts: 4, promoteAccuracy: 0.85, demoteAccuracy: 0.5 });
   pot.onAttempt = hit => { if (!intro && services.debug.tier === undefined) potAdaptive.record({ hit }); };
   // Every word made joins the pond at once, so a reload mid-round keeps it.
@@ -300,9 +300,9 @@ export function createFrogPondScene(services: AppServices): FrogPondScene {
   };
   /** Rest-screen frog: the pad's height (about 0.53 of its image) fits the rest size. */
   const restFrogK = (): number => restSize / 380;
-  /** The activity's own picture for the celebration and the rest screen: the frog on its pad, or the pot with a word's picture. */
+  /** The activity's own picture for the celebration and the rest screen: the frog on its pad, or the fountain with a word's picture. */
   function drawHero(ctx: CanvasRenderingContext2D, x: number, bottom: number, rest: boolean, happy: number, t: number): void {
-    if (activity === 'pot') pot.drawPot(ctx, x, bottom, rest ? restSize : Math.round(Math.min(H * 0.72, 560 * u)), happy, t, pending?.target ?? pot.target);
+    if (activity === 'pot') pot.drawFountain(ctx, x, bottom, rest ? restSize : Math.round(Math.min(H * 0.72, 560 * u)), happy, t, pending?.target ?? pot.target);
     else if (activity === 'sentences') lily.drawPadFrog(ctx, x, bottom, padWidth() * (rest ? restFrogK() : 1), happy);
     else snack.drawFrog(ctx, x, bottom, rest ? restFrogK() : 1, happy, t);
   }
@@ -372,8 +372,8 @@ export function createFrogPondScene(services: AppServices): FrogPondScene {
     for (let i = 0; i < ACTIVITY_IDS.length; i++) {
       const x = spotX(i), y = spotY() + Math.sin(time * 1.6 + i * 1.5) * 4 * u;
       if (ACTIVITY_IDS[i] === 'pot') {
-        // Word pot's spot: the bubbling pot, wobbling gently.
-        drawSprite(ctx, sprites, POT, x, y, spotR * 2.1, 0, 1 + Math.sin(time * 2.6) * 0.02, 1 - Math.sin(time * 2.6) * 0.02);
+        // Word fountain's spot: the fountain, wobbling gently.
+        drawSprite(ctx, sprites, FOUNTAIN, x, y, spotR * 2.1, 0, 1 + Math.sin(time * 2.6) * 0.02, 1 - Math.sin(time * 2.6) * 0.02);
       } else if (ACTIVITY_IDS[i] === 'sentences') {
         // Lily-pad sentences' spot: a row of three word pads bobbing in turn, a small frog on the first.
         for (let k = 0; k < 3; k++) drawSprite(ctx, sprites, WORD_PAD, x + (k - 1) * spotR * 0.7, y + spotR * (0.45 - k * 0.16) + Math.sin(time * 2.2 + k) * 3 * u, spotR * 1.3);
@@ -447,7 +447,7 @@ export function createFrogPondScene(services: AppServices): FrogPondScene {
       // Each activity gets that many rounds of its own (data.rounds counts all three), so rounds=0 replays every introduction.
       data.rounds = rounds * 3; data.pot.rounds = rounds; data.sentences.rounds = rounds; data.pending = null;
     }
-    // made=N fills Word pot's pond with the first N compound words (a big collection, for frame timing).
+    // made=N fills Word fountain's pond with the first N collection words (a big collection, for frame timing; 23 adds the retired ones).
     const made = Number(params.get('made'));
     if (params.has('made') && Number.isSafeInteger(made) && made >= 0) data.pot.made = POT_ART.slice(1, 1 + made).map(n => n.slice(n.lastIndexOf('/cw-') + 4));
     if (help === '0' || help === '1') { data.assist = Number(help); data.pot.assist = Number(help); data.sentences.assist = Number(help); }

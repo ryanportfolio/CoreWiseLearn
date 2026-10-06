@@ -11,7 +11,7 @@ export const frogPond: GameDefinition = {
   mode: 'round',
   learning: ['words', 'sounds'],
   validateSave: (bag, protect) => sanitizeFrogPondData(bag, protect),
-  // Word pot's collection: a word made in one tab is never lost to another tab's write.
+  // Word fountain's collection: a word made in one tab is never lost to another tab's write.
   earnedLists: [['pot', 'made']],
   createScene: (services) => createFrogPondScene(services as unknown as AppServices),
 };

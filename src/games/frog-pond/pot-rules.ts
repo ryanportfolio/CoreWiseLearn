@@ -1,6 +1,6 @@
-/** Word pot round planning: which compound words, which decoys, and the hidden tiers. Pure logic. */
+/** Word fountain round planning: which compound words, which decoys, and the hidden tiers. Pure logic. */
 import type { Tier } from '../../engine/difficulty';
-import { COMPOUNDS, DECOYS, EXTRA_COMPOUNDS, type Compound } from './content';
+import { COMPOUNDS, DECOYS, EXTRA_COMPOUNDS, RETIRED_COMPOUNDS, type Compound } from './content';
 
 export interface PotTier {
   /** Compound words to make. */
@@ -16,7 +16,7 @@ export const POT_TIERS: readonly PotTier[] = [
   { words: 3, decoys: 2, speed: 18 },
   { words: 4, decoys: 3, speed: 24 },
 ];
-/** The first Word pot round ever: two words (the glove makes the first), one decoy, slow. */
+/** The first Word fountain round ever: two words (the glove makes the first), one decoy, slow. */
 export const POT_INTRO: PotTier = { words: 2, decoys: 1, speed: 9 };
 
 export const potParams = (tier: Tier, intro: boolean): PotTier => (intro ? POT_INTRO : POT_TIERS[tier]!);
@@ -30,12 +30,15 @@ export interface PotPlan {
   halves: number;
 }
 
+/** The words a round can offer. */
 export const COMPOUND_WORDS: readonly string[] = COMPOUNDS.map(c => c.word);
-const ALL: readonly Compound[] = [...COMPOUNDS, ...EXTRA_COMPOUNDS];
+/** Every word that can be in the saved collection and swim in the pond: the offered words and the retired ones. */
+export const COLLECTION_WORDS: readonly string[] = [...COMPOUND_WORDS, ...RETIRED_COMPOUNDS.map(c => c.word)];
+const ALL: readonly Compound[] = [...COMPOUNDS, ...RETIRED_COMPOUNDS, ...EXTRA_COMPOUNDS];
 
 /**
- * The listed word two bubbles make, in either order ('cake' and 'pan' make 'pancake'), or undefined. Extras count, so
- * the planner can keep their halves apart.
+ * The listed word two bubbles make, in either order ('cake' and 'pan' make 'pancake'), or undefined. Retired words and
+ * extras count, so the planner can keep their halves apart (and the pond can find a retired word's halves for its label).
  */
 export function joinWord(a: string, b: string): Compound | undefined {
   for (const c of ALL) if ((c.parts[0] === a && c.parts[1] === b) || (c.parts[0] === b && c.parts[1] === a)) return c;
@@ -48,15 +51,15 @@ function shuffled<T>(list: readonly T[], random: () => number): T[] {
   return out;
 }
 
-/** True when `word` can join the pot: no shared bubble, and it makes no listed word with any bubble already there. */
+/** True when `word` can join the round's bubbles: no shared bubble, and it makes no listed word with any bubble already there. */
 function fits(word: string, pot: readonly string[]): boolean {
   return !pot.includes(word) && pot.every(w => !joinWord(word, w));
 }
 
 /**
- * One pot: `words` compounds, then `decoys` bubbles that fit nothing. Every two bubbles in the pot make a listed word
- * exactly when they are the two halves of one of the round's compounds, so the pot can always be finished and no extra
- * word (seabed, sunfish) can be made by accident. Words the child has not made yet come first, then words not in the
+ * One round's bubbles (a "pot"): `words` compounds from COMPOUNDS only, then `decoys` bubbles that fit nothing. Every
+ * two bubbles make a listed word exactly when they are the two halves of one of the round's compounds, so the round can
+ * always be finished and no extra or retired word (seabed, bedbug) can be made by accident. Words the child has not made yet come first, then words not in the
  * last round.
  */
 export function planPot(params: PotTier, made: readonly string[], last: readonly string[], random: () => number): PotPlan {

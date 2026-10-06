@@ -22,6 +22,9 @@
     { "file": "make-hilltop", "text": "Hilltop!" },
     { "file": "make-sandbox", "text": "Sandbox!" },
     { "file": "make-bathtub", "text": "Bathtub!" },
+    { "file": "make-rainbow", "text": "Rainbow!" },
+    { "file": "make-popcorn", "text": "Popcorn!" },
+    { "file": "make-backpack", "text": "Backpack!" },
     { "file": "say-cake", "text": "Cake.", "role": "teacher" },
     { "file": "say-foot", "text": "Foot.", "role": "teacher" },
     { "file": "say-ball", "text": "Ball.", "role": "teacher" },
@@ -43,6 +46,11 @@
     { "file": "say-tub", "text": "Tub.", "role": "teacher" },
     { "file": "say-fox", "text": "Fox.", "role": "teacher" },
     { "file": "say-jam", "text": "Jam.", "role": "teacher" },
-    { "file": "say-bib", "text": "Bib.", "role": "teacher" }
+    { "file": "say-bib", "text": "Bib.", "role": "teacher" },
+    { "file": "say-rain", "text": "Rain.", "role": "teacher" },
+    { "file": "say-bow", "text": "Boh.", "accept": ["beau"], "role": "teacher" },
+    { "file": "say-back", "text": "Back.", "role": "teacher" },
+    { "file": "say-pack", "text": "Pack.", "role": "teacher" },
+    { "file": "say-corn", "text": "Corn.", "role": "teacher" }
   ]
 }

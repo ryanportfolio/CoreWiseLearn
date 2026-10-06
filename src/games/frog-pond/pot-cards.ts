@@ -1,5 +1,5 @@
 /**
- * Word pot's baked words: a word in a soap bubble, and a compound word on a card with its two halves in two colours.
+ * Word fountain's baked words: a word in a soap bubble, and a compound word on a card with its two halves in two colours.
  * Baked once per round and size on a CPU canvas and read back one pixel, like cards.ts (see pitfalls: a bake on a GPU
  * canvas stalls the first frame that uses its draw modes), so no frame draws text.
  */
