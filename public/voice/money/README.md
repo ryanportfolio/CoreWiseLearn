@@ -1,6 +1,6 @@
 # Money voice clips
 
-Spoken money words for Market Stall. All 238 clips below ship as MP3 in one voice, the cheeky London market-stall lad (Gemini's Puck, role `londoner`), rendered by `scripts/voice/generate.mjs` from `scripts/voice/lines/money.json`. Edit the lines there and run the generator rather than replacing files by hand. A game plays a clip only when its file is in this folder when the app is built; a missing clip is skipped without a sound or a request.
+Spoken money words for Market Stall (Coin Vault has its own clips in the narrator voice, `public/voice/coin-vault/`). All 238 clips below ship as MP3 in one voice, the cheeky London market-stall lad (Gemini's Puck, role `londoner`), rendered by `scripts/voice/generate.mjs` from `scripts/voice/lines/money.json`. Edit the lines there and run the generator rather than replacing files by hand. A game plays a clip only when its file is in this folder when the app is built; a missing clip is skipped without a sound or a request.
 
 Each spoken amount is one whole clip so it sounds natural. A dollars-and-cents amount is two clips back to back: `dollars-and-1` ("One dollar and") then `cents-25` ("Twenty-five cents."). Phrases that end mid-sentence (`costs`, `pay`) are always followed by an amount clip.
 
