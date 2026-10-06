@@ -5,8 +5,10 @@
  *
  * A folder's clips are listed at build time by the caller's
  * `import.meta.glob('/public/voice/<folder>/*.mp3')`, so a missing clip is
- * silence with no request and no error. The folder's clips load once audio is
- * unlocked (`preload`), or one at a time when first asked for.
+ * silence with no request and no error. Once audio is unlocked, `preload`
+ * loads the whole folder a few clips at a time (MAX_LOADS), and `prioritize`
+ * moves the clips a round needs to the front of that line. A clip asked for
+ * by `play` or `sequence` loads at once, outside the line.
  *
  * When a clip decodes, its loudness is measured once in 20 ms steps into a
  * Float32Array. `speakingLevel()` reads that curve by index against the audio
@@ -26,6 +28,12 @@ const FLOOR = 0.08;
 const PENDING_MS = 800;
 /** Fade applied when a clip is cut off, so the cut does not click. */
 const STOP_FADE = 0.012;
+/**
+ * Clips fetched and decoded at once while a folder preloads. Starting all of
+ * Frog Pond's ~460 clips together kept Chrome's decode threads busy for about
+ * 0.4 s and held back frame drawing (70-120 ms gaps on opening an activity).
+ */
+const MAX_LOADS = 3;
 
 interface Clip {
   buffer: AudioBuffer;
@@ -47,6 +55,8 @@ interface FolderState extends VoiceFolder {
   files: Map<string, string>;
   decoded: Map<string, Clip | null>;
   loading: Set<string>;
+  /** Clips waiting for a load slot, next first. May repeat a clip; loading or decoded ones are skipped. */
+  queue: string[];
   preloaded: boolean;
 }
 
@@ -75,6 +85,7 @@ export function voiceFolder(name: string, globKeys: readonly string[]): VoiceFol
     files,
     decoded: new Map(),
     loading: new Set(),
+    queue: [],
     preloaded: false,
   };
   return state;
@@ -107,8 +118,14 @@ function measure(buffer: AudioBuffer): Float32Array {
 }
 
 export interface VoicePlayer {
-  /** Load every clip in the folder once audio is unlocked. Safe to call repeatedly. */
+  /** Load every clip in the folder once audio is unlocked, MAX_LOADS at a time. Safe to call repeatedly. */
   preload(folder: VoiceFolder): void;
+  /**
+   * Load these clips next, in this order, ahead of the rest of the preload
+   * (and even if the folder is not preloading). Waits for unlock like
+   * preload. Missing clips are ignored. Call when a round starts, not per frame.
+   */
+  prioritize(folder: VoiceFolder, clips: readonly string[]): void;
   /**
    * Play one clip, stopping whatever is playing and cancelling a sequence.
    * Returns false, and plays nothing, when the sound is off, audio is not
@@ -119,8 +136,9 @@ export interface VoicePlayer {
   /**
    * Play clips one after another. Each starts `spacing` seconds after the one
    * before, or once that one has finished plus `gap`, whichever is later.
-   * Missing clips are skipped; a clip not yet decoded is skipped but keeps its
-   * beat. Any play(), sequence() or stop() cancels it. Returns false, and
+   * Missing clips are skipped. Every clip not yet decoded starts loading at
+   * once; one still not decoded at its turn is skipped but keeps its beat.
+   * Any play(), sequence() or stop() cancels it. Returns false, and
    * plays nothing, when the sound is off, audio is locked or no clip exists.
    */
   sequence(folder: VoiceFolder, clips: readonly string[], spacing: number, gap: number): boolean;
@@ -176,6 +194,12 @@ function createVoicePlayer(audio: Audio): VoicePlayer {
   let seqGap = 0;
   let seqIndex = -1;
   let seqTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Loads in flight, queued or asked for directly. */
+  let loads = 0;
+  let unlocked = false;
+  let waitingUnlock = false;
+  /** Folders with clips queued, served in order; the one prioritized last comes first. */
+  const waiting: FolderState[] = [];
   const debug: VoiceDebug | undefined = import.meta.env.DEV ? { log: [], player: undefined as unknown as VoicePlayer } : undefined;
 
   function canPlay(): boolean {
@@ -192,10 +216,12 @@ function createVoicePlayer(audio: Audio): VoicePlayer {
     return out;
   }
 
-  function load(folder: FolderState, name: string): void {
+  /** Fetch and decode one clip now. Returns false when it is missing, loading or already done. */
+  function load(folder: FolderState, name: string): boolean {
     const file = folder.files.get(name);
-    if (!file || folder.loading.has(name) || folder.decoded.has(name)) return;
+    if (!file || folder.loading.has(name) || folder.decoded.has(name)) return false;
     folder.loading.add(name);
+    loads++;
     void fetch(`${folder.url}${file}`)
       .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(String(r.status)))))
       .then((bytes) => audio.decode(bytes))
@@ -203,19 +229,52 @@ function createVoicePlayer(audio: Audio): VoicePlayer {
         (buffer) => {
           folder.decoded.set(name, { buffer, env: measure(buffer) });
           folder.loading.delete(name);
+          loads--;
           if (pendingFolder === folder && pendingName === name) {
             const late = performance.now() - pendingAt > PENDING_MS;
             pendingFolder = undefined;
             pendingName = '';
             if (!late) start(folder, name);
           }
+          pump();
         },
         () => {
           folder.decoded.set(name, null);
           folder.loading.delete(name);
+          loads--;
           if (pendingFolder === folder && pendingName === name) { pendingFolder = undefined; pendingName = ''; }
+          pump();
         },
       );
+    return true;
+  }
+
+  /** Start queued clips until MAX_LOADS are in flight. Nothing starts before unlock. */
+  function pump(): void {
+    while (unlocked && loads < MAX_LOADS && waiting.length > 0) {
+      const folder = waiting[0]!;
+      const name = folder.queue.shift();
+      if (name === undefined) waiting.shift();
+      else load(folder, name);
+    }
+  }
+
+  /** Serve this folder's queue once audio is unlocked; `first` puts it ahead of other folders. */
+  function wait(folder: FolderState, first: boolean): void {
+    const at = waiting.indexOf(folder);
+    if (at < 0 && !first) waiting.push(folder);
+    else if (at !== 0 && first) {
+      if (at > 0) waiting.splice(at, 1);
+      waiting.unshift(folder);
+    }
+    if (!waitingUnlock) {
+      waitingUnlock = true;
+      audio.onUnlock(() => {
+        unlocked = true;
+        pump();
+      });
+    }
+    pump();
   }
 
   /** Cut the clip playing, with a short fade. */
@@ -319,9 +378,19 @@ function createVoicePlayer(audio: Audio): VoicePlayer {
       const f = folder as FolderState;
       if (f.preloaded || f.files.size === 0) return;
       f.preloaded = true;
-      audio.onUnlock(() => {
-        for (const name of f.files.keys()) load(f, name);
-      });
+      for (const name of f.clips) f.queue.push(name);
+      wait(f, false);
+    },
+    prioritize(folder, clips) {
+      const f = folder as FolderState;
+      let any = false;
+      for (let i = clips.length - 1; i >= 0; i--) {
+        const name = clips[i] ?? '';
+        if (!f.files.has(name) || f.decoded.has(name) || f.loading.has(name)) continue;
+        f.queue.unshift(name);
+        any = true;
+      }
+      if (any) wait(f, true);
     },
     play(folder, clip) {
       const f = folder as FolderState;
@@ -350,6 +419,8 @@ function createVoicePlayer(audio: Audio): VoicePlayer {
       seqClips = clips.slice();
       seqSpacing = spacing;
       seqGap = gap;
+      // Clips still waiting in the preload line would miss their turn behind it, so they all start loading now.
+      for (const name of seqClips) load(f, name);
       seqStep(0);
       return true;
     },
