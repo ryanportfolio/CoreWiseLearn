@@ -351,9 +351,7 @@
     { "file": "dollars-148", "text": "One hundred forty-eight dollars." },
     { "file": "dollars-149", "text": "One hundred forty-nine dollars." },
     { "file": "dollars-150", "text": "One hundred fifty dollars." },
-    { "file": "dollars-and-1", "text": "One dollar and" },
     { "file": "count-mine", "text": "Can you count my money?" },
-    { "file": "make", "text": "Make" },
     { "file": "saved-1", "text": "I saved it!" },
     { "file": "saved-2", "text": "All counted!" }
   ]
