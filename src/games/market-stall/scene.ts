@@ -23,7 +23,7 @@ import {
   goalCustomer, K_DOLLAR, K_FIVE, MIN_BILL_PX, MIN_DIME_PX, nextPiece, NICKEL, paid, PENNY, planCustomer, QUARTER, recordCustomer, ROUND_STARS, roundSize, taughtCustomer, TIERS,
   valueOf, type CustomerPlan, type TierParams,
 } from './rules';
-import { amountClip, costsClip, itemClip, OPENING_GAP, payClip, prioritizeVoice, queueVoice, QUESTION_CLIP, recordVoice, sayName, stopVoice, TOTAL_GAP, updateVoice, voiceBusy } from './voice';
+import { amountClip, costsClip, itemClip, OPENING_GAP, customerSpeaking, payClip, prioritizeVoice, queueVoice, QUESTION_CLIP, recordVoice, sayName, stopVoice, TOTAL_GAP, updateVoice, voiceBusy } from './voice';
 
 export { GAME_ID };
 const ART = 'market-stall/';
@@ -435,7 +435,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
   let bgCanvas: HTMLCanvasElement | undefined, bgX = 0, bgY = 0, bgScale = 1, Yc = 475;
 
   // ---- the current customer
-  let plan: CustomerPlan = goalCustomer(), who = 0, good = 0, good2 = 1, mergeDur = MERGE_SECONDS, moment = ENTER, momentT = 0, namesSaid = 0;
+  let plan: CustomerPlan = goalCustomer(), who = 0, good = 0, good2 = 1, mergeDur = MERGE_SECONDS, moment = ENTER, momentT = 0, namesSaid = 0, asked = false;
   const dishKind = new Int8Array(MAX_DISH), dishPx = new Float32Array(MAX_DISH), dishPy = new Float32Array(MAX_DISH), dishHop = new Float32Array(MAX_DISH).fill(9);
   /** Pieces in the dish (the payment) and landed so far. */
   let dishN = 0, dishLanded = 0, dropTo = 0;
@@ -1178,7 +1178,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     play('whoosh', 'B', 0, 0.45);
   }
   function resetCustomer(): void {
-    dishLanded = 0; pourIdx = 0; pourLeft = 0; lit = 0; given = 0; committed = 0; counter = 0; countLeft = 0; pawN = 0; pawLost = 0; namesSaid = 0;
+    dishLanded = 0; pourIdx = 0; pourLeft = 0; lit = 0; given = 0; committed = 0; counter = 0; countLeft = 0; pawN = 0; pawLost = 0; namesSaid = 0; asked = false;
     cupsTotal = planned();
     cupPulse.fill(9); dishHop.fill(9); wellHop.fill(9);
     assisted = intro; deliberate = true; actions = 0; bounced = false; bouncesHere = 0;
@@ -1229,9 +1229,9 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     if (cheerLevel >= 2) particles.glints(custX, Yc - custH * 0.5, cheerLevel, custW * 0.4);
   }
   /**
-   * The board's moments, one function each, so a later round can voice them: the price shown at the track's tag end,
-   * the payment shown at its dish end (the pour has finished), the marker's numeral changed, and the marker reaching
-   * the dish end (done).
+   * The board's moments, one function each: the price shown at the track's tag end, the payment shown at its dish end
+   * (the pour has finished; counting starts once the customer has said it and asked for its change), the marker's
+   * numeral changed, and the marker reaching the dish end (done). The first two speak (see voice.ts).
    */
   function priceShown(): void { if (!goal()) queueVoice(costsClip(cents(plan.price)), OPENING_GAP); }
   function paymentShown(): void { if (!goal()) { queueVoice(payClip(cents(planned())), OPENING_GAP); queueVoice(QUESTION_CLIP, OPENING_GAP); } }
@@ -1242,7 +1242,6 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
   /** Change counting starts: the marker appears at the tag end and (steps 1 to 3) the dots pop in left to right. */
   function showTrack(): void {
     for (let i = 0; i < dotsN && i < MAX_CUPS; i++) cupPulse[i] = -i * 0.03;
-    paymentShown();
   }
   /** The introduction's goal customer: a wordless demonstration, so it asks nothing (its change total is still said). */
   const goal = (): boolean => intro && introStage === 1;
@@ -1770,7 +1769,13 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
    */
   function updatePour(dt: number): void {
     if (pourLeft <= 0) {
-      if (pourIdx >= dropTo) { startChange(); return; }
+      // The payment has poured: the customer says it and asks for its change; counting starts once it has asked, so the
+      // child hears the question and every coin or bill name after it (with the sound off this takes no time).
+      if (pourIdx >= dropTo) {
+        if (!asked) { asked = true; paymentShown(); }
+        if (!customerSpeaking(audio)) startChange();
+        return;
+      }
       const v = value(dishKind[pourIdx]!);
       pourLeft = v; pourGap = v >= 100 ? DOLLAR_POUR / v : Math.min(POUR_GAP_MAX, POUR_PIECE / v); pourTimer = 0; dishHop[pourIdx] = 0; pourIdx++;
       pourEvery = v >= 500 ? 50 : pourGap >= 0.02 ? 1 : 10;
