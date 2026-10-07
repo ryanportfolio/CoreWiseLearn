@@ -39,8 +39,8 @@ export interface Audio {
   unlock(): Promise<void>;
   /** Procedural one-shot. Silent until unlocked. */
   blip(options?: BlipOptions): void;
-  /** Play a decoded buffer once on the sfx bus. */
-  playBuffer(buffer: AudioBuffer, volume?: number): void;
+  /** Play a decoded buffer once on the sfx bus. Returns its source (to stop it early), or undefined when silent. */
+  playBuffer(buffer: AudioBuffer, volume?: number): AudioBufferSourceNode | undefined;
   /** Replace the looping music track; pass undefined to stop. */
   setMusic(buffer: AudioBuffer | undefined, fadeSeconds?: number): void;
   /** Decode an ArrayBuffer (from fetch) into an AudioBuffer. Requires unlock first. */
@@ -237,7 +237,7 @@ export function createAudio(masterTrimDb = -6): Audio {
       };
     },
     playBuffer(buffer, volume = 1) {
-      if (!ctx || !sfx || ctx.state !== 'running') return;
+      if (!ctx || !sfx || ctx.state !== 'running') return undefined;
       const src = ctx.createBufferSource();
       const g = ctx.createGain();
       g.gain.value = volume;
@@ -249,6 +249,7 @@ export function createAudio(masterTrimDb = -6): Audio {
         src.disconnect();
         g.disconnect();
       };
+      return src;
     },
     setMusic(buffer, fadeSeconds = 0.5) {
       if (!ctx || !music) return;

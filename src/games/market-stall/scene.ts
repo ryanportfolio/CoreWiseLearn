@@ -23,7 +23,7 @@ import {
   goalCustomer, K_DOLLAR, K_FIVE, MIN_BILL_PX, MIN_DIME_PX, nextPiece, NICKEL, paid, PENNY, planCustomer, QUARTER, recordCustomer, ROUND_STARS, roundSize, taughtCustomer, TIERS,
   valueOf, type CustomerPlan, type TierParams,
 } from './rules';
-import { playVoice, preloadVoice, type VoiceClip } from './voice';
+import { playVoice, preloadVoice, stopVoice, voiceRemaining, type VoiceClip } from './voice';
 
 export { GAME_ID };
 const ART = 'market-stall/';
@@ -434,7 +434,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
   let bgCanvas: HTMLCanvasElement | undefined, bgX = 0, bgY = 0, bgScale = 1, Yc = 475;
 
   // ---- the current customer
-  let plan: CustomerPlan = goalCustomer(), who = 0, good = 0, good2 = 1, mergeDur = MERGE_SECONDS, moment = ENTER, momentT = 0;
+  let plan: CustomerPlan = goalCustomer(), who = 0, good = 0, good2 = 1, mergeDur = MERGE_SECONDS, moment = ENTER, momentT = 0, leaveSayAt = -1;
   const dishKind = new Int8Array(MAX_DISH), dishPx = new Float32Array(MAX_DISH), dishPy = new Float32Array(MAX_DISH), dishHop = new Float32Array(MAX_DISH).fill(9);
   /** Pieces in the dish (the payment) and landed so far. */
   let dishN = 0, dishLanded = 0, dropTo = 0;
@@ -1176,7 +1176,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     play('whoosh', 'B', 0, 0.45);
   }
   function resetCustomer(): void {
-    dishLanded = 0; pourIdx = 0; pourLeft = 0; lit = 0; given = 0; committed = 0; counter = 0; countLeft = 0; pawN = 0; pawLost = 0;
+    dishLanded = 0; pourIdx = 0; pourLeft = 0; lit = 0; given = 0; committed = 0; counter = 0; countLeft = 0; pawN = 0; pawLost = 0; leaveSayAt = -1;
     cupsTotal = planned();
     cupPulse.fill(9); dishHop.fill(9); wellHop.fill(9);
     assisted = intro; deliberate = true; actions = 0; bounced = false; bouncesHere = 0;
@@ -1241,10 +1241,18 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     paymentShown();
   }
   /** Say the price when a clip for it exists (the number clips run to 100). */
-  function sayPrice(): void { if (!plan.dollars && plan.price <= 100 && (plan.price <= 20 || plan.price % 10 === 0)) playVoice(audio, NUMBER_CLIPS[plan.price]!); else if (plan.dollars && plan.price <= 20) playVoice(audio, NUMBER_CLIPS[plan.price]!); }
+  function sayPrice(): void { if (!plan.dollars && plan.price <= 100 && (plan.price <= 20 || plan.price === 25 || plan.price === 75 || plan.price % 10 === 0)) playVoice(audio, NUMBER_CLIPS[plan.price]!); else if (plan.dollars && plan.price <= 20) playVoice(audio, NUMBER_CLIPS[plan.price]!); }
   function startLeave(): void {
     moment = LEAVE; momentT = 0; play('whoosh', 'A', 0, 0.5);
-    if (pawN && planned() <= 100) playVoice(audio, NUMBER_CLIPS[planned()]!);
+    // The total waits for a coin or bill name still being said (the last one handed over), so they never overlap.
+    leaveSayAt = pawN && planned() <= 100 ? voiceRemaining(audio) : -1;
+  }
+  /** During LEAVE: say the change's total once its turn comes (leaveSayAt, -1 when there is none or it was said). The next
+   * customer waits until it has been said in full, so its price never cuts the total off. */
+  function updateLeaveSay(): void {
+    if (leaveSayAt < 0 || momentT < leaveSayAt) return;
+    leaveSayAt = -1;
+    playVoice(audio, NUMBER_CLIPS[planned()]!);
   }
   function customerDone(): void {
     if (intro && introStage === 1) { introStage = 2; startCustomer(0); return; }
@@ -1743,7 +1751,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
       updateCount(dt); checkPaid(); idleTick(dt);
     } else if (moment === PAID) { updateCount(dt); if (momentT >= PAID_PULSE) startGlide(); }
     else if (moment === GLIDE) { itemFly = clamp01(momentT / GLIDE_SECONDS); if (momentT >= GLIDE_SECONDS) startLeave(); }
-    else if (moment === LEAVE && momentT >= LEAVE_SECONDS) customerDone();
+    else if (moment === LEAVE) { updateLeaveSay(); if (momentT >= LEAVE_SECONDS && leaveSayAt < 0 && voiceRemaining(audio) === 0) customerDone(); }
     updateHand(dt);
   }
   /**
@@ -2737,7 +2745,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
       if (services.debug.enabled) (window as unknown as { __marketStall?: MarketStallStats }).__marketStall = stats;
     },
     pause() {
-      stopMusic(audio); stopIdle();
+      stopMusic(audio); stopIdle(); stopVoice();
       if (carry.active) { carry.active = false; launch(F_RETURN, carry.kind, carry.well, input.pointer.x, input.pointer.y, wellX[carry.well]!, wellY[carry.well]!, RETURN_SECONDS); }
       services.save.flush();
     },
@@ -2746,7 +2754,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
       startMusic(audio, 'market-stall');
     },
     exit() {
-      stopMusic(audio); stopIdle(); offers.cancel(); closeFinishedRound(); services.save.flush();
+      stopMusic(audio); stopIdle(); stopVoice(); offers.cancel(); closeFinishedRound(); services.save.flush();
       releaseArt(); sprites.clearScaled(BG); bgCanvas = undefined; sizeKey = ''; madeN = 0; bakedTray = ''; bakedBoard = ''; bakedBills = '';
       trayCanvas = undefined; boardCanvas = undefined; billCanvas.fill(undefined);
     },
