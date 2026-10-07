@@ -83,9 +83,9 @@ export function updateVoice(audio: Audio, dt: number): void {
   if (busy || qLen === 0 || quiet < qGap[qHead]!) return;
   const clip = qClip[qHead]!;
   qHead = (qHead + 1) % Q_MAX; qLen--;
-  // Sound off, audio locked or the clip failed to load: it is skipped and the next waits its own gap from now.
+  // Sound off, audio locked or the clip failed to load: it is skipped, and the next clip in line may start at once.
   fromQueue = player.play(MONEY_VOICE, clip);
-  quiet = 0;
+  quiet = fromQueue ? 0 : 99;
 }
 
 /** Stop speech and empty the queue. The scene calls this on pause and exit, so speech never runs on into the hub. */
