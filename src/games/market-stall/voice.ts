@@ -1,62 +1,136 @@
 /**
- * Spoken clips for Market Stall, in the London market-stall voice, rendered
- * from scripts/voice/lines/market-stall.json (see that folder's README). A clip
- * plays only when its file is in public/voice/market-stall/ at build time; a
- * missing clip is skipped silently and causes no request.
+ * Market Stall's spoken clips: the money folder (public/voice/money/, rendered from scripts/voice/lines/money.json in
+ * the market-stall lad's voice, Gemini's Puck), played on the shared voice channel (src/audio/voice-player.ts), so two
+ * clips never sound together. A clip plays only when its file is in that folder at build time; a missing clip is
+ * skipped silently and causes no request.
+ *
+ * Every sentence and every amount is one whole clip; clips are never joined to make one. The customer's lines wait
+ * their turn in a short queue: each starts once the clip before it has ended plus that entry's gap. Coin and bill names
+ * on pick-up play at once and never cut the customer off (a name asked for while the customer speaks is skipped).
  */
 import type { Audio } from '../../engine/audio';
+import { voiceFolder, voicePlayer, type VoiceFolder } from '../../audio/voice-player';
 
-/** Clip names: a coin or bill name, or number-N for a number (see public/voice/market-stall/README.md). */
-export type VoiceClip = `number-${number}` | 'penny' | 'nickel' | 'dime' | 'quarter' | 'one-dollar' | 'five-dollars' | 'ten-dollars' | 'twenty-dollars';
+export const MONEY_VOICE: VoiceFolder = voiceFolder('money', Object.keys(import.meta.glob('/public/voice/money/*.mp3', { query: '?url', import: 'default' })));
 
-// Build-time list of the files that exist. The keys are enough: nothing is imported at runtime.
-const FILES = Object.keys(import.meta.glob('/public/voice/market-stall/*.{mp3,ogg}', { query: '?url', import: 'default' }));
-const AVAILABLE = new Map<string, string>();
-for (const path of FILES) {
-  const file = path.slice(path.lastIndexOf('/') + 1), name = file.replace(/\.(mp3|ogg)$/, '');
-  if (!AVAILABLE.has(name) || file.endsWith('.mp3')) AVAILABLE.set(name, file);
+/** Gap after the clip before, in seconds: between the customer's opening lines, and before the change total. */
+export const OPENING_GAP = 0.25, TOTAL_GAP = 0.12;
+
+/** Clip for an amount said on its own: "Three cents.", "Two dollars.", "One dollar and five cents." (`amount-N`). */
+export function amountClip(cents: number): string {
+  if (cents < 100) return `cents-${cents}`;
+  return cents % 100 === 0 ? `dollars-${cents / 100}` : `amount-${cents}`;
+}
+/** "That costs <price>." for a price in cents. */
+export const costsClip = (cents: number): string => `costs-${cents}`;
+/** "Here's <payment>." for a payment in cents. */
+export const payClip = (cents: number): string => `pay-${cents}`;
+/**
+ * How a customer asks for its item: "Can I have the pie?" (a real question), "I'll take the pie.", "Ooh, the pie looks
+ * yummy!", "One pie for me!" or "The pie, please." Each item (and each step-9 pair) has three of these, as clips
+ * `item-<good>[-<good2>]-<opener>`; the owner asked for variety and few pleases (2026-10-07).
+ */
+export const OPENERS = ['ask', 'take', 'yum', 'one', 'please'] as const;
+const itemBase = (good: number, good2: number): string => (good2 < 0 ? `item-${good}` : `item-${good}-${good2}`);
+/** Every item clip that exists for this item (or pair), for prioritizeVoice. */
+export function itemClips(good: number, good2 = -1): string[] {
+  const base = itemBase(good, good2), out: string[] = [];
+  for (const o of OPENERS) if (MONEY_VOICE.has(`${base}-${o}`)) out.push(`${base}-${o}`);
+  return out;
+}
+/**
+ * One of the item's clips at random, never with the opener `last` (the previous customer's) when another exists.
+ * Returns the clip and its opener index (-1 and '' when the item has no clip).
+ */
+export function pickItemClip(good: number, good2: number, last: number, random: () => number): { clip: string; opener: number } {
+  const base = itemBase(good, good2);
+  let n = 0;
+  for (let i = 0; i < OPENERS.length; i++) if (i !== last && MONEY_VOICE.has(`${base}-${OPENERS[i]}`)) n++;
+  const allowLast = n === 0;
+  if (allowLast && last >= 0 && MONEY_VOICE.has(`${base}-${OPENERS[last]}`)) n = 1;
+  let k = Math.floor(random() * n);
+  for (let i = 0; i < OPENERS.length; i++) {
+    if ((i === last && !allowLast) || !MONEY_VOICE.has(`${base}-${OPENERS[i]}`)) continue;
+    if (k-- === 0) return { clip: `${base}-${OPENERS[i]}`, opener: i };
+  }
+  return { clip: '', opener: -1 };
+}
+export const QUESTION_CLIP = 'how-much-change';
+
+/** The queue: clip names and their gaps, oldest first (fixed arrays; nothing allocates while it plays). */
+const Q_MAX = 8;
+const qClip: string[] = Array<string>(Q_MAX).fill('');
+const qGap = new Float32Array(Q_MAX);
+let qHead = 0, qLen = 0;
+/** Seconds the channel has been quiet (counted while nothing plays), and whether the clip playing came from the queue. */
+let quiet = 99, fromQueue = false;
+/** With `?debug` in the address: every clip as it starts and ends, for browser checks (window.__msVoice). */
+let log: { clip: string; at: number; end: number }[] | undefined, logged = '';
+
+/** Load these clips next, ahead of anything else waiting. Call when a customer arrives, not per frame. */
+export function prioritizeVoice(audio: Audio, clips: readonly string[]): void { voicePlayer(audio).prioritize(MONEY_VOICE, clips); }
+
+/** Add a clip to the queue; it plays once the clip before it has ended plus `gap` seconds. A missing clip is skipped. */
+export function queueVoice(clip: string, gap: number): void {
+  if (!MONEY_VOICE.has(clip) || qLen >= Q_MAX) return;
+  const i = (qHead + qLen) % Q_MAX;
+  qClip[i] = clip; qGap[i] = gap; qLen++;
 }
 
-const buffers = new Map<string, AudioBuffer | null>();
-const loading = new Set<string>();
+/** True while a queued line is playing or waiting its turn. */
+export function customerSpeaking(audio: Audio): boolean { return qLen > 0 || (fromQueue && voicePlayer(audio).busy()); }
 
-function load(audio: Audio, base: string, name: string): void {
-  const file = AVAILABLE.get(name);
-  if (!file || loading.has(name) || !audio.context) return;
-  loading.add(name);
-  void fetch(`${base}voice/market-stall/${file}`)
-    .then(r => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(String(r.status)))))
-    .then(bytes => audio.decode(bytes))
-    .then(buffer => { buffers.set(name, buffer); }, () => { buffers.set(name, null); });
+/** True while anything is said or waiting to be said. */
+export function voiceBusy(audio: Audio): boolean { return qLen > 0 || voicePlayer(audio).busy(); }
+
+/**
+ * Say a coin or bill name now, unless the customer is speaking or about to (then nothing is said). Returns whether it
+ * was asked for (a missing clip, sound off or a locked audio context also return false).
+ */
+export function sayName(audio: Audio, clip: string): boolean {
+  if (customerSpeaking(audio)) return false;
+  const ok = voicePlayer(audio).play(MONEY_VOICE, clip);
+  if (ok) fromQueue = false;
+  return ok;
 }
 
-/** Decode every available clip once audio is unlocked. Safe to call repeatedly. */
-export function preloadVoice(audio: Audio, base: string): void {
-  if (!AVAILABLE.size) return;
-  audio.onUnlock(() => { for (const name of AVAILABLE.keys()) load(audio, base, name); });
+/** Name of the clip being heard now, or '' when silent. A name asked for by sayName counts as said only once this shows it. */
+export function voiceNow(audio: Audio): string { return voicePlayer(audio).current; }
+
+/** Once per frame: start the next queued clip when its turn has come. */
+export function updateVoice(audio: Audio, dt: number): void {
+  const player = voicePlayer(audio);
+  const busy = player.busy();
+  if (busy) quiet = 0; else quiet += dt;
+  if (log) {
+    const now = player.current;
+    if (now !== logged) {
+      const t = Math.round(performance.now());
+      if (logged) { const last = log[log.length - 1]; if (last && last.end < 0) last.end = t; }
+      if (now) log.push({ clip: now, at: t, end: -1 });
+      logged = now;
+    }
+  }
+  if (busy || qLen === 0 || quiet < qGap[qHead]!) return;
+  const clip = qClip[qHead]!;
+  qHead = (qHead + 1) % Q_MAX; qLen--;
+  // Sound off, audio locked or the clip failed to load: it is skipped, and the next clip in line may start at once.
+  fromQueue = player.play(MONEY_VOICE, clip);
+  quiet = fromQueue ? 0 : 99;
 }
 
-/** The clip playing now (one channel: voices never stack) and when it ends, in the audio clock's seconds. */
-let speaking: AudioBufferSourceNode | undefined, speechEnds = 0;
-
-/** Play a clip if its file exists and has decoded; otherwise do nothing. A new clip stops the one playing. */
-export function playVoice(audio: Audio, name: VoiceClip): void {
-  const buffer = buffers.get(name);
-  if (!buffer || audio.muted || !audio.context) return;
-  if (speaking) { try { speaking.stop(); } catch { /* already ended */ } }
-  speaking = audio.playBuffer(buffer, 1);
-  speechEnds = speaking ? audio.context.currentTime + buffer.duration : 0;
+/** Stop speech and empty the queue. The scene calls this on pause and exit, so speech never runs on into the hub. */
+export function stopVoice(audio: Audio): void {
+  voicePlayer(audio).stop();
+  // The debug log's open entry ends here, so a pause or exit never leaves it open or stretches it over the break.
+  if (log && logged) { const last = log[log.length - 1]; if (last && last.end < 0) last.end = Math.round(performance.now()); }
+  logged = '';
+  qHead = 0; qLen = 0; fromQueue = false; quiet = 99;
 }
 
-/** Stop the clip playing, if any. The scene calls this on pause and exit, so speech never runs on into the hub. */
-export function stopVoice(): void {
-  if (speaking) { try { speaking.stop(); } catch { /* already ended */ } }
-  speaking = undefined; speechEnds = 0;
+/** Debug builds only: start recording clips into window.__msVoice. */
+export function recordVoice(): void {
+  if (log) return;
+  log = [];
+  (window as unknown as { __msVoice?: unknown }).__msVoice = log;
 }
-
-/** Seconds until the clips already playing have finished (0 when none is). */
-export function voiceRemaining(audio: Audio): number {
-  return audio.context && !audio.muted ? Math.max(0, speechEnds - audio.context.currentTime) : 0;
-}
-
-export const voiceClipCount = (): number => AVAILABLE.size;

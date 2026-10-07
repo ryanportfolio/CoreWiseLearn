@@ -19,11 +19,11 @@ import { bakeShadow, createFx, INK_COUNT, PENNY_INKS, SILVER_INKS } from './fx';
 import { createSoundButton, soundArt, syncSoundIcon } from '../../scenes/hub/shared';
 import { bagDefaults, cashierStart, CUSTOMER_COUNT, defaultData, GAME_ID, GOODS_COUNT, sanitizeStallData, TOP_STEP, type PendingRound, type StallData } from './data';
 import {
-  accepts, applyLearning, applyMotor, B1, B5, BILL_NAMES, BILL_VALUE, COIN_MM, COIN_NAMES, COIN_VALUE, contentOf, CUP_STEPS, customerStep, DEMO_PLAN_STEPS, demoPlan, DIME, DIME_MM,
+  accepts, applyLearning, applyMotor, B1, B5, BILL_VALUE, COIN_MM, COIN_NAMES, COIN_VALUE, contentOf, CUP_STEPS, customerStep, DEMO_PLAN_STEPS, demoPlan, DIME, DIME_MM,
   goalCustomer, K_DOLLAR, K_FIVE, MIN_BILL_PX, MIN_DIME_PX, nextPiece, NICKEL, paid, PENNY, planCustomer, QUARTER, recordCustomer, ROUND_STARS, roundSize, taughtCustomer, TIERS,
   valueOf, type CustomerPlan, type TierParams,
 } from './rules';
-import { playVoice, preloadVoice, stopVoice, voiceRemaining, type VoiceClip } from './voice';
+import { amountClip, costsClip, itemClips, OPENING_GAP, pickItemClip, customerSpeaking, payClip, prioritizeVoice, queueVoice, QUESTION_CLIP, recordVoice, sayName, stopVoice, TOTAL_GAP, updateVoice, voiceBusy, voiceNow } from './voice';
 
 export { GAME_ID };
 const ART = 'market-stall/';
@@ -31,6 +31,8 @@ const BG = `${ART}harbour-stall`, BOARD = `${ART}board`, TAG = `${ART}tag`, DISH
 const WELL = `${ART}till-well`, SLOT = `${ART}till-slot`, HAND = `${ART}helper-hand`;
 const BUTTON_PLAY = 'buttons/play-arrow', BUTTON_HOME = 'buttons/home';
 const BILLS = [1, 5, 10, 20].map(v => `${ART}bill-${v}`);
+/** Bill names in the money voice folder: "One-dollar bill." to "Twenty-dollar bill." */
+const BILL_CLIPS = [1, 5, 10, 20].map(v => `bill-${v}`);
 const COIN_FACES = COIN_NAMES.map(c => [`${ART}coin-${c}-heads`, `${ART}coin-${c}-tails`] as const);
 /** Coin faces are 320x320 (byte copies of Piggy Parade's, so the hub shows one set of coins). */
 const COIN_PX = 320;
@@ -69,7 +71,6 @@ const HARBOUR = [
 const OV_SAILS = 0, OV_SMALL = 1, OV_LAMP = 2, OV_PAINT = 3, OV_BUNTING = 4;
 /** What the day's takings buy for the harbour, one per round in turn (nothing is kept: it is gone next round). */
 const BUY_SAILS = 0, BUY_LAMP = 1, BUY_PAINT = 2, BUY_NAMES = ['sails', 'lamp', 'paint'] as const;
-const NUMBER_CLIPS = Array.from({ length: 101 }, (_, n) => `number-${n}` as VoiceClip);
 
 // Measured from the art (round 1 and round 2), as fractions of each image.
 /** harbour-stall.webp is 1920x1280; the counter's back edge is its row 767. */
@@ -434,7 +435,9 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
   let bgCanvas: HTMLCanvasElement | undefined, bgX = 0, bgY = 0, bgScale = 1, Yc = 475;
 
   // ---- the current customer
-  let plan: CustomerPlan = goalCustomer(), who = 0, good = 0, good2 = 1, mergeDur = MERGE_SECONDS, moment = ENTER, momentT = 0, leaveSayAt = -1;
+  let plan: CustomerPlan = goalCustomer(), who = 0, good = 0, good2 = 1, mergeDur = MERGE_SECONDS, moment = ENTER, momentT = 0, namesSaid = 0, asked = false, lastOpener = -1;
+  /** A name asked for but not yet heard (its bit and clip): it joins namesSaid only once it starts playing. */
+  let nameWait = 0, nameWaitClip = '';
   const dishKind = new Int8Array(MAX_DISH), dishPx = new Float32Array(MAX_DISH), dishPy = new Float32Array(MAX_DISH), dishHop = new Float32Array(MAX_DISH).fill(9);
   /** Pieces in the dish (the payment) and landed so far. */
   let dishN = 0, dishLanded = 0, dropTo = 0;
@@ -1172,11 +1175,12 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     if (!intro || introStage === 2) { roundWho[i] = who; roundGoods[i] = good; }
     resetCustomer();
     layout(W, H);
+    prioritizeVoice(audio, customerClips());
     moment = ENTER; momentT = 0;
     play('whoosh', 'B', 0, 0.45);
   }
   function resetCustomer(): void {
-    dishLanded = 0; pourIdx = 0; pourLeft = 0; lit = 0; given = 0; committed = 0; counter = 0; countLeft = 0; pawN = 0; pawLost = 0; leaveSayAt = -1;
+    dishLanded = 0; pourIdx = 0; pourLeft = 0; lit = 0; given = 0; committed = 0; counter = 0; countLeft = 0; pawN = 0; pawLost = 0; namesSaid = 0; nameWait = 0; asked = false;
     cupsTotal = planned();
     cupPulse.fill(9); dishHop.fill(9); wellHop.fill(9);
     assisted = intro; deliberate = true; actions = 0; bounced = false; bouncesHere = 0;
@@ -1227,32 +1231,43 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     if (cheerLevel >= 2) particles.glints(custX, Yc - custH * 0.5, cheerLevel, custW * 0.4);
   }
   /**
-   * The board's moments, one function each, so a later round can voice them: the price shown at the track's tag end,
-   * the payment shown at its dish end (the pour has finished), the marker's numeral changed, and the marker reaching
-   * the dish end (done).
+   * The board's moments, one function each: the price shown at the track's tag end, the payment shown at its dish end
+   * (the pour has finished; counting starts once the customer has said it and asked for its change), the marker's
+   * numeral changed, and the marker reaching the dish end (done). The first two speak (see voice.ts).
    */
-  function priceShown(): void { sayPrice(); }
-  function paymentShown(): void { /* voiced in a later round */ }
+  function priceShown(): void { if (!goal()) queueVoice(costsClip(cents(plan.price)), OPENING_GAP); }
+  function paymentShown(): void { if (!goal()) { queueVoice(payClip(cents(planned())), OPENING_GAP); queueVoice(QUESTION_CLIP, OPENING_GAP); } }
+  /** The customer asks for its item as it sets it down (both items at step 9). */
+  function itemShown(): void {
+    if (goal()) return;
+    // One of the item's wordings at random, never the same opener as the customer before.
+    const pick = pickItemClip(good, two() ? good2 : -1, lastOpener, random);
+    if (pick.opener >= 0) lastOpener = pick.opener;
+    queueVoice(pick.clip, OPENING_GAP);
+  }
   function counterChanged(): void { /* voiced in a later round */ }
   function trackDone(): void { /* voiced in a later round */ }
   /** Change counting starts: the marker appears at the tag end and (steps 1 to 3) the dots pop in left to right. */
   function showTrack(): void {
     for (let i = 0; i < dotsN && i < MAX_CUPS; i++) cupPulse[i] = -i * 0.03;
-    paymentShown();
   }
-  /** Say the price when a clip for it exists (the number clips run to 100). */
-  function sayPrice(): void { if (!plan.dollars && plan.price <= 100 && (plan.price <= 20 || plan.price === 25 || plan.price === 75 || plan.price % 10 === 0)) playVoice(audio, NUMBER_CLIPS[plan.price]!); else if (plan.dollars && plan.price <= 20) playVoice(audio, NUMBER_CLIPS[plan.price]!); }
+  /** The introduction's goal customer: a wordless demonstration, so it asks nothing (its change total is still said). */
+  const goal = (): boolean => intro && introStage === 1;
+  /** An amount in the plan's unit, in cents. */
+  const cents = (v: number): number => (plan.dollars ? v * 100 : v);
+  /** Clip for a coin or bill kind's name, and its bit in namesSaid (coins 0 to 3, bills 4 to 7). */
+  const nameClip = (kind: number): string => (isBill(kind) ? BILL_CLIPS[billOf(kind)]! : COIN_NAMES[kind]!);
+  const nameBit = (kind: number): number => 1 << (isBill(kind) ? 4 + billOf(kind) : kind);
+  /** Every clip this customer can say or hear, for prioritizeVoice (once per customer, not per frame). */
+  function customerClips(): string[] {
+    const out = [...itemClips(good, two() ? good2 : -1), costsClip(cents(plan.price)), payClip(cents(planned())), QUESTION_CLIP, amountClip(cents(plan.change))];
+    for (let i = 0; i < tillN; i++) out.push(nameClip(tillKind[i]!));
+    return out;
+  }
   function startLeave(): void {
     moment = LEAVE; momentT = 0; play('whoosh', 'A', 0, 0.5);
-    // The total waits for a coin or bill name still being said (the last one handed over), so they never overlap.
-    leaveSayAt = pawN && planned() <= 100 ? voiceRemaining(audio) : -1;
-  }
-  /** During LEAVE: say the change's total once its turn comes (leaveSayAt, -1 when there is none or it was said). The next
-   * customer waits until it has been said in full, so its price never cuts the total off. */
-  function updateLeaveSay(): void {
-    if (leaveSayAt < 0 || momentT < leaveSayAt) return;
-    leaveSayAt = -1;
-    playVoice(audio, NUMBER_CLIPS[planned()]!);
+    // The change total, one whole clip, after anything still being said plus a short gap; the next customer waits for it.
+    if (pawN) queueVoice(amountClip(cents(plan.change)), TOTAL_GAP);
   }
   function customerDone(): void {
     if (intro && introStage === 1) { introStage = 2; startCustomer(0); return; }
@@ -1727,8 +1742,8 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
         if (intro && introStage === 1) {
           // The goal shows its payment already poured, then three pennies hop into the paw.
           dishLanded = dishN; lit = cupsTotal; moment = CHANGE; momentT = 0; tillUp = 1; showTrack();
-        } else if (two()) startMerge();
-        else { startDrop(); priceShown(); }
+        } else if (two()) { itemShown(); startMerge(); }
+        else { itemShown(); startDrop(); priceShown(); }
       }
     } else if (moment === MERGE) {
       if (!mergePopped && momentT >= mergeDur * MERGE_TAGS) {
@@ -1751,7 +1766,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
       updateCount(dt); checkPaid(); idleTick(dt);
     } else if (moment === PAID) { updateCount(dt); if (momentT >= PAID_PULSE) startGlide(); }
     else if (moment === GLIDE) { itemFly = clamp01(momentT / GLIDE_SECONDS); if (momentT >= GLIDE_SECONDS) startLeave(); }
-    else if (moment === LEAVE) { updateLeaveSay(); if (momentT >= LEAVE_SECONDS && leaveSayAt < 0 && voiceRemaining(audio) === 0) customerDone(); }
+    else if (moment === LEAVE) { if (momentT >= LEAVE_SECONDS && !voiceBusy(audio)) customerDone(); }
     updateHand(dt);
   }
   /**
@@ -1761,7 +1776,13 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
    */
   function updatePour(dt: number): void {
     if (pourLeft <= 0) {
-      if (pourIdx >= dropTo) { startChange(); return; }
+      // The payment has poured: the customer says it and asks for its change; counting starts once it has asked, so the
+      // child hears the question and every coin or bill name after it (with the sound off this takes no time).
+      if (pourIdx >= dropTo) {
+        if (!asked) { asked = true; paymentShown(); }
+        if (!customerSpeaking(audio)) startChange();
+        return;
+      }
       const v = value(dishKind[pourIdx]!);
       pourLeft = v; pourGap = v >= 100 ? DOLLAR_POUR / v : Math.min(POUR_GAP_MAX, POUR_PIECE / v); pourTimer = 0; dishHop[pourIdx] = 0; pourIdx++;
       pourEvery = v >= 500 ? 50 : pourGap >= 0.02 ? 1 : 10;
@@ -2512,7 +2533,13 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     carry.well = w; carry.kind = tillKind[w]!; carryT = 0;
     if (isBill(carry.kind)) play('paper-rustle', 'A', 0, 0.6); else play('pop', 'B', 2, 0.5);
     particles.glints(wellX[w]!, wellY[w]!, 2, wellWs[w]! * 0.35);
-    playVoice(audio, isBill(carry.kind) ? BILL_NAMES[billOf(carry.kind)]! : COIN_NAMES[carry.kind]!);
+    // A kind's name is said the first time it is handed over to this customer, never again for the same customer. It
+    // counts as said only once it is heard: a clip that decodes too late to play leaves the next pick of the kind to say it.
+    const bit = nameBit(carry.kind), clip = nameClip(carry.kind);
+    if ((namesSaid & bit) === 0 && sayName(audio, clip)) {
+      if (voiceNow(audio) === clip) namesSaid |= bit;
+      else { nameWait = bit; nameWaitClip = clip; }
+    }
   }
   function release(x: number, y: number): void {
     carry.active = false;
@@ -2729,7 +2756,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     stats,
     enter() {
       void loadMarketStallArt(services).then(() => { bakedTray = ''; bakedBoard = ''; bakedBills = ''; layout(services.canvas.width, services.canvas.height); });
-      preloadVoice(audio, services.base);
+      if (services.debug.enabled) recordVoice();
       data = services.save.gameData<StallData>(GAME_ID, bagDefaults());
       sanitizeStallData(data, () => services.save.protect());
       cashierStart(data);
@@ -2745,7 +2772,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
       if (services.debug.enabled) (window as unknown as { __marketStall?: MarketStallStats }).__marketStall = stats;
     },
     pause() {
-      stopMusic(audio); stopIdle(); stopVoice();
+      stopMusic(audio); stopIdle(); stopVoice(audio);
       if (carry.active) { carry.active = false; launch(F_RETURN, carry.kind, carry.well, input.pointer.x, input.pointer.y, wellX[carry.well]!, wellY[carry.well]!, RETURN_SECONDS); }
       services.save.flush();
     },
@@ -2754,7 +2781,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
       startMusic(audio, 'market-stall');
     },
     exit() {
-      stopMusic(audio); stopIdle(); stopVoice(); offers.cancel(); closeFinishedRound(); services.save.flush();
+      stopMusic(audio); stopIdle(); stopVoice(audio); offers.cancel(); closeFinishedRound(); services.save.flush();
       releaseArt(); sprites.clearScaled(BG); bgCanvas = undefined; sizeKey = ''; madeN = 0; bakedTray = ''; bakedBoard = ''; bakedBills = '';
       trayCanvas = undefined; boardCanvas = undefined; billCanvas.fill(undefined);
     },
@@ -2763,6 +2790,11 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     update(dt) {
       const started = performance.now(); sceneT += dt;
       syncSoundIcon(soundButton, services); soundButton.update(dt, input.pointer.x, input.pointer.y);
+      updateVoice(audio, dt);
+      if (nameWait) {
+        if (voiceNow(audio) === nameWaitClip) { namesSaid |= nameWait; nameWait = 0; }
+        else if (!voiceBusy(audio)) nameWait = 0; // the request expired unheard, was cut by another clip, or speech stopped
+      }
       if (playable()) updatePlay(dt); else if (phase === 'closing') updateClosing(dt); else updateResult(dt);
       updateHover(dt);
       askIdle(); updateFlights(dt); particles.update(dt);

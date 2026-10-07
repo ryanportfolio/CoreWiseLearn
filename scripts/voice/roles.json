@@ -1,6 +1,6 @@
 {
   "model": "google/gemini-3.8-flash-tts",
-  "checkModel": "google/gemini-3.8-flash",
+  "checkModel": "google/gemini-3.1-flash-lite",
   "style": "Talking to a five-year-old who is learning to read: slow, clear, every sound crisp, smiling.",
   "roles": {
     "wibble": {

@@ -19,7 +19,7 @@ The run prints one line per clip, then a summary: how many were rendered, skippe
 
 ## What happens to each line
 
-1. **Speech.** `POST https://openrouter.ai/api/v1/audio/speech` with the model and voice from `roles.json`, `response_format: "pcm"` and this input:
+1. **Speech.** `POST https://openrouter.ai/api/v1/audio/speech` with the model (`google/gemini-3.8-flash-tts`; the check model cannot speak, and another speech model would change every voice) and voice from `roles.json`, `response_format: "pcm"` and this input:
 
    ```
    ### DIRECTOR'S NOTES
@@ -33,7 +33,7 @@ The run prints one line per clip, then a summary: how many were rendered, skippe
    For a letter line (one whose `accept` list includes a single letter) the notes get one more sentence: "Say the name of this letter of the alphabet."
 2. **Trim.** Silence is cut from both ends, leaving 30 ms, with a 5 ms fade so the cut never clicks. The edges are set by sound within 20 dB of the clip's loudest moment, widened to take in quieter sound less than 150 ms away (a soft "h" or "s", or the burst of a final "p"). That drops the quiet breaths and lone clicks the model sometimes leaves a few hundred milliseconds before or after the words.
 3. **Level.** ffmpeg's EBU R128 meter measures the loudness and the clip is turned up or down to -16 LUFS, unless that would push its peak above -1.5 dBFS, in which case it stops there. Short clips are repeated to 3 seconds for the measurement, which does not change the result.
-4. **Check.** The trimmed clip goes to `POST https://openrouter.ai/api/v1/chat/completions` with the `checkModel` from `roles.json` and the prompt "Transcribe this audio exactly, word for word, with punctuation. Reply with the transcript only." The transcript passes if it matches the line's text or any `accept` entry after both are lower-cased, apostrophes removed, other punctuation turned into spaces, and digits spelled out ("25" and "twenty-five" both become "twenty five").
+4. **Check.** The trimmed clip goes to `POST https://openrouter.ai/api/v1/chat/completions` with the `checkModel` from `roles.json` (`google/gemini-3.1-flash-lite`, which takes audio in and answers in text) and the prompt "Transcribe this audio exactly, word for word, with punctuation. Reply with the transcript only." The transcript passes if it matches the line's text or any `accept` entry after both are lower-cased, apostrophes removed, other punctuation turned into spaces, and digits spelled out ("25" and "twenty-five" both become "twenty five").
 5. **Retry.** A clip that fails the check is rendered again, up to 3 renders in all. A line that still fails is reported and its MP3 is not written; an earlier good file stays in place.
 6. **Write.** The clip is encoded as mono MP3 (libmp3lame, 64 kbps, 24 kHz) to `public/voice/<folder>/<file>.mp3`, and its hash goes into `lock.json`.
 
