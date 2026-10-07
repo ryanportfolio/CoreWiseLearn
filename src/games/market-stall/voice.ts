@@ -94,6 +94,9 @@ export function sayName(audio: Audio, clip: string): boolean {
   return ok;
 }
 
+/** Name of the clip being heard now, or '' when silent. A name asked for by sayName counts as said only once this shows it. */
+export function voiceNow(audio: Audio): string { return voicePlayer(audio).current; }
+
 /** Once per frame: start the next queued clip when its turn has come. */
 export function updateVoice(audio: Audio, dt: number): void {
   const player = voicePlayer(audio);
@@ -119,6 +122,9 @@ export function updateVoice(audio: Audio, dt: number): void {
 /** Stop speech and empty the queue. The scene calls this on pause and exit, so speech never runs on into the hub. */
 export function stopVoice(audio: Audio): void {
   voicePlayer(audio).stop();
+  // The debug log's open entry ends here, so a pause or exit never leaves it open or stretches it over the break.
+  if (log && logged) { const last = log[log.length - 1]; if (last && last.end < 0) last.end = Math.round(performance.now()); }
+  logged = '';
   qHead = 0; qLen = 0; fromQueue = false; quiet = 99;
 }
 

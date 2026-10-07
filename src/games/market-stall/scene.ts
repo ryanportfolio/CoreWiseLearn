@@ -23,7 +23,7 @@ import {
   goalCustomer, K_DOLLAR, K_FIVE, MIN_BILL_PX, MIN_DIME_PX, nextPiece, NICKEL, paid, PENNY, planCustomer, QUARTER, recordCustomer, ROUND_STARS, roundSize, taughtCustomer, TIERS,
   valueOf, type CustomerPlan, type TierParams,
 } from './rules';
-import { amountClip, costsClip, itemClips, OPENING_GAP, pickItemClip, customerSpeaking, payClip, prioritizeVoice, queueVoice, QUESTION_CLIP, recordVoice, sayName, stopVoice, TOTAL_GAP, updateVoice, voiceBusy } from './voice';
+import { amountClip, costsClip, itemClips, OPENING_GAP, pickItemClip, customerSpeaking, payClip, prioritizeVoice, queueVoice, QUESTION_CLIP, recordVoice, sayName, stopVoice, TOTAL_GAP, updateVoice, voiceBusy, voiceNow } from './voice';
 
 export { GAME_ID };
 const ART = 'market-stall/';
@@ -436,6 +436,8 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
 
   // ---- the current customer
   let plan: CustomerPlan = goalCustomer(), who = 0, good = 0, good2 = 1, mergeDur = MERGE_SECONDS, moment = ENTER, momentT = 0, namesSaid = 0, asked = false, lastOpener = -1;
+  /** A name asked for but not yet heard (its bit and clip): it joins namesSaid only once it starts playing. */
+  let nameWait = 0, nameWaitClip = '';
   const dishKind = new Int8Array(MAX_DISH), dishPx = new Float32Array(MAX_DISH), dishPy = new Float32Array(MAX_DISH), dishHop = new Float32Array(MAX_DISH).fill(9);
   /** Pieces in the dish (the payment) and landed so far. */
   let dishN = 0, dishLanded = 0, dropTo = 0;
@@ -1178,7 +1180,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     play('whoosh', 'B', 0, 0.45);
   }
   function resetCustomer(): void {
-    dishLanded = 0; pourIdx = 0; pourLeft = 0; lit = 0; given = 0; committed = 0; counter = 0; countLeft = 0; pawN = 0; pawLost = 0; namesSaid = 0; asked = false;
+    dishLanded = 0; pourIdx = 0; pourLeft = 0; lit = 0; given = 0; committed = 0; counter = 0; countLeft = 0; pawN = 0; pawLost = 0; namesSaid = 0; nameWait = 0; asked = false;
     cupsTotal = planned();
     cupPulse.fill(9); dishHop.fill(9); wellHop.fill(9);
     assisted = intro; deliberate = true; actions = 0; bounced = false; bouncesHere = 0;
@@ -2531,9 +2533,13 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
     carry.well = w; carry.kind = tillKind[w]!; carryT = 0;
     if (isBill(carry.kind)) play('paper-rustle', 'A', 0, 0.6); else play('pop', 'B', 2, 0.5);
     particles.glints(wellX[w]!, wellY[w]!, 2, wellWs[w]! * 0.35);
-    // A kind's name is said the first time it is handed over to this customer, never again for the same customer.
-    const bit = nameBit(carry.kind);
-    if ((namesSaid & bit) === 0 && sayName(audio, nameClip(carry.kind))) namesSaid |= bit;
+    // A kind's name is said the first time it is handed over to this customer, never again for the same customer. It
+    // counts as said only once it is heard: a clip that decodes too late to play leaves the next pick of the kind to say it.
+    const bit = nameBit(carry.kind), clip = nameClip(carry.kind);
+    if ((namesSaid & bit) === 0 && sayName(audio, clip)) {
+      if (voiceNow(audio) === clip) namesSaid |= bit;
+      else { nameWait = bit; nameWaitClip = clip; }
+    }
   }
   function release(x: number, y: number): void {
     carry.active = false;
@@ -2785,6 +2791,10 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
       const started = performance.now(); sceneT += dt;
       syncSoundIcon(soundButton, services); soundButton.update(dt, input.pointer.x, input.pointer.y);
       updateVoice(audio, dt);
+      if (nameWait) {
+        if (voiceNow(audio) === nameWaitClip) { namesSaid |= nameWait; nameWait = 0; }
+        else if (!voiceBusy(audio)) nameWait = 0; // the request expired unheard, was cut by another clip, or speech stopped
+      }
       if (playable()) updatePlay(dt); else if (phase === 'closing') updateClosing(dt); else updateResult(dt);
       updateHover(dt);
       askIdle(); updateFlights(dt); particles.update(dt);
