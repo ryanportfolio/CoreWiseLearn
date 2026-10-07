@@ -244,6 +244,15 @@ function fewestTask(random: () => number, last: number): TaskPlan {
   return p;
 }
 
+/** A lock task for an exact amount (the debug probe walks every amount step 4 and 5 can ask for). */
+export function lockPlanFor(step: 4 | 5, total: number): TaskPlan {
+  const p = plan(step, 'lock', total);
+  p.quarters = step === 5 || total >= 25;
+  if (step === 4) fewest(total, p.quarters, p.first);
+  else p.slots = fewest(total, true, [0, 0, 0, 0]);
+  return p;
+}
+
 /** Shuffle the tags and their forms together. */
 function shuffleTags(p: TaskPlan, random: () => number): void {
   for (let i = p.tags.length - 1; i > 0; i--) {
@@ -398,6 +407,17 @@ export function lockTakes(kind: number, cur: ArrayLike<number>, rest: number, fi
 }
 
 const scratch = [0, 0, 0, 0];
+/**
+ * Step 4's room rule (round CL4): the open lock has room for `room` more coins (the most its grid holds with every coin
+ * and tag whole, less the coins in it and on their way). A coin is taken only if it and the fewest coins for what is
+ * then left still fit. The largest coin worth no more than the rest always passes when the coins already sent plus the
+ * fewest for the rest fit, which taking it keeps true, so the room never leaves the lock stuck.
+ */
+export function roomTakes(kind: number, rest: number, room: number, quarters: boolean): boolean {
+  const value = COIN_VALUE[kind]!;
+  if (value > rest) return false;
+  return 1 + fewest(rest - value, quarters, scratch) <= room;
+}
 /**
  * Step 5's lock rule: a coin is taken only if the rest can still be made with the slots left, that is when the fewest
  * coins for the rest minus this coin is exactly one less than the slots left. The greedy coin always qualifies, so the
