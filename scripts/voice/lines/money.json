@@ -960,6 +960,2139 @@
     {
       "file": "thanks-3",
       "text": "Lovely, thanks!"
+    },
+    {
+      "file": "costs-1",
+      "text": "That costs one cent.",
+      "accept": [
+        "That costs 1¢.",
+        "That costs 1 cents."
+      ]
+    },
+    {
+      "file": "costs-2",
+      "text": "That costs two cents.",
+      "accept": [
+        "That costs 2¢.",
+        "That costs 2 cents."
+      ]
+    },
+    {
+      "file": "costs-3",
+      "text": "That costs three cents.",
+      "accept": [
+        "That costs 3¢.",
+        "That costs 3 cents."
+      ]
+    },
+    {
+      "file": "costs-4",
+      "text": "That costs four cents.",
+      "accept": [
+        "That costs 4¢.",
+        "That costs 4 cents."
+      ]
+    },
+    {
+      "file": "costs-5",
+      "text": "That costs five cents.",
+      "accept": [
+        "That costs 5¢.",
+        "That costs 5 cents."
+      ]
+    },
+    {
+      "file": "costs-6",
+      "text": "That costs six cents.",
+      "accept": [
+        "That costs 6¢.",
+        "That costs 6 cents."
+      ]
+    },
+    {
+      "file": "costs-7",
+      "text": "That costs seven cents.",
+      "accept": [
+        "That costs 7¢.",
+        "That costs 7 cents."
+      ]
+    },
+    {
+      "file": "costs-8",
+      "text": "That costs eight cents.",
+      "accept": [
+        "That costs 8¢.",
+        "That costs 8 cents."
+      ]
+    },
+    {
+      "file": "costs-9",
+      "text": "That costs nine cents.",
+      "accept": [
+        "That costs 9¢.",
+        "That costs 9 cents."
+      ]
+    },
+    {
+      "file": "costs-10",
+      "text": "That costs ten cents.",
+      "accept": [
+        "That costs 10¢.",
+        "That costs 10 cents."
+      ]
+    },
+    {
+      "file": "costs-11",
+      "text": "That costs eleven cents.",
+      "accept": [
+        "That costs 11¢.",
+        "That costs 11 cents."
+      ]
+    },
+    {
+      "file": "costs-12",
+      "text": "That costs twelve cents.",
+      "accept": [
+        "That costs 12¢.",
+        "That costs 12 cents."
+      ]
+    },
+    {
+      "file": "costs-13",
+      "text": "That costs thirteen cents.",
+      "accept": [
+        "That costs 13¢.",
+        "That costs 13 cents."
+      ]
+    },
+    {
+      "file": "costs-14",
+      "text": "That costs fourteen cents.",
+      "accept": [
+        "That costs 14¢.",
+        "That costs 14 cents."
+      ]
+    },
+    {
+      "file": "costs-15",
+      "text": "That costs fifteen cents.",
+      "accept": [
+        "That costs 15¢.",
+        "That costs 15 cents."
+      ]
+    },
+    {
+      "file": "costs-16",
+      "text": "That costs sixteen cents.",
+      "accept": [
+        "That costs 16¢.",
+        "That costs 16 cents."
+      ]
+    },
+    {
+      "file": "costs-17",
+      "text": "That costs seventeen cents.",
+      "accept": [
+        "That costs 17¢.",
+        "That costs 17 cents."
+      ]
+    },
+    {
+      "file": "costs-18",
+      "text": "That costs eighteen cents.",
+      "accept": [
+        "That costs 18¢.",
+        "That costs 18 cents."
+      ]
+    },
+    {
+      "file": "costs-19",
+      "text": "That costs nineteen cents.",
+      "accept": [
+        "That costs 19¢.",
+        "That costs 19 cents."
+      ]
+    },
+    {
+      "file": "costs-20",
+      "text": "That costs twenty cents.",
+      "accept": [
+        "That costs 20¢.",
+        "That costs 20 cents."
+      ]
+    },
+    {
+      "file": "costs-21",
+      "text": "That costs twenty-one cents.",
+      "accept": [
+        "That costs 21¢.",
+        "That costs 21 cents."
+      ]
+    },
+    {
+      "file": "costs-22",
+      "text": "That costs twenty-two cents.",
+      "accept": [
+        "That costs 22¢.",
+        "That costs 22 cents."
+      ]
+    },
+    {
+      "file": "costs-23",
+      "text": "That costs twenty-three cents.",
+      "accept": [
+        "That costs 23¢.",
+        "That costs 23 cents."
+      ]
+    },
+    {
+      "file": "costs-24",
+      "text": "That costs twenty-four cents.",
+      "accept": [
+        "That costs 24¢.",
+        "That costs 24 cents."
+      ]
+    },
+    {
+      "file": "costs-25",
+      "text": "That costs twenty-five cents.",
+      "accept": [
+        "That costs 25¢.",
+        "That costs 25 cents."
+      ]
+    },
+    {
+      "file": "costs-26",
+      "text": "That costs twenty-six cents.",
+      "accept": [
+        "That costs 26¢.",
+        "That costs 26 cents."
+      ]
+    },
+    {
+      "file": "costs-27",
+      "text": "That costs twenty-seven cents.",
+      "accept": [
+        "That costs 27¢.",
+        "That costs 27 cents."
+      ]
+    },
+    {
+      "file": "costs-28",
+      "text": "That costs twenty-eight cents.",
+      "accept": [
+        "That costs 28¢.",
+        "That costs 28 cents."
+      ]
+    },
+    {
+      "file": "costs-29",
+      "text": "That costs twenty-nine cents.",
+      "accept": [
+        "That costs 29¢.",
+        "That costs 29 cents."
+      ]
+    },
+    {
+      "file": "costs-30",
+      "text": "That costs thirty cents.",
+      "accept": [
+        "That costs 30¢.",
+        "That costs 30 cents."
+      ]
+    },
+    {
+      "file": "costs-31",
+      "text": "That costs thirty-one cents.",
+      "accept": [
+        "That costs 31¢.",
+        "That costs 31 cents."
+      ]
+    },
+    {
+      "file": "costs-32",
+      "text": "That costs thirty-two cents.",
+      "accept": [
+        "That costs 32¢.",
+        "That costs 32 cents."
+      ]
+    },
+    {
+      "file": "costs-33",
+      "text": "That costs thirty-three cents.",
+      "accept": [
+        "That costs 33¢.",
+        "That costs 33 cents."
+      ]
+    },
+    {
+      "file": "costs-34",
+      "text": "That costs thirty-four cents.",
+      "accept": [
+        "That costs 34¢.",
+        "That costs 34 cents."
+      ]
+    },
+    {
+      "file": "costs-35",
+      "text": "That costs thirty-five cents.",
+      "accept": [
+        "That costs 35¢.",
+        "That costs 35 cents."
+      ]
+    },
+    {
+      "file": "costs-36",
+      "text": "That costs thirty-six cents.",
+      "accept": [
+        "That costs 36¢.",
+        "That costs 36 cents."
+      ]
+    },
+    {
+      "file": "costs-37",
+      "text": "That costs thirty-seven cents.",
+      "accept": [
+        "That costs 37¢.",
+        "That costs 37 cents."
+      ]
+    },
+    {
+      "file": "costs-38",
+      "text": "That costs thirty-eight cents.",
+      "accept": [
+        "That costs 38¢.",
+        "That costs 38 cents."
+      ]
+    },
+    {
+      "file": "costs-39",
+      "text": "That costs thirty-nine cents.",
+      "accept": [
+        "That costs 39¢.",
+        "That costs 39 cents."
+      ]
+    },
+    {
+      "file": "costs-40",
+      "text": "That costs forty cents.",
+      "accept": [
+        "That costs 40¢.",
+        "That costs 40 cents."
+      ]
+    },
+    {
+      "file": "costs-41",
+      "text": "That costs forty-one cents.",
+      "accept": [
+        "That costs 41¢.",
+        "That costs 41 cents."
+      ]
+    },
+    {
+      "file": "costs-42",
+      "text": "That costs forty-two cents.",
+      "accept": [
+        "That costs 42¢.",
+        "That costs 42 cents."
+      ]
+    },
+    {
+      "file": "costs-43",
+      "text": "That costs forty-three cents.",
+      "accept": [
+        "That costs 43¢.",
+        "That costs 43 cents."
+      ]
+    },
+    {
+      "file": "costs-44",
+      "text": "That costs forty-four cents.",
+      "accept": [
+        "That costs 44¢.",
+        "That costs 44 cents."
+      ]
+    },
+    {
+      "file": "costs-45",
+      "text": "That costs forty-five cents.",
+      "accept": [
+        "That costs 45¢.",
+        "That costs 45 cents."
+      ]
+    },
+    {
+      "file": "costs-46",
+      "text": "That costs forty-six cents.",
+      "accept": [
+        "That costs 46¢.",
+        "That costs 46 cents."
+      ]
+    },
+    {
+      "file": "costs-47",
+      "text": "That costs forty-seven cents.",
+      "accept": [
+        "That costs 47¢.",
+        "That costs 47 cents."
+      ]
+    },
+    {
+      "file": "costs-48",
+      "text": "That costs forty-eight cents.",
+      "accept": [
+        "That costs 48¢.",
+        "That costs 48 cents."
+      ]
+    },
+    {
+      "file": "costs-49",
+      "text": "That costs forty-nine cents.",
+      "accept": [
+        "That costs 49¢.",
+        "That costs 49 cents."
+      ]
+    },
+    {
+      "file": "costs-50",
+      "text": "That costs fifty cents.",
+      "accept": [
+        "That costs 50¢.",
+        "That costs 50 cents."
+      ]
+    },
+    {
+      "file": "costs-51",
+      "text": "That costs fifty-one cents.",
+      "accept": [
+        "That costs 51¢.",
+        "That costs 51 cents."
+      ]
+    },
+    {
+      "file": "costs-52",
+      "text": "That costs fifty-two cents.",
+      "accept": [
+        "That costs 52¢.",
+        "That costs 52 cents."
+      ]
+    },
+    {
+      "file": "costs-53",
+      "text": "That costs fifty-three cents.",
+      "accept": [
+        "That costs 53¢.",
+        "That costs 53 cents."
+      ]
+    },
+    {
+      "file": "costs-54",
+      "text": "That costs fifty-four cents.",
+      "accept": [
+        "That costs 54¢.",
+        "That costs 54 cents."
+      ]
+    },
+    {
+      "file": "costs-55",
+      "text": "That costs fifty-five cents.",
+      "accept": [
+        "That costs 55¢.",
+        "That costs 55 cents."
+      ]
+    },
+    {
+      "file": "costs-56",
+      "text": "That costs fifty-six cents.",
+      "accept": [
+        "That costs 56¢.",
+        "That costs 56 cents."
+      ]
+    },
+    {
+      "file": "costs-57",
+      "text": "That costs fifty-seven cents.",
+      "accept": [
+        "That costs 57¢.",
+        "That costs 57 cents."
+      ]
+    },
+    {
+      "file": "costs-58",
+      "text": "That costs fifty-eight cents.",
+      "accept": [
+        "That costs 58¢.",
+        "That costs 58 cents."
+      ]
+    },
+    {
+      "file": "costs-59",
+      "text": "That costs fifty-nine cents.",
+      "accept": [
+        "That costs 59¢.",
+        "That costs 59 cents."
+      ]
+    },
+    {
+      "file": "costs-60",
+      "text": "That costs sixty cents.",
+      "accept": [
+        "That costs 60¢.",
+        "That costs 60 cents."
+      ]
+    },
+    {
+      "file": "costs-61",
+      "text": "That costs sixty-one cents.",
+      "accept": [
+        "That costs 61¢.",
+        "That costs 61 cents."
+      ]
+    },
+    {
+      "file": "costs-62",
+      "text": "That costs sixty-two cents.",
+      "accept": [
+        "That costs 62¢.",
+        "That costs 62 cents."
+      ]
+    },
+    {
+      "file": "costs-63",
+      "text": "That costs sixty-three cents.",
+      "accept": [
+        "That costs 63¢.",
+        "That costs 63 cents."
+      ]
+    },
+    {
+      "file": "costs-64",
+      "text": "That costs sixty-four cents.",
+      "accept": [
+        "That costs 64¢.",
+        "That costs 64 cents."
+      ]
+    },
+    {
+      "file": "costs-65",
+      "text": "That costs sixty-five cents.",
+      "accept": [
+        "That costs 65¢.",
+        "That costs 65 cents."
+      ]
+    },
+    {
+      "file": "costs-66",
+      "text": "That costs sixty-six cents.",
+      "accept": [
+        "That costs 66¢.",
+        "That costs 66 cents."
+      ]
+    },
+    {
+      "file": "costs-67",
+      "text": "That costs sixty-seven cents.",
+      "accept": [
+        "That costs 67¢.",
+        "That costs 67 cents."
+      ]
+    },
+    {
+      "file": "costs-68",
+      "text": "That costs sixty-eight cents.",
+      "accept": [
+        "That costs 68¢.",
+        "That costs 68 cents."
+      ]
+    },
+    {
+      "file": "costs-69",
+      "text": "That costs sixty-nine cents.",
+      "accept": [
+        "That costs 69¢.",
+        "That costs 69 cents."
+      ]
+    },
+    {
+      "file": "costs-70",
+      "text": "That costs seventy cents.",
+      "accept": [
+        "That costs 70¢.",
+        "That costs 70 cents."
+      ]
+    },
+    {
+      "file": "costs-71",
+      "text": "That costs seventy-one cents.",
+      "accept": [
+        "That costs 71¢.",
+        "That costs 71 cents."
+      ]
+    },
+    {
+      "file": "costs-72",
+      "text": "That costs seventy-two cents.",
+      "accept": [
+        "That costs 72¢.",
+        "That costs 72 cents."
+      ]
+    },
+    {
+      "file": "costs-73",
+      "text": "That costs seventy-three cents.",
+      "accept": [
+        "That costs 73¢.",
+        "That costs 73 cents."
+      ]
+    },
+    {
+      "file": "costs-74",
+      "text": "That costs seventy-four cents.",
+      "accept": [
+        "That costs 74¢.",
+        "That costs 74 cents."
+      ]
+    },
+    {
+      "file": "costs-75",
+      "text": "That costs seventy-five cents.",
+      "accept": [
+        "That costs 75¢.",
+        "That costs 75 cents."
+      ]
+    },
+    {
+      "file": "costs-76",
+      "text": "That costs seventy-six cents.",
+      "accept": [
+        "That costs 76¢.",
+        "That costs 76 cents."
+      ]
+    },
+    {
+      "file": "costs-77",
+      "text": "That costs seventy-seven cents.",
+      "accept": [
+        "That costs 77¢.",
+        "That costs 77 cents."
+      ]
+    },
+    {
+      "file": "costs-78",
+      "text": "That costs seventy-eight cents.",
+      "accept": [
+        "That costs 78¢.",
+        "That costs 78 cents."
+      ]
+    },
+    {
+      "file": "costs-79",
+      "text": "That costs seventy-nine cents.",
+      "accept": [
+        "That costs 79¢.",
+        "That costs 79 cents."
+      ]
+    },
+    {
+      "file": "costs-80",
+      "text": "That costs eighty cents.",
+      "accept": [
+        "That costs 80¢.",
+        "That costs 80 cents."
+      ]
+    },
+    {
+      "file": "costs-81",
+      "text": "That costs eighty-one cents.",
+      "accept": [
+        "That costs 81¢.",
+        "That costs 81 cents."
+      ]
+    },
+    {
+      "file": "costs-82",
+      "text": "That costs eighty-two cents.",
+      "accept": [
+        "That costs 82¢.",
+        "That costs 82 cents."
+      ]
+    },
+    {
+      "file": "costs-83",
+      "text": "That costs eighty-three cents.",
+      "accept": [
+        "That costs 83¢.",
+        "That costs 83 cents."
+      ]
+    },
+    {
+      "file": "costs-84",
+      "text": "That costs eighty-four cents.",
+      "accept": [
+        "That costs 84¢.",
+        "That costs 84 cents."
+      ]
+    },
+    {
+      "file": "costs-85",
+      "text": "That costs eighty-five cents.",
+      "accept": [
+        "That costs 85¢.",
+        "That costs 85 cents."
+      ]
+    },
+    {
+      "file": "costs-86",
+      "text": "That costs eighty-six cents.",
+      "accept": [
+        "That costs 86¢.",
+        "That costs 86 cents."
+      ]
+    },
+    {
+      "file": "costs-87",
+      "text": "That costs eighty-seven cents.",
+      "accept": [
+        "That costs 87¢.",
+        "That costs 87 cents."
+      ]
+    },
+    {
+      "file": "costs-88",
+      "text": "That costs eighty-eight cents.",
+      "accept": [
+        "That costs 88¢.",
+        "That costs 88 cents."
+      ]
+    },
+    {
+      "file": "costs-89",
+      "text": "That costs eighty-nine cents.",
+      "accept": [
+        "That costs 89¢.",
+        "That costs 89 cents."
+      ]
+    },
+    {
+      "file": "costs-90",
+      "text": "That costs ninety cents.",
+      "accept": [
+        "That costs 90¢.",
+        "That costs 90 cents."
+      ]
+    },
+    {
+      "file": "costs-91",
+      "text": "That costs ninety-one cents.",
+      "accept": [
+        "That costs 91¢.",
+        "That costs 91 cents."
+      ]
+    },
+    {
+      "file": "costs-92",
+      "text": "That costs ninety-two cents.",
+      "accept": [
+        "That costs 92¢.",
+        "That costs 92 cents."
+      ]
+    },
+    {
+      "file": "costs-93",
+      "text": "That costs ninety-three cents.",
+      "accept": [
+        "That costs 93¢.",
+        "That costs 93 cents."
+      ]
+    },
+    {
+      "file": "costs-94",
+      "text": "That costs ninety-four cents.",
+      "accept": [
+        "That costs 94¢.",
+        "That costs 94 cents."
+      ]
+    },
+    {
+      "file": "costs-95",
+      "text": "That costs ninety-five cents.",
+      "accept": [
+        "That costs 95¢.",
+        "That costs 95 cents."
+      ]
+    },
+    {
+      "file": "costs-100",
+      "text": "That costs one dollar.",
+      "accept": [
+        "That costs $1.",
+        "That costs $1.00."
+      ]
+    },
+    {
+      "file": "costs-105",
+      "text": "That costs one dollar and five cents.",
+      "accept": [
+        "That costs $1.05."
+      ]
+    },
+    {
+      "file": "costs-110",
+      "text": "That costs one dollar and ten cents.",
+      "accept": [
+        "That costs $1.10."
+      ]
+    },
+    {
+      "file": "costs-115",
+      "text": "That costs one dollar and fifteen cents.",
+      "accept": [
+        "That costs $1.15."
+      ]
+    },
+    {
+      "file": "costs-120",
+      "text": "That costs one dollar and twenty cents.",
+      "accept": [
+        "That costs $1.20."
+      ]
+    },
+    {
+      "file": "costs-125",
+      "text": "That costs one dollar and twenty-five cents.",
+      "accept": [
+        "That costs $1.25."
+      ]
+    },
+    {
+      "file": "costs-130",
+      "text": "That costs one dollar and thirty cents.",
+      "accept": [
+        "That costs $1.30."
+      ]
+    },
+    {
+      "file": "costs-135",
+      "text": "That costs one dollar and thirty-five cents.",
+      "accept": [
+        "That costs $1.35."
+      ]
+    },
+    {
+      "file": "costs-140",
+      "text": "That costs one dollar and forty cents.",
+      "accept": [
+        "That costs $1.40."
+      ]
+    },
+    {
+      "file": "costs-145",
+      "text": "That costs one dollar and forty-five cents.",
+      "accept": [
+        "That costs $1.45."
+      ]
+    },
+    {
+      "file": "costs-150",
+      "text": "That costs one dollar and fifty cents.",
+      "accept": [
+        "That costs $1.50."
+      ]
+    },
+    {
+      "file": "costs-155",
+      "text": "That costs one dollar and fifty-five cents.",
+      "accept": [
+        "That costs $1.55."
+      ]
+    },
+    {
+      "file": "costs-160",
+      "text": "That costs one dollar and sixty cents.",
+      "accept": [
+        "That costs $1.60."
+      ]
+    },
+    {
+      "file": "costs-165",
+      "text": "That costs one dollar and sixty-five cents.",
+      "accept": [
+        "That costs $1.65."
+      ]
+    },
+    {
+      "file": "costs-170",
+      "text": "That costs one dollar and seventy cents.",
+      "accept": [
+        "That costs $1.70."
+      ]
+    },
+    {
+      "file": "costs-175",
+      "text": "That costs one dollar and seventy-five cents.",
+      "accept": [
+        "That costs $1.75."
+      ]
+    },
+    {
+      "file": "costs-180",
+      "text": "That costs one dollar and eighty cents.",
+      "accept": [
+        "That costs $1.80."
+      ]
+    },
+    {
+      "file": "costs-185",
+      "text": "That costs one dollar and eighty-five cents.",
+      "accept": [
+        "That costs $1.85."
+      ]
+    },
+    {
+      "file": "costs-190",
+      "text": "That costs one dollar and ninety cents.",
+      "accept": [
+        "That costs $1.90."
+      ]
+    },
+    {
+      "file": "costs-195",
+      "text": "That costs one dollar and ninety-five cents.",
+      "accept": [
+        "That costs $1.95."
+      ]
+    },
+    {
+      "file": "costs-200",
+      "text": "That costs two dollars.",
+      "accept": [
+        "That costs $2.",
+        "That costs $2.00."
+      ]
+    },
+    {
+      "file": "costs-205",
+      "text": "That costs two dollars and five cents.",
+      "accept": [
+        "That costs $2.05."
+      ]
+    },
+    {
+      "file": "costs-210",
+      "text": "That costs two dollars and ten cents.",
+      "accept": [
+        "That costs $2.10."
+      ]
+    },
+    {
+      "file": "costs-215",
+      "text": "That costs two dollars and fifteen cents.",
+      "accept": [
+        "That costs $2.15."
+      ]
+    },
+    {
+      "file": "costs-220",
+      "text": "That costs two dollars and twenty cents.",
+      "accept": [
+        "That costs $2.20."
+      ]
+    },
+    {
+      "file": "costs-225",
+      "text": "That costs two dollars and twenty-five cents.",
+      "accept": [
+        "That costs $2.25."
+      ]
+    },
+    {
+      "file": "costs-230",
+      "text": "That costs two dollars and thirty cents.",
+      "accept": [
+        "That costs $2.30."
+      ]
+    },
+    {
+      "file": "costs-235",
+      "text": "That costs two dollars and thirty-five cents.",
+      "accept": [
+        "That costs $2.35."
+      ]
+    },
+    {
+      "file": "costs-240",
+      "text": "That costs two dollars and forty cents.",
+      "accept": [
+        "That costs $2.40."
+      ]
+    },
+    {
+      "file": "costs-245",
+      "text": "That costs two dollars and forty-five cents.",
+      "accept": [
+        "That costs $2.45."
+      ]
+    },
+    {
+      "file": "costs-250",
+      "text": "That costs two dollars and fifty cents.",
+      "accept": [
+        "That costs $2.50."
+      ]
+    },
+    {
+      "file": "costs-255",
+      "text": "That costs two dollars and fifty-five cents.",
+      "accept": [
+        "That costs $2.55."
+      ]
+    },
+    {
+      "file": "costs-260",
+      "text": "That costs two dollars and sixty cents.",
+      "accept": [
+        "That costs $2.60."
+      ]
+    },
+    {
+      "file": "costs-265",
+      "text": "That costs two dollars and sixty-five cents.",
+      "accept": [
+        "That costs $2.65."
+      ]
+    },
+    {
+      "file": "costs-270",
+      "text": "That costs two dollars and seventy cents.",
+      "accept": [
+        "That costs $2.70."
+      ]
+    },
+    {
+      "file": "costs-275",
+      "text": "That costs two dollars and seventy-five cents.",
+      "accept": [
+        "That costs $2.75."
+      ]
+    },
+    {
+      "file": "costs-280",
+      "text": "That costs two dollars and eighty cents.",
+      "accept": [
+        "That costs $2.80."
+      ]
+    },
+    {
+      "file": "costs-285",
+      "text": "That costs two dollars and eighty-five cents.",
+      "accept": [
+        "That costs $2.85."
+      ]
+    },
+    {
+      "file": "costs-290",
+      "text": "That costs two dollars and ninety cents.",
+      "accept": [
+        "That costs $2.90."
+      ]
+    },
+    {
+      "file": "costs-295",
+      "text": "That costs two dollars and ninety-five cents.",
+      "accept": [
+        "That costs $2.95."
+      ]
+    },
+    {
+      "file": "costs-300",
+      "text": "That costs three dollars.",
+      "accept": [
+        "That costs $3.",
+        "That costs $3.00."
+      ]
+    },
+    {
+      "file": "costs-400",
+      "text": "That costs four dollars.",
+      "accept": [
+        "That costs $4.",
+        "That costs $4.00."
+      ]
+    },
+    {
+      "file": "costs-500",
+      "text": "That costs five dollars.",
+      "accept": [
+        "That costs $5.",
+        "That costs $5.00."
+      ]
+    },
+    {
+      "file": "costs-600",
+      "text": "That costs six dollars.",
+      "accept": [
+        "That costs $6.",
+        "That costs $6.00."
+      ]
+    },
+    {
+      "file": "costs-700",
+      "text": "That costs seven dollars.",
+      "accept": [
+        "That costs $7.",
+        "That costs $7.00."
+      ]
+    },
+    {
+      "file": "costs-800",
+      "text": "That costs eight dollars.",
+      "accept": [
+        "That costs $8.",
+        "That costs $8.00."
+      ]
+    },
+    {
+      "file": "costs-900",
+      "text": "That costs nine dollars.",
+      "accept": [
+        "That costs $9.",
+        "That costs $9.00."
+      ]
+    },
+    {
+      "file": "costs-1000",
+      "text": "That costs ten dollars.",
+      "accept": [
+        "That costs $10.",
+        "That costs $10.00."
+      ]
+    },
+    {
+      "file": "costs-1100",
+      "text": "That costs eleven dollars.",
+      "accept": [
+        "That costs $11.",
+        "That costs $11.00."
+      ]
+    },
+    {
+      "file": "costs-1200",
+      "text": "That costs twelve dollars.",
+      "accept": [
+        "That costs $12.",
+        "That costs $12.00."
+      ]
+    },
+    {
+      "file": "costs-1300",
+      "text": "That costs thirteen dollars.",
+      "accept": [
+        "That costs $13.",
+        "That costs $13.00."
+      ]
+    },
+    {
+      "file": "costs-1400",
+      "text": "That costs fourteen dollars.",
+      "accept": [
+        "That costs $14.",
+        "That costs $14.00."
+      ]
+    },
+    {
+      "file": "costs-1500",
+      "text": "That costs fifteen dollars.",
+      "accept": [
+        "That costs $15.",
+        "That costs $15.00."
+      ]
+    },
+    {
+      "file": "costs-1600",
+      "text": "That costs sixteen dollars.",
+      "accept": [
+        "That costs $16.",
+        "That costs $16.00."
+      ]
+    },
+    {
+      "file": "costs-1700",
+      "text": "That costs seventeen dollars.",
+      "accept": [
+        "That costs $17.",
+        "That costs $17.00."
+      ]
+    },
+    {
+      "file": "costs-1800",
+      "text": "That costs eighteen dollars.",
+      "accept": [
+        "That costs $18.",
+        "That costs $18.00."
+      ]
+    },
+    {
+      "file": "costs-1900",
+      "text": "That costs nineteen dollars.",
+      "accept": [
+        "That costs $19.",
+        "That costs $19.00."
+      ]
+    },
+    {
+      "file": "pay-10",
+      "text": "Here's ten cents.",
+      "accept": [
+        "Here is ten cents.",
+        "Here's 10¢.",
+        "Here is 10¢.",
+        "Here's 10 cents.",
+        "Here is 10 cents."
+      ]
+    },
+    {
+      "file": "pay-20",
+      "text": "Here's twenty cents.",
+      "accept": [
+        "Here is twenty cents.",
+        "Here's 20¢.",
+        "Here is 20¢.",
+        "Here's 20 cents.",
+        "Here is 20 cents."
+      ]
+    },
+    {
+      "file": "pay-25",
+      "text": "Here's twenty-five cents.",
+      "accept": [
+        "Here is twenty-five cents.",
+        "Here's 25¢.",
+        "Here is 25¢.",
+        "Here's 25 cents.",
+        "Here is 25 cents."
+      ]
+    },
+    {
+      "file": "pay-30",
+      "text": "Here's thirty cents.",
+      "accept": [
+        "Here is thirty cents.",
+        "Here's 30¢.",
+        "Here is 30¢.",
+        "Here's 30 cents.",
+        "Here is 30 cents."
+      ]
+    },
+    {
+      "file": "pay-40",
+      "text": "Here's forty cents.",
+      "accept": [
+        "Here is forty cents.",
+        "Here's 40¢.",
+        "Here is 40¢.",
+        "Here's 40 cents.",
+        "Here is 40 cents."
+      ]
+    },
+    {
+      "file": "pay-50",
+      "text": "Here's fifty cents.",
+      "accept": [
+        "Here is fifty cents.",
+        "Here's 50¢.",
+        "Here is 50¢.",
+        "Here's 50 cents.",
+        "Here is 50 cents."
+      ]
+    },
+    {
+      "file": "pay-60",
+      "text": "Here's sixty cents.",
+      "accept": [
+        "Here is sixty cents.",
+        "Here's 60¢.",
+        "Here is 60¢.",
+        "Here's 60 cents.",
+        "Here is 60 cents."
+      ]
+    },
+    {
+      "file": "pay-70",
+      "text": "Here's seventy cents.",
+      "accept": [
+        "Here is seventy cents.",
+        "Here's 70¢.",
+        "Here is 70¢.",
+        "Here's 70 cents.",
+        "Here is 70 cents."
+      ]
+    },
+    {
+      "file": "pay-75",
+      "text": "Here's seventy-five cents.",
+      "accept": [
+        "Here is seventy-five cents.",
+        "Here's 75¢.",
+        "Here is 75¢.",
+        "Here's 75 cents.",
+        "Here is 75 cents."
+      ]
+    },
+    {
+      "file": "pay-80",
+      "text": "Here's eighty cents.",
+      "accept": [
+        "Here is eighty cents.",
+        "Here's 80¢.",
+        "Here is 80¢.",
+        "Here's 80 cents.",
+        "Here is 80 cents."
+      ]
+    },
+    {
+      "file": "pay-90",
+      "text": "Here's ninety cents.",
+      "accept": [
+        "Here is ninety cents.",
+        "Here's 90¢.",
+        "Here is 90¢.",
+        "Here's 90 cents.",
+        "Here is 90 cents."
+      ]
+    },
+    {
+      "file": "pay-100",
+      "text": "Here's one dollar.",
+      "accept": [
+        "Here is one dollar.",
+        "Here's $1.",
+        "Here is $1.",
+        "Here's $1.00.",
+        "Here is $1.00."
+      ]
+    },
+    {
+      "file": "pay-200",
+      "text": "Here's two dollars.",
+      "accept": [
+        "Here is two dollars.",
+        "Here's $2.",
+        "Here is $2.",
+        "Here's $2.00.",
+        "Here is $2.00."
+      ]
+    },
+    {
+      "file": "pay-500",
+      "text": "Here's five dollars.",
+      "accept": [
+        "Here is five dollars.",
+        "Here's $5.",
+        "Here is $5.",
+        "Here's $5.00.",
+        "Here is $5.00."
+      ]
+    },
+    {
+      "file": "pay-1000",
+      "text": "Here's ten dollars.",
+      "accept": [
+        "Here is ten dollars.",
+        "Here's $10.",
+        "Here is $10.",
+        "Here's $10.00.",
+        "Here is $10.00."
+      ]
+    },
+    {
+      "file": "pay-1500",
+      "text": "Here's fifteen dollars.",
+      "accept": [
+        "Here is fifteen dollars.",
+        "Here's $15.",
+        "Here is $15.",
+        "Here's $15.00.",
+        "Here is $15.00."
+      ]
+    },
+    {
+      "file": "pay-2000",
+      "text": "Here's twenty dollars.",
+      "accept": [
+        "Here is twenty dollars.",
+        "Here's $20.",
+        "Here is $20.",
+        "Here's $20.00.",
+        "Here is $20.00."
+      ]
+    },
+    {
+      "file": "how-much-change",
+      "text": "How much change do I get?"
+    },
+    {
+      "file": "amount-105",
+      "text": "One dollar and five cents.",
+      "accept": [
+        "$1.05."
+      ]
+    },
+    {
+      "file": "amount-110",
+      "text": "One dollar and ten cents.",
+      "accept": [
+        "$1.10."
+      ]
+    },
+    {
+      "file": "amount-115",
+      "text": "One dollar and fifteen cents.",
+      "accept": [
+        "$1.15."
+      ]
+    },
+    {
+      "file": "amount-120",
+      "text": "One dollar and twenty cents.",
+      "accept": [
+        "$1.20."
+      ]
+    },
+    {
+      "file": "amount-125",
+      "text": "One dollar and twenty-five cents.",
+      "accept": [
+        "$1.25."
+      ]
+    },
+    {
+      "file": "amount-130",
+      "text": "One dollar and thirty cents.",
+      "accept": [
+        "$1.30."
+      ]
+    },
+    {
+      "file": "amount-135",
+      "text": "One dollar and thirty-five cents.",
+      "accept": [
+        "$1.35."
+      ]
+    },
+    {
+      "file": "amount-140",
+      "text": "One dollar and forty cents.",
+      "accept": [
+        "$1.40."
+      ]
+    },
+    {
+      "file": "amount-145",
+      "text": "One dollar and forty-five cents.",
+      "accept": [
+        "$1.45."
+      ]
+    },
+    {
+      "file": "amount-150",
+      "text": "One dollar and fifty cents.",
+      "accept": [
+        "$1.50."
+      ]
+    },
+    {
+      "file": "amount-155",
+      "text": "One dollar and fifty-five cents.",
+      "accept": [
+        "$1.55."
+      ]
+    },
+    {
+      "file": "amount-160",
+      "text": "One dollar and sixty cents.",
+      "accept": [
+        "$1.60."
+      ]
+    },
+    {
+      "file": "amount-165",
+      "text": "One dollar and sixty-five cents.",
+      "accept": [
+        "$1.65."
+      ]
+    },
+    {
+      "file": "amount-170",
+      "text": "One dollar and seventy cents.",
+      "accept": [
+        "$1.70."
+      ]
+    },
+    {
+      "file": "amount-175",
+      "text": "One dollar and seventy-five cents.",
+      "accept": [
+        "$1.75."
+      ]
+    },
+    {
+      "file": "amount-205",
+      "text": "Two dollars and five cents.",
+      "accept": [
+        "$2.05."
+      ]
+    },
+    {
+      "file": "amount-210",
+      "text": "Two dollars and ten cents.",
+      "accept": [
+        "$2.10."
+      ]
+    },
+    {
+      "file": "amount-215",
+      "text": "Two dollars and fifteen cents.",
+      "accept": [
+        "$2.15."
+      ]
+    },
+    {
+      "file": "amount-220",
+      "text": "Two dollars and twenty cents.",
+      "accept": [
+        "$2.20."
+      ]
+    },
+    {
+      "file": "amount-225",
+      "text": "Two dollars and twenty-five cents.",
+      "accept": [
+        "$2.25."
+      ]
+    },
+    {
+      "file": "amount-230",
+      "text": "Two dollars and thirty cents.",
+      "accept": [
+        "$2.30."
+      ]
+    },
+    {
+      "file": "amount-235",
+      "text": "Two dollars and thirty-five cents.",
+      "accept": [
+        "$2.35."
+      ]
+    },
+    {
+      "file": "amount-240",
+      "text": "Two dollars and forty cents.",
+      "accept": [
+        "$2.40."
+      ]
+    },
+    {
+      "file": "amount-245",
+      "text": "Two dollars and forty-five cents.",
+      "accept": [
+        "$2.45."
+      ]
+    },
+    {
+      "file": "amount-250",
+      "text": "Two dollars and fifty cents.",
+      "accept": [
+        "$2.50."
+      ]
+    },
+    {
+      "file": "amount-255",
+      "text": "Two dollars and fifty-five cents.",
+      "accept": [
+        "$2.55."
+      ]
+    },
+    {
+      "file": "amount-260",
+      "text": "Two dollars and sixty cents.",
+      "accept": [
+        "$2.60."
+      ]
+    },
+    {
+      "file": "amount-265",
+      "text": "Two dollars and sixty-five cents.",
+      "accept": [
+        "$2.65."
+      ]
+    },
+    {
+      "file": "amount-270",
+      "text": "Two dollars and seventy cents.",
+      "accept": [
+        "$2.70."
+      ]
+    },
+    {
+      "file": "amount-275",
+      "text": "Two dollars and seventy-five cents.",
+      "accept": [
+        "$2.75."
+      ]
+    },
+    {
+      "file": "amount-280",
+      "text": "Two dollars and eighty cents.",
+      "accept": [
+        "$2.80."
+      ]
+    },
+    {
+      "file": "amount-285",
+      "text": "Two dollars and eighty-five cents.",
+      "accept": [
+        "$2.85."
+      ]
+    },
+    {
+      "file": "amount-290",
+      "text": "Two dollars and ninety cents.",
+      "accept": [
+        "$2.90."
+      ]
+    },
+    {
+      "file": "amount-295",
+      "text": "Two dollars and ninety-five cents.",
+      "accept": [
+        "$2.95."
+      ]
+    },
+    {
+      "file": "amount-305",
+      "text": "Three dollars and five cents.",
+      "accept": [
+        "$3.05."
+      ]
+    },
+    {
+      "file": "amount-310",
+      "text": "Three dollars and ten cents.",
+      "accept": [
+        "$3.10."
+      ]
+    },
+    {
+      "file": "amount-315",
+      "text": "Three dollars and fifteen cents.",
+      "accept": [
+        "$3.15."
+      ]
+    },
+    {
+      "file": "amount-320",
+      "text": "Three dollars and twenty cents.",
+      "accept": [
+        "$3.20."
+      ]
+    },
+    {
+      "file": "amount-325",
+      "text": "Three dollars and twenty-five cents.",
+      "accept": [
+        "$3.25."
+      ]
+    },
+    {
+      "file": "amount-330",
+      "text": "Three dollars and thirty cents.",
+      "accept": [
+        "$3.30."
+      ]
+    },
+    {
+      "file": "amount-335",
+      "text": "Three dollars and thirty-five cents.",
+      "accept": [
+        "$3.35."
+      ]
+    },
+    {
+      "file": "amount-340",
+      "text": "Three dollars and forty cents.",
+      "accept": [
+        "$3.40."
+      ]
+    },
+    {
+      "file": "amount-345",
+      "text": "Three dollars and forty-five cents.",
+      "accept": [
+        "$3.45."
+      ]
+    },
+    {
+      "file": "amount-350",
+      "text": "Three dollars and fifty cents.",
+      "accept": [
+        "$3.50."
+      ]
+    },
+    {
+      "file": "amount-355",
+      "text": "Three dollars and fifty-five cents.",
+      "accept": [
+        "$3.55."
+      ]
+    },
+    {
+      "file": "amount-360",
+      "text": "Three dollars and sixty cents.",
+      "accept": [
+        "$3.60."
+      ]
+    },
+    {
+      "file": "amount-365",
+      "text": "Three dollars and sixty-five cents.",
+      "accept": [
+        "$3.65."
+      ]
+    },
+    {
+      "file": "amount-370",
+      "text": "Three dollars and seventy cents.",
+      "accept": [
+        "$3.70."
+      ]
+    },
+    {
+      "file": "amount-375",
+      "text": "Three dollars and seventy-five cents.",
+      "accept": [
+        "$3.75."
+      ]
+    },
+    {
+      "file": "amount-380",
+      "text": "Three dollars and eighty cents.",
+      "accept": [
+        "$3.80."
+      ]
+    },
+    {
+      "file": "amount-385",
+      "text": "Three dollars and eighty-five cents.",
+      "accept": [
+        "$3.85."
+      ]
+    },
+    {
+      "file": "amount-390",
+      "text": "Three dollars and ninety cents.",
+      "accept": [
+        "$3.90."
+      ]
+    },
+    {
+      "file": "amount-395",
+      "text": "Three dollars and ninety-five cents.",
+      "accept": [
+        "$3.95."
+      ]
+    },
+    {
+      "file": "amount-405",
+      "text": "Four dollars and five cents.",
+      "accept": [
+        "$4.05."
+      ]
+    },
+    {
+      "file": "amount-410",
+      "text": "Four dollars and ten cents.",
+      "accept": [
+        "$4.10."
+      ]
+    },
+    {
+      "file": "amount-415",
+      "text": "Four dollars and fifteen cents.",
+      "accept": [
+        "$4.15."
+      ]
+    },
+    {
+      "file": "amount-420",
+      "text": "Four dollars and twenty cents.",
+      "accept": [
+        "$4.20."
+      ]
+    },
+    {
+      "file": "amount-425",
+      "text": "Four dollars and twenty-five cents.",
+      "accept": [
+        "$4.25."
+      ]
+    },
+    {
+      "file": "amount-430",
+      "text": "Four dollars and thirty cents.",
+      "accept": [
+        "$4.30."
+      ]
+    },
+    {
+      "file": "amount-435",
+      "text": "Four dollars and thirty-five cents.",
+      "accept": [
+        "$4.35."
+      ]
+    },
+    {
+      "file": "amount-440",
+      "text": "Four dollars and forty cents.",
+      "accept": [
+        "$4.40."
+      ]
+    },
+    {
+      "file": "amount-445",
+      "text": "Four dollars and forty-five cents.",
+      "accept": [
+        "$4.45."
+      ]
+    },
+    {
+      "file": "amount-450",
+      "text": "Four dollars and fifty cents.",
+      "accept": [
+        "$4.50."
+      ]
+    },
+    {
+      "file": "amount-455",
+      "text": "Four dollars and fifty-five cents.",
+      "accept": [
+        "$4.55."
+      ]
+    },
+    {
+      "file": "amount-460",
+      "text": "Four dollars and sixty cents.",
+      "accept": [
+        "$4.60."
+      ]
+    },
+    {
+      "file": "amount-465",
+      "text": "Four dollars and sixty-five cents.",
+      "accept": [
+        "$4.65."
+      ]
+    },
+    {
+      "file": "amount-470",
+      "text": "Four dollars and seventy cents.",
+      "accept": [
+        "$4.70."
+      ]
+    },
+    {
+      "file": "amount-475",
+      "text": "Four dollars and seventy-five cents.",
+      "accept": [
+        "$4.75."
+      ]
+    },
+    {
+      "file": "item-0-ask",
+      "text": "Can I have the round loaf?",
+      "accept": [
+        "Could I have the round loaf?"
+      ]
+    },
+    {
+      "file": "item-0-take",
+      "text": "I'll take the round loaf.",
+      "accept": [
+        "I will take the round loaf."
+      ]
+    },
+    {
+      "file": "item-0-please",
+      "text": "The round loaf, please."
+    },
+    {
+      "file": "item-1-take",
+      "text": "I'll take the long loaf.",
+      "accept": [
+        "I will take the long loaf."
+      ]
+    },
+    {
+      "file": "item-1-yum",
+      "text": "Ooh, the long loaf looks yummy!",
+      "accept": [
+        "Oh, the long loaf looks yummy!"
+      ]
+    },
+    {
+      "file": "item-1-one",
+      "text": "One long loaf for me!"
+    },
+    {
+      "file": "item-2-yum",
+      "text": "Ooh, the braided loaf looks yummy!",
+      "accept": [
+        "Oh, the braided loaf looks yummy!"
+      ]
+    },
+    {
+      "file": "item-2-one",
+      "text": "One braided loaf for me!"
+    },
+    {
+      "file": "item-2-please",
+      "text": "The braided loaf, please."
+    },
+    {
+      "file": "item-3-yum",
+      "text": "Ooh, the pretzel looks yummy!",
+      "accept": [
+        "Oh, the pretzel looks yummy!"
+      ]
+    },
+    {
+      "file": "item-3-ask",
+      "text": "Can I have the pretzel?",
+      "accept": [
+        "Could I have the pretzel?"
+      ]
+    },
+    {
+      "file": "item-3-take",
+      "text": "I'll take the pretzel.",
+      "accept": [
+        "I will take the pretzel."
+      ]
+    },
+    {
+      "file": "item-4-ask",
+      "text": "Can I have the fish biscuit?",
+      "accept": [
+        "Could I have the fish biscuit?"
+      ]
+    },
+    {
+      "file": "item-4-take",
+      "text": "I'll take the fish biscuit.",
+      "accept": [
+        "I will take the fish biscuit."
+      ]
+    },
+    {
+      "file": "item-4-please",
+      "text": "The fish biscuit, please."
+    },
+    {
+      "file": "item-5-take",
+      "text": "I'll take the cherry pie.",
+      "accept": [
+        "I will take the cherry pie."
+      ]
+    },
+    {
+      "file": "item-5-yum",
+      "text": "Ooh, the cherry pie looks yummy!",
+      "accept": [
+        "Oh, the cherry pie looks yummy!"
+      ]
+    },
+    {
+      "file": "item-5-one",
+      "text": "One cherry pie for me!"
+    },
+    {
+      "file": "item-6-yum",
+      "text": "Ooh, the jar of honey looks yummy!",
+      "accept": [
+        "Oh, the jar of honey looks yummy!"
+      ]
+    },
+    {
+      "file": "item-6-one",
+      "text": "One jar of honey for me!"
+    },
+    {
+      "file": "item-6-take",
+      "text": "I'll take the jar of honey.",
+      "accept": [
+        "I will take the jar of honey."
+      ]
+    },
+    {
+      "file": "item-7-one",
+      "text": "One cake for me!"
+    },
+    {
+      "file": "item-7-ask",
+      "text": "Can I have the cake?",
+      "accept": [
+        "Could I have the cake?"
+      ]
+    },
+    {
+      "file": "item-7-take",
+      "text": "I'll take the cake.",
+      "accept": [
+        "I will take the cake."
+      ]
+    },
+    {
+      "file": "item-0-3-ask",
+      "text": "Can I have the round loaf and the pretzel?",
+      "accept": [
+        "Could I have the round loaf and the pretzel?"
+      ]
+    },
+    {
+      "file": "item-0-3-take",
+      "text": "I'll take the round loaf and the pretzel.",
+      "accept": [
+        "I will take the round loaf and the pretzel."
+      ]
+    },
+    {
+      "file": "item-0-3-one",
+      "text": "One round loaf and one pretzel for me!"
+    },
+    {
+      "file": "item-1-4-take",
+      "text": "I'll take the long loaf and the fish biscuit.",
+      "accept": [
+        "I will take the long loaf and the fish biscuit."
+      ]
+    },
+    {
+      "file": "item-1-4-yum",
+      "text": "Ooh, the long loaf and the fish biscuit look yummy!",
+      "accept": [
+        "Oh, the long loaf and the fish biscuit look yummy!"
+      ]
+    },
+    {
+      "file": "item-1-4-one",
+      "text": "One long loaf and one fish biscuit for me!"
+    },
+    {
+      "file": "item-2-5-yum",
+      "text": "Ooh, the braided loaf and the cherry pie look yummy!",
+      "accept": [
+        "Oh, the braided loaf and the cherry pie look yummy!"
+      ]
+    },
+    {
+      "file": "item-2-5-one",
+      "text": "One braided loaf and one cherry pie for me!"
+    },
+    {
+      "file": "item-2-5-take",
+      "text": "I'll take the braided loaf and the cherry pie.",
+      "accept": [
+        "I will take the braided loaf and the cherry pie."
+      ]
+    },
+    {
+      "file": "item-3-6-one",
+      "text": "One pretzel and one jar of honey for me!"
+    },
+    {
+      "file": "item-3-6-ask",
+      "text": "Can I have the pretzel and the jar of honey?",
+      "accept": [
+        "Could I have the pretzel and the jar of honey?"
+      ]
+    },
+    {
+      "file": "item-3-6-take",
+      "text": "I'll take the pretzel and the jar of honey.",
+      "accept": [
+        "I will take the pretzel and the jar of honey."
+      ]
+    },
+    {
+      "file": "item-4-7-ask",
+      "text": "Can I have the fish biscuit and the cake?",
+      "accept": [
+        "Could I have the fish biscuit and the cake?"
+      ]
+    },
+    {
+      "file": "item-4-7-take",
+      "text": "I'll take the fish biscuit and the cake.",
+      "accept": [
+        "I will take the fish biscuit and the cake."
+      ]
+    },
+    {
+      "file": "item-4-7-one",
+      "text": "One fish biscuit and one cake for me!"
+    },
+    {
+      "file": "item-5-0-take",
+      "text": "I'll take the cherry pie and the round loaf.",
+      "accept": [
+        "I will take the cherry pie and the round loaf."
+      ]
+    },
+    {
+      "file": "item-5-0-yum",
+      "text": "Ooh, the cherry pie and the round loaf look yummy!",
+      "accept": [
+        "Oh, the cherry pie and the round loaf look yummy!"
+      ]
+    },
+    {
+      "file": "item-5-0-one",
+      "text": "One cherry pie and one round loaf for me!"
+    },
+    {
+      "file": "item-6-1-yum",
+      "text": "Ooh, the jar of honey and the long loaf look yummy!",
+      "accept": [
+        "Oh, the jar of honey and the long loaf look yummy!"
+      ]
+    },
+    {
+      "file": "item-6-1-one",
+      "text": "One jar of honey and one long loaf for me!"
+    },
+    {
+      "file": "item-6-1-take",
+      "text": "I'll take the jar of honey and the long loaf.",
+      "accept": [
+        "I will take the jar of honey and the long loaf."
+      ]
+    },
+    {
+      "file": "item-7-2-one",
+      "text": "One cake and one braided loaf for me!"
+    },
+    {
+      "file": "item-7-2-ask",
+      "text": "Can I have the cake and the braided loaf?",
+      "accept": [
+        "Could I have the cake and the braided loaf?"
+      ]
+    },
+    {
+      "file": "item-7-2-take",
+      "text": "I'll take the cake and the braided loaf.",
+      "accept": [
+        "I will take the cake and the braided loaf."
+      ]
     }
   ]
 }
