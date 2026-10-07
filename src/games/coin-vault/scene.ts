@@ -28,7 +28,7 @@ import {
   applyLearning, applyMotor, BILL1, BILL20, BILL_VALUE, CENTS, COIN_MM, COIN_NAMES, COIN_VALUE, DIME, DIME_MM, DISH_ORDER, DOLLARS, fewest, fewestTakes, introTask,
   lockPlanFor, lockTakes, MIN_DIME_PX, NICKEL, PENNY, PIECE_NAMES, planTask, QUARTER, recordTask, ROUND_STARS, roundTasks, roomTakes, taskStep, TIERS, type TaskPlan, type TierParams,
 } from './rules';
-import { playVoice, preloadVoice, stopVoice, voiceRemaining, voiceSeconds, type VoiceClip } from './voice';
+import { playVoice, preloadVoice, prioritizeVoice, stopVoice, voiceLoading, voiceRemaining, voiceSeconds, type VoiceClip } from './voice';
 
 export { GAME_ID };
 const ART = 'coin-vault/';
@@ -137,6 +137,8 @@ const BACK_HOLD = 0.3, BACK_HOP = 0.5;
 const RISE = 0.45, FIRST_GAP = 0.22;
 /** Count-on: each dish with its cups pulses this long, or until its spoken total ends plus this gap. */
 const COUNT_ON = 0.35, COUNT_ON_GAP = 0.12;
+/** The longest play waits for the visitor to finish speaking (on rising, and before the round's fanfare). */
+const SPEECH_HOLD = 4;
 /** Tags slide up, a wrong tag tilts then sinks and fades. */
 const TAG_RISE = 0.35, TAG_TILT = 0.3, TAG_FADE = 0.4;
 /** The finished-task sequence: tag to the door, coins roll in, door shuts, visitor waves and sinks, the board clears. */
@@ -158,6 +160,20 @@ const HAND_PRESS_AT = 0.5, HAND_CARRY_AT = 0.7, HAND_DROP_AT = 1.4, HAND_FADE = 
 const FANFARE: SfxOptions = { variant: 'D' };
 const HIGHLIGHT = '#fff6a3', INK = '#4a2f1c', CREAM = '#fff8e6', HOVER = '#fff8b2';
 const NUMBER_CLIPS: readonly VoiceClip[] = Array.from({ length: 101 }, (_, n) => `number-${n}` as const);
+/** The clip that says an amount in money words as the screen shows it: "45¢", "100¢", "$1 and 25¢", "$3". */
+function amountClip(form: number, v: number): VoiceClip {
+  if (form === DOLLARS) return `dollars-${v}`;
+  return v > 100 ? `dollar-and-${v - 100}` : `cents-${v}`;
+}
+/**
+ * A count-on running total: a number under $1 (and for bills, which count dollars); from $1 up in money words
+ * ("One dollar and twenty-five cents."). Exactly 100¢ is "One dollar." when the $1 bill lies on the board, else "One hundred."
+ */
+function runningClip(unit: number, total: number, bill: boolean): VoiceClip {
+  if (unit === DOLLARS || total < 100) return NUMBER_CLIPS[Math.min(100, total)]!;
+  if (total === 100) return bill ? 'dollars-1' : NUMBER_CLIPS[100]!;
+  return `dollar-and-${total - 100}`;
+}
 
 type Phase = 'play' | 'celebration' | 'choice' | 'sticker' | 'rest';
 /**
@@ -518,7 +534,9 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
   // 5), the plate sprite's one scaled copy the lengthened planks are drawn from (its longest side), and how many copies
   // of the plain wood each plank repeats.
   let lrX = 0, lrY = 0, lrW = 0, lrH = 0, lockRoom = LOCK_MAX, lockNextX = 0, lockNextY = 0, lockTagInk = TAG_MIN_INK;
-  const geo = lockGeo(), geoTmp = lockGeo(), roomScratch = [0, 0, 0, 0];
+  const geo = lockGeo(), geoTmp = lockGeo(), geoNext = lockGeo(), roomScratch = [0, 0, 0, 0];
+  /** The next task, planned when the current one finishes so idle time before it can bake what its first frame needs. */
+  let nextPlan: TaskPlan | undefined, nextFor = -1, nextStage = 0;
   let plankSrc = 0, plankCopies = 1, fewPlateW = 0;
   let tagMinInk = TAG_MIN_INK, tagBakedInk = 0, tagFont = false;
   let artRatio = 0, glowSize = 0, bakedCup = 0, bakedMat = '', fontReady = false;
@@ -1132,7 +1150,9 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
   function startTask(i: number): void {
     taskIndex = i;
     if (intro && introStage === 2 && i === 0) plan = introTask();
+    else if (nextFor === i && nextPlan) plan = nextPlan;
     else { const ts = taskStep(data.step, i); plan = planTask(ts.step, ts.warmup || intro, i, TIERS[tier].coins, TIERS[tier].bills, random, lastTotal); }
+    nextFor = -1;
     lastTotal = plan.total;
     // The visitor's goal: a different picture from the last visitor's; its tag pops in as the visitor rises.
     goalItem = intro && i === 0 ? 0 : (goalItem + 1 + Math.floor(random() * (GOALS.length - 1))) % GOALS.length;
@@ -1196,6 +1216,58 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     } else firstLeft = 0;
     focus = 0;
     play('pop-big', 'D', 2, 0.5);
+    // The visitor speaks as it rises: a lock asks for its amount; any other visitor asks to have its money counted.
+    // The clips this task can say load first.
+    const ask: VoiceClip = isLock() ? `make-${plan.total}` : 'count-mine';
+    sayLater(ask, RISE + 2);
+    prioritizeVoice(audio, services.base, taskClips(ask));
+  }
+  /** Every clip the current task can say, most urgent first: its opening line, the coin names, the totals, the end. */
+  function taskClips(ask: VoiceClip): string[] {
+    const out: string[] = [ask];
+    if (isLock()) {
+      out.push(amountClip(CENTS, plan.total));
+      for (let k = 0; k < 4; k++) out.push(VOICE_NAMES[k]!);
+    } else {
+      for (let k = 0; k < 4; k++) if (plan.coins[k]) out.push(VOICE_NAMES[k]!);
+      for (let k = 0; k < 4; k++) if (plan.bills[k]) out.push(VOICE_NAMES[BILL1 + k]!);
+      // The count-on's running totals, largest group first, as startCountOn orders them.
+      let t = 0;
+      const bill = plan.unit === CENTS && plan.bills[0]! > 0;
+      if (bill) { t = 100; out.push(runningClip(CENTS, t, true)); }
+      if (plan.unit === DOLLARS) for (let k = 3; k >= 0; k--) { if (plan.bills[k]) { t += plan.bills[k]! * BILL_VALUE[k]!; out.push(runningClip(DOLLARS, t, false)); } }
+      else for (const k of DISH_ORDER) if (plan.coins[k]) { t += plan.coins[k]! * COIN_VALUE[k]!; out.push(runningClip(CENTS, t, bill || (plan.step === 6 && t >= 100))); }
+      out.push(amountClip(plan.unit, plan.total));
+    }
+    out.push('saved-1', 'saved-2');
+    return out;
+  }
+  /**
+   * Clips waiting for the one voice channel: each starts once the clip playing has ended plus COUNT_ON_GAP, or is
+   * dropped at its deadline (sceneT, in real seconds, so a hurried task end does not shorten it). A clip played at once
+   * (sayNow) clears the line.
+   */
+  const sayQ: VoiceClip[] = [], sayBy: number[] = [];
+  let sayAt = 0;
+  function sayLater(clip: VoiceClip, within: number): void {
+    if (sayQ.length >= 3) { sayQ.shift(); sayBy.shift(); }
+    if (!sayQ.length) { const rem = voiceRemaining(audio); sayAt = rem > 0 ? sceneT + rem + COUNT_ON_GAP : sceneT; }
+    sayQ.push(clip); sayBy.push(sceneT + within);
+  }
+  function sayNow(clip: VoiceClip): void { sayQ.length = 0; sayBy.length = 0; playVoice(audio, clip); }
+  function quiet(): void { sayQ.length = 0; sayBy.length = 0; stopVoice(); }
+  /** Nothing is being said and nothing waits to be said. */
+  const speechClear = (): boolean => !sayQ.length && voiceRemaining(audio) <= 0;
+  function updateSay(): void {
+    if (!sayQ.length) return;
+    const rem = voiceRemaining(audio);
+    if (rem > 0) { sayAt = Math.max(sayAt, sceneT + rem + COUNT_ON_GAP); return; }
+    while (sayQ.length && sceneT > sayBy[0]!) { sayQ.shift(); sayBy.shift(); }
+    // A clip still loading (the first visitor's line right after the game opens) waits for it, up to its deadline.
+    if (!sayQ.length || sceneT < sayAt || (!audio.muted && voiceLoading(sayQ[0]!))) return;
+    const clip = sayQ.shift()!; sayBy.shift();
+    playVoice(audio, clip);
+    sayAt = sceneT + voiceSeconds(audio, clip) + COUNT_ON_GAP;
   }
   /** Whether place p has a coin to give. */
   const available = (p: number): boolean => p >= 0 && p < nPlaces && pCount[p]! > 0;
@@ -1457,6 +1529,8 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
       const l = mode === FIRST ? 0 : 1, i = lockN[l]!;
       if (i < LOCK_MAX) { lockKind[l * LOCK_MAX + i] = kind; lockFace[l * LOCK_MAX + i] = face; }
       lockN[l] = i + 1; lockCents[l]! += COIN_VALUE[kind]!; lockPulse[l] = 0;
+      // The lock is full: its amount is said (after any clip still playing).
+      if (lockCents[l] === plan.total) sayLater(amountClip(CENTS, plan.total), 3);
       play('coin-clink', 'A', i + (l ? 2 : 0), 0.7);
       lockSlot(l, i); glints(pos.x, pos.y, lockCoinD(kind));
       if (l) visNod = 0;
@@ -1550,12 +1624,10 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
       play('pop', 'C', now * 2, 0.7);
       for (let i = 0; i < CUPS; i++) if (cupLit[i] && cupKind[i] === g) cupPulse[i] = 0;
       const total = groupStart[now]! + groupLen[now]!;
-      let hold = COUNT_ON;
-      if (total <= 100 && (total <= 20 || total === 25 || total % 10 === 0)) {
-        playVoice(audio, NUMBER_CLIPS[total]!);
-        hold = Math.max(COUNT_ON, voiceSeconds(audio, NUMBER_CLIPS[total]!) + COUNT_ON_GAP);
-      }
-      countOnNext = countOnT + hold;
+      // Every running total is spoken; the group holds until it has been said plus COUNT_ON_GAP.
+      const clip = runningClip(plan.unit, total, boardBill > 0);
+      sayNow(clip);
+      countOnNext = countOnT + Math.max(COUNT_ON, voiceSeconds(audio, clip) + COUNT_ON_GAP);
     } else {
       countOnT = -1;
       if (!countOnReplay) {
@@ -1580,7 +1652,7 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     picked = i; tagState[i] = 3; tagT[i] = 0;
     for (let k = 0; k < 3; k++) if (k !== i && tagState[k] === 0) { tagState[k] = 4; tagT[k] = 0; }
     play('pop-big', 'C', 4, 0.8);
-    if (plan.total <= 100) playVoice(audio, NUMBER_CLIPS[plan.total]!);
+    sayNow(amountClip(tagForm[i]!, tagVal[i]!));
     finishTask();
   }
   /** Step 8b: the block whose symbol matches the collection ($ for bills, ¢ for coins). */
@@ -1611,6 +1683,7 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
         play('pop', 'C', 5, 0.8);
         picked = 0; tagState[0] = 3; tagT[0] = 0;
         play('pop-big', 'C', 4, 0.8);
+        sayNow(amountClip(plan.unit, plan.total));
         finishTask();
       }
     }
@@ -1642,8 +1715,16 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     }
     doneTag = plan.total; doneForm = plan.unit; doneLocks = isLock();
     doneGoal = plan.goal; doneReached = plan.total >= plan.goal; goalWrite = 0;
-    taskPhase = 'done'; seqT = 0; rollEnd = 0; seqSpeed = 1;
+    taskPhase = 'done'; seqT = 0; rollEnd = 0; seqSpeed = 1; doneHold = 0;
     if (isLock()) { lockPulse.fill(0); play('pop-big', 'C', 4, 0.8); }
+    // Plan the next task now: the same draws in the same order as at its start (nothing else draws from `random` in
+    // between), so the idle time of this task's end can bake its lock numerals and tags ahead (prepareNext).
+    nextFor = -1;
+    if (introStage !== 1 && taskIndex + 1 < tasksTotal) {
+      const ts = taskStep(data.step, taskIndex + 1);
+      nextPlan = planTask(ts.step, ts.warmup || intro, taskIndex + 1, TIERS[tier].coins, TIERS[tier].bills, random, lastTotal);
+      nextFor = taskIndex + 1; nextStage = 0;
+    }
   }
   /** Coins and bills leave the dishes, pile, board or locks and roll in an arc into the vault's doorway, 40 ms apart. */
   function startRoll(): void {
@@ -1667,7 +1748,7 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     rollEnd = ROLL_GAP * Math.max(0, n - 1) + ROLL;
     play('whoosh', 'B', 0, 0.6);
   }
-  let seqPrev = 0;
+  let seqPrev = 0, doneHold = 0;
   /** Whether the finished-task clock passed `t` this frame. */
   const at = (t: number): boolean => seqPrev < t && seqT >= t;
   /**
@@ -1679,6 +1760,9 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     seqPrev = seqT; seqT += dt;
     const rollAt = doneLocks ? COUNT_ON : SEQ_TAG, shutAt = rollAt + Math.max(0.3, rollEnd), jarAt = shutAt + 0.05, fillAt = shutAt + SLAM + 0.15;
     const resultAt = fillAt + FILL, sinkAt = resultAt + (doneReached ? GOT : NOT_YET), endAt = sinkAt + SINK;
+    // The visitor stays up until its amount and its end line have been said (at most SPEECH_HOLD seconds), even when a
+    // press hurries the sequence; a hurried line is then late, never lost.
+    if (seqPrev < sinkAt && seqT >= sinkAt && !speechClear() && doneHold < SPEECH_HOLD) { doneHold += dt / seqSpeed; seqT = seqPrev; return; }
     if (at(rollAt)) { startRoll(); return; }
     if (seqT < rollAt) return;
     if (at(shutAt)) { doorFrom = 1; doorTo = -1; doorT = 0; }
@@ -1698,6 +1782,8 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     }
     if (at(resultAt)) startOutcome();
     if (at(sinkAt)) { visSink = 0.0001; jarOut = 0; }
+    // The last visitor's line finishes before the celebration's fanfare (at most SPEECH_HOLD seconds).
+    if (seqT >= endAt && taskIndex + 1 >= tasksTotal && introStage !== 1 && !speechClear() && seqT < endAt + SPEECH_HOLD) return;
     if (seqT >= endAt) {
       // The board's cups go out; the door swings open as the next visitor rises.
       cupLit.fill(0); lit = 0; firstLit = 0; cupDim = 0;
@@ -1714,6 +1800,8 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     if (taskIndex < 4) { roundItem[taskIndex] = goalItem; roundGot[taskIndex] = doneReached ? 1 : 0; }
     outcome = doneReached ? 'got' : 'not-yet';
     visHop = 0;
+    // The task's end: "I saved it!" when the jar is full, else "All counted!", while the visitor is still up.
+    sayLater(doneReached ? 'saved-1' : 'saved-2', SPEECH_HOLD + 1);
     if (doneReached) {
       giftT = 0; play('pop-big', 'B', 4, 0.7);
       bits.burst(GLINT, 8, jarX, jarY - jarH * 0.42, jarW * 0.8, 160 * u, 120 * u, 30 * u, 0.7, fxRandom);
@@ -1770,7 +1858,7 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     // The squirrel saves for the bike (10¢); its twelve cents fill the jar, and it gets the bike.
     goalItem = 0; goalPop = 9; goalWrite = 9; doneGoal = plan.goal; doneReached = true; giftT = -1; jarT = -1; jarOut = -1; jarFill = 0; cupDim = 0; seqSpeed = 1; outcome = '';
     placeGoal();
-    taskPhase = 'done'; seqT = -GOAL_HOLD; rollEnd = 0; taskT = 0;
+    taskPhase = 'done'; seqT = -GOAL_HOLD; doneHold = 0; rollEnd = 0; taskT = 0;
   }
   /**
    * A step's first-time demonstration. Steps 2 to 5 and 7: the helper carries a coin or bill, then taps the next useful
@@ -1800,7 +1888,7 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     tier = services.debug.tier ?? toTier(data.tier);
     intro = data.rounds === 0;
     visitorOffset = data.rounds % VISITORS.length;
-    phase = 'play'; phaseT = time = idleT = 0;
+    phase = 'play'; phaseT = time = idleT = 0; sayQ.length = 0; sayBy.length = 0; nextFor = -1;
     tasksTotal = intro ? 3 : roundTasks(tier, data.step);
     hits = misses = bounces = 0; stars = 1; starsPlayed = 0; focus = 0; roundCounted.length = 0;
     carry.active = false; carry.keyed = false; hand.mode = 0; introStage = 0; doorK = 1; doorT = 9;
@@ -1835,6 +1923,8 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     phase = 'celebration'; phaseT = 0; starsPlayed = 0; carry.active = false; carry.keyed = false; hand.mode = 0; cornerFocus = -1;
     for (const f of flights) f.active = false; for (const r of rollers) r.active = false; bits.clear(); doorK = -1; doorT = 9;
     layout(W, H);
+    // Nothing speaks over the fanfare or the sticker offer.
+    quiet();
     play('fanfare', FANFARE.variant!);
     // Leaves and pencil shavings burst from the vault and drift down across the desk.
     const hx = stumpX + stumpW * HOLE_X, hy = stumpY + stumpH * HOLE_Y;
@@ -1882,6 +1972,16 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
   function planWarm(): void {
     warmNames.length = 0; warmSizes.length = 0; warmIndex = 0;
     const add = (name: string, size: number): void => { warmNames.push(name); warmSizes.push(Math.round(size)); };
+    // Each visitor at its play size, waiting and happy (the sizes renderVisitor draws, unrounded), so a new visitor's
+    // first frame never scales its art.
+    for (let a = 0; a < VISITORS.length; a++) {
+      const wait = sprites.get(VISITOR_NAMES[a]![0]); if (!wait) continue;
+      const k = visH / wait.naturalHeight;
+      for (let pose = 0; pose < 2; pose++) {
+        const img = sprites.get(VISITOR_NAMES[a]![pose]!);
+        if (img) { warmNames.push(VISITOR_NAMES[a]![pose]!); warmSizes.push(Math.max(img.naturalWidth, img.naturalHeight) * k); }
+      }
+    }
     for (let a = 0; a < VISITORS.length; a++) { add(VISITOR_NAMES[a]![1], celebVisitorSize(a)); add(VISITOR_NAMES[a]![1], restSize * 0.62); }
     add(LOCK, fewPlateW); add(LOCK, plankSrc); add(TAG, tagW); add(SYMBOL, blockS);
     // The feel layer: the jar, the getting-the-thing picture at its big size with its ribbon, and the gift tag.
@@ -1912,6 +2012,7 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
       return;
     }
     if (madeName || (!overdue && deadline.timeRemaining() < 4)) return;
+    if (prepareNext(deadline, overdue)) return;
     if (prepareBills(deadline, overdue)) return;
     for (; warmIndex < warmNames.length; warmIndex++) {
       const name = warmNames[warmIndex]!, size = warmSizes[warmIndex]!, key = `${name}@${size}`;
@@ -1927,12 +2028,33 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
   }
   function askIdle(): void {
     if (idleHandle) return;
-    if ((fanfareStarted && !fanfareAsked) || (playable() && time >= 0.5 && (warmIndex < warmNames.length || billsPending()))) {
+    if ((fanfareStarted && !fanfareAsked) || (playable() && time >= 0.5 && (warmIndex < warmNames.length || billsPending() || nextPending()))) {
       const now = performance.now();
       if (idleWaitFrom < 0) idleWaitFrom = now;
       IDLE_OPTIONS.timeout = Math.max(1, IDLE_WAIT_MS - (now - idleWaitFrom));
       idleHandle = requestIdleCallback(prepareIdle, IDLE_OPTIONS);
     }
+  }
+  /** The next task is a lock whose numerals and tags are not baked yet. */
+  const nextPending = (): boolean => nextFor >= 0 && nextStage < 2 && nextPlan?.kind === 'lock';
+  /**
+   * One idle step for the next lock task (planned at this task's end), each in a long idle period: the plate numerals'
+   * strip at the size its layout will ask for, then (step 4) the lock coins' value tags at the size its locks start
+   * at. The window keeps its size between tasks, so the next layout finds them made; if not, it bakes as before.
+   */
+  function prepareNext(deadline: IdleDeadline, overdue: boolean): boolean {
+    if (!nextPending()) return false;
+    if (!overdue && deadline.timeRemaining() < 8) return true;
+    const cur = plan; plan = nextPlan!;
+    if (nextStage === 0) {
+      const px = Math.max(14, Math.round((isFewest() ? fewPlateW / LOCK_AR : lockPMax()) * 0.45));
+      if (lockStrip.px !== px || !lockStrip.canvas) bakeStrip(lockStrip, px, artRatio);
+    } else if (!isFewest()) {
+      solveLocks(plan.first[0]! + plan.first[1]! + plan.first[2]! + plan.first[3]!, 0, geoNext);
+      for (let k = 0; k < 4; k++) tagSlot(k, geoNext.q * COIN_MM[k]! / COIN_MM[QUARTER]!, geoNext.ink);
+    }
+    plan = cur; nextStage++; idleWaitFrom = -1;
+    return true;
   }
   function stopIdle(): void { if (idleHandle) cancelIdleCallback(idleHandle); idleHandle = 0; idleWaitFrom = -1; }
 
@@ -2005,7 +2127,9 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
       if (intro && introStage === 2 && taskIndex === 0 && !demoStarted && taskT >= RISE + INTRO_HAND_AT) {
         demoStarted = true; const p = placeOf(DIME); if (p >= 0) startHand(p, DIME, 1);
       }
-      if (taskT >= enterSeconds && firstPour <= 0 && countFlights(FIRST, -1) === 0) {
+      // Play opens once the visitor has finished speaking (its line, and a lock's amount once the visitor fills it), so
+      // the child's first pick-up never cuts it off; at most SPEECH_HOLD seconds longer.
+      if (taskT >= enterSeconds && firstPour <= 0 && countFlights(FIRST, -1) === 0 && (speechClear() || taskT >= enterSeconds + SPEECH_HOLD)) {
         taskPhase = isLock() ? 'lock' : 'count'; idleT = 0; ensureFocus();
         if (!demoStarted && !plan.warmup && demoDue(plan.step)) startDemo(plan.step);
       }
@@ -2049,6 +2173,7 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     lastPX = input.pointer.x;
     refillStacks();
     updateTask(dt);
+    updateSay();
     updateHand(dt);
     updateGiggle(dt);
     for (let k = 0; k < 3; k++) if (tagState[k] === 1 && tagT[k]! >= TAG_TILT + TAG_FADE) tagState[k] = 2;
@@ -2913,7 +3038,7 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     if (!pUnlimited[p]) pCount[p]!--;
     carry.place = p; carry.kind = pKind[p]!; carry.face = pFace[p]!;
     if (isBill(carry.kind)) play('bill-rustle', 'A', 0, 0.7); else play('pop', 'B', 2, 0.5);
-    playVoice(audio, VOICE_NAMES[carry.kind]!);
+    sayNow(VOICE_NAMES[carry.kind]!);
     carryT = 0; lastPX = input.pointer.x;
     return true;
   }
@@ -3246,7 +3371,7 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
       if (services.debug.enabled) (window as unknown as { __coinVault?: CoinVaultStats }).__coinVault = stats;
     },
     pause() {
-      stopMusic(audio); stopIdle(); stopVoice();
+      stopMusic(audio); stopIdle(); quiet();
       if (carry.active) returnCarry(input.pointer.x, input.pointer.y);
       services.save.flush();
     },
@@ -3255,7 +3380,7 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
       startMusic(audio, 'coin-vault');
     },
     exit() {
-      stopMusic(audio); stopIdle(); stopVoice(); offers.cancel(); closeFinishedRound(); services.save.flush();
+      stopMusic(audio); stopIdle(); quiet(); offers.cancel(); closeFinishedRound(); services.save.flush();
       releaseArt(); sprites.clearScaled(BG); bgCanvas = undefined; sizeKey = ''; madeName = ''; bakedMat = ''; matCanvas = undefined;
     },
     resize: layout,
