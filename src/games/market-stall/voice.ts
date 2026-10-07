@@ -6,7 +6,7 @@
  *
  * Every sentence and every amount is one whole clip; clips are never joined to make one. The customer's lines wait
  * their turn in a short queue: each starts once the clip before it has ended plus that entry's gap. Coin and bill names
- * on pick-up play at once and never cut the customer off (a name asked for while the customer speaks is skipped).
+ * are never said when the child picks one up (owner, 2026-10-07: hearing "penny" on a pick, even once, was awkward).
  */
 import type { Audio } from '../../engine/audio';
 import { voiceFolder, voicePlayer, type VoiceFolder } from '../../audio/voice-player';
@@ -82,20 +82,6 @@ export function customerSpeaking(audio: Audio): boolean { return qLen > 0 || (fr
 
 /** True while anything is said or waiting to be said. */
 export function voiceBusy(audio: Audio): boolean { return qLen > 0 || voicePlayer(audio).busy(); }
-
-/**
- * Say a coin or bill name now, unless the customer is speaking or about to (then nothing is said). Returns whether it
- * was asked for (a missing clip, sound off or a locked audio context also return false).
- */
-export function sayName(audio: Audio, clip: string): boolean {
-  if (customerSpeaking(audio)) return false;
-  const ok = voicePlayer(audio).play(MONEY_VOICE, clip);
-  if (ok) fromQueue = false;
-  return ok;
-}
-
-/** Name of the clip being heard now, or '' when silent. A name asked for by sayName counts as said only once this shows it. */
-export function voiceNow(audio: Audio): string { return voicePlayer(audio).current; }
 
 /** Once per frame: start the next queued clip when its turn has come. */
 export function updateVoice(audio: Audio, dt: number): void {

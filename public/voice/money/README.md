@@ -14,8 +14,8 @@ Every sentence and every amount is one whole clip, with the voice falling at the
 | `amount-105` to `amount-475` (dollars and cents in steps of 5¢, no whole dollars) | "One dollar and five cents." ... "Four dollars and seventy-five cents." | Market Stall: the change total as a customer leaves, from $1.05 up. |
 | `cents-1` to `cents-99` | "One cent.", "Two cents." ... "Ninety-nine cents." | An amount under a dollar said on its own (Market Stall: the change total). |
 | `dollars-1` to `dollars-20` | "One dollar." ... "Twenty dollars." | A whole-dollar amount said on its own (Market Stall: the change total). |
-| `penny`, `nickel`, `dime`, `quarter` | "Penny." ... "Quarter." | The child picks up a coin (Market Stall: the first time that kind goes to a customer). |
-| `bill-1`, `bill-5`, `bill-10`, `bill-20` | "One-dollar bill." ... "Twenty-dollar bill." | The child picks up a bill (Market Stall: the first time that kind goes to a customer). |
+| `penny`, `nickel`, `dime`, `quarter` | "Penny." ... "Quarter." | Kept, but Market Stall no longer plays them: it stopped naming coins and bills on pick-up (owner request, 2026-10-07). |
+| `bill-1`, `bill-5`, `bill-10`, `bill-20` | "One-dollar bill." ... "Twenty-dollar bill." | Kept, but Market Stall no longer plays them: it stopped naming coins and bills on pick-up (owner request, 2026-10-07). |
 | `count-1` to `count-100` | "One!" ... "One hundred!" | Counting up aloud, one clip per coin or step. Not played yet. |
 | `too-much` | "Ooh, that's too much!" | The child gave back more change than owed (said kindly; nothing is wrong). Not played yet. |
 | `thanks-1`, `thanks-2`, `thanks-3` | "Thank you!", "Cheers!", "Lovely, thanks!" | A sale is done. Not played yet. |
