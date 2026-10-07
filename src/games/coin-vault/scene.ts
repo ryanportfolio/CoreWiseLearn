@@ -510,7 +510,10 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
   let W = 1366, H = 768, u = 1, E = 163, portrait = false, rowsWanted = 1, billsWanted = false, pureBills = false;
   let bgCanvas: HTMLCanvasElement | undefined, bgX = 0, bgY = 0, bgScale = 1;
   let matCanvas: HTMLCanvasElement | undefined, glowCanvas: HTMLCanvasElement | undefined, cupOff: HTMLCanvasElement | undefined, cupOn: HTMLCanvasElement | undefined;
-  const tagStrip = strip(), lockStrip = strip(), doorStrip = strip(), billStrip = strip(), boardStrip = strip(), symStrip = strip();
+  const tagStrip = strip(), doorStrip = strip(), billStrip = strip(), boardStrip = strip(), symStrip = strip();
+  // The lock plates' numerals, and the next lock task's baked ahead (prepareNext) while this task's plates still draw
+  // from lockStrip; the next layout swaps them in.
+  let lockStrip = strip(), nextLockStrip = strip();
   // Bills baked once per size and notation: the art with its numerals (index = bill kind - BILL1), and the board's $1.
   // Bills are baked at the tier's largest lifted size for this window (billBakeW), so a task whose row shrinks them
   // draws the same canvases smaller and never rebakes; billMade* hold what each canvas was baked for.
@@ -696,8 +699,11 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     const tagPx = Math.max(16, Math.round(tagH * 0.42)), lockPx = Math.max(14, Math.round((isFewest() ? lockH : lockPMax()) * 0.45));
     const doorPx = Math.max(14, Math.round(doorD * (PLATE_Y1 - PLATE_Y0) * 0.8));
     if (force || tagStrip.px !== tagPx || !tagStrip.canvas) bakeStrip(tagStrip, tagPx, artRatio);
-    if (force) lockStrip.px = 0;
-    if (isLock() && (lockStrip.px !== lockPx || !lockStrip.canvas)) bakeStrip(lockStrip, lockPx, artRatio);
+    if (force) { lockStrip.px = 0; nextLockStrip.px = 0; }
+    if (isLock() && (lockStrip.px !== lockPx || !lockStrip.canvas)) {
+      if (nextLockStrip.px === lockPx && nextLockStrip.canvas) { const s = lockStrip; lockStrip = nextLockStrip; nextLockStrip = s; }
+      else bakeStrip(lockStrip, lockPx, artRatio);
+    }
     if (force || doorStrip.px !== doorPx || !doorStrip.canvas) bakeStrip(doorStrip, doorPx, artRatio);
     const goalPx = Math.max(14, Math.round(gtagH * 0.5));
     if (force || goalStrip.px !== goalPx || !goalStrip.canvas) bakeStrip(goalStrip, goalPx, artRatio);
@@ -1715,7 +1721,7 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     }
     doneTag = plan.total; doneForm = plan.unit; doneLocks = isLock();
     doneGoal = plan.goal; doneReached = plan.total >= plan.goal; goalWrite = 0;
-    taskPhase = 'done'; seqT = 0; rollEnd = 0; seqSpeed = 1; doneHold = 0;
+    taskPhase = 'done'; seqT = 0; rollEnd = 0; seqSpeed = 1; doneHold = 0; endHold = 0;
     if (isLock()) { lockPulse.fill(0); play('pop-big', 'C', 4, 0.8); }
     // Plan the next task now: the same draws in the same order as at its start (nothing else draws from `random` in
     // between), so the idle time of this task's end can bake its lock numerals and tags ahead (prepareNext).
@@ -1748,7 +1754,8 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     rollEnd = ROLL_GAP * Math.max(0, n - 1) + ROLL;
     play('whoosh', 'B', 0, 0.6);
   }
-  let seqPrev = 0, doneHold = 0;
+  /** doneHold, endHold: real seconds the visitor (at sinkAt) and the last task's end (at endAt) have waited for speech. */
+  let seqPrev = 0, doneHold = 0, endHold = 0;
   /** Whether the finished-task clock passed `t` this frame. */
   const at = (t: number): boolean => seqPrev < t && seqT >= t;
   /**
@@ -1782,8 +1789,9 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     }
     if (at(resultAt)) startOutcome();
     if (at(sinkAt)) { visSink = 0.0001; jarOut = 0; }
-    // The last visitor's line finishes before the celebration's fanfare (at most SPEECH_HOLD seconds).
-    if (seqT >= endAt && taskIndex + 1 >= tasksTotal && introStage !== 1 && !speechClear() && seqT < endAt + SPEECH_HOLD) return;
+    // The last visitor's line finishes before the celebration's fanfare (at most SPEECH_HOLD real seconds, counted
+    // without the hurry, so a hurried end never cuts the line).
+    if (seqT >= endAt && taskIndex + 1 >= tasksTotal && introStage !== 1 && !speechClear() && endHold < SPEECH_HOLD) { endHold += dt / seqSpeed; return; }
     if (seqT >= endAt) {
       // The board's cups go out; the door swings open as the next visitor rises.
       cupLit.fill(0); lit = 0; firstLit = 0; cupDim = 0;
@@ -1858,7 +1866,7 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
     // The squirrel saves for the bike (10¢); its twelve cents fill the jar, and it gets the bike.
     goalItem = 0; goalPop = 9; goalWrite = 9; doneGoal = plan.goal; doneReached = true; giftT = -1; jarT = -1; jarOut = -1; jarFill = 0; cupDim = 0; seqSpeed = 1; outcome = '';
     placeGoal();
-    taskPhase = 'done'; seqT = -GOAL_HOLD; doneHold = 0; rollEnd = 0; taskT = 0;
+    taskPhase = 'done'; seqT = -GOAL_HOLD; doneHold = 0; endHold = 0; rollEnd = 0; taskT = 0;
   }
   /**
    * A step's first-time demonstration. Steps 2 to 5 and 7: the helper carries a coin or bill, then taps the next useful
@@ -2044,11 +2052,15 @@ export function createCoinVaultScene(services: AppServices): CoinVaultScene {
    */
   function prepareNext(deadline: IdleDeadline, overdue: boolean): boolean {
     if (!nextPending()) return false;
+    // The tags share the lock tags' turn-taking slots: wait until this task's lock coins have rolled away, so baking the
+    // next task's never takes a slot they still draw from.
+    if (nextStage === 1 && lockN[0]! + lockN[1]! > 0) return false;
     if (!overdue && deadline.timeRemaining() < 8) return true;
     const cur = plan; plan = nextPlan!;
     if (nextStage === 0) {
+      // Into the next strip: this task's plates keep drawing from lockStrip until the next layout swaps them.
       const px = Math.max(14, Math.round((isFewest() ? fewPlateW / LOCK_AR : lockPMax()) * 0.45));
-      if (lockStrip.px !== px || !lockStrip.canvas) bakeStrip(lockStrip, px, artRatio);
+      if ((lockStrip.px !== px || !lockStrip.canvas) && (nextLockStrip.px !== px || !nextLockStrip.canvas)) bakeStrip(nextLockStrip, px, artRatio);
     } else if (!isFewest()) {
       solveLocks(plan.first[0]! + plan.first[1]! + plan.first[2]! + plan.first[3]!, 0, geoNext);
       for (let k = 0; k < 4; k++) tagSlot(k, geoNext.q * COIN_MM[k]! / COIN_MM[QUARTER]!, geoNext.ink);
