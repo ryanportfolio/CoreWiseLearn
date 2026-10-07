@@ -4,4 +4,5 @@
 
 | Env var | Keys what | Consumed in |
 |---|---|---|
-| _(none yet)_ | | |
+| `OPENROUTER_API_KEY` | OpenRouter: Gemini text-to-speech and the transcription check, on the owner's machine only. The game never calls OpenRouter. | `scripts/voice/generate.mjs` |
+| `FFMPEG` (optional) | Full path to an ffmpeg binary, when `where.exe ffmpeg` finds none. Not a secret. | `scripts/voice/generate.mjs` |
