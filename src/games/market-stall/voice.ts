@@ -25,8 +25,36 @@ export function amountClip(cents: number): string {
 export const costsClip = (cents: number): string => `costs-${cents}`;
 /** "Here's <payment>." for a payment in cents. */
 export const payClip = (cents: number): string => `pay-${cents}`;
-/** "I'd like the <item>, please." for one item; with a second item, "I'd like the <item> and the <item2>, please." */
-export const itemClip = (good: number, good2 = -1): string => (good2 < 0 ? `item-${good}` : `item-${good}-${good2}`);
+/**
+ * How a customer asks for its item: "Can I have the pie?" (a real question), "I'll take the pie.", "Ooh, the pie looks
+ * yummy!", "One pie for me!" or "The pie, please." Each item (and each step-9 pair) has three of these, as clips
+ * `item-<good>[-<good2>]-<opener>`; the owner asked for variety and few pleases (2026-10-07).
+ */
+export const OPENERS = ['ask', 'take', 'yum', 'one', 'please'] as const;
+const itemBase = (good: number, good2: number): string => (good2 < 0 ? `item-${good}` : `item-${good}-${good2}`);
+/** Every item clip that exists for this item (or pair), for prioritizeVoice. */
+export function itemClips(good: number, good2 = -1): string[] {
+  const base = itemBase(good, good2), out: string[] = [];
+  for (const o of OPENERS) if (MONEY_VOICE.has(`${base}-${o}`)) out.push(`${base}-${o}`);
+  return out;
+}
+/**
+ * One of the item's clips at random, never with the opener `last` (the previous customer's) when another exists.
+ * Returns the clip and its opener index (-1 and '' when the item has no clip).
+ */
+export function pickItemClip(good: number, good2: number, last: number, random: () => number): { clip: string; opener: number } {
+  const base = itemBase(good, good2);
+  let n = 0;
+  for (let i = 0; i < OPENERS.length; i++) if (i !== last && MONEY_VOICE.has(`${base}-${OPENERS[i]}`)) n++;
+  const allowLast = n === 0;
+  if (allowLast && last >= 0 && MONEY_VOICE.has(`${base}-${OPENERS[last]}`)) n = 1;
+  let k = Math.floor(random() * n);
+  for (let i = 0; i < OPENERS.length; i++) {
+    if ((i === last && !allowLast) || !MONEY_VOICE.has(`${base}-${OPENERS[i]}`)) continue;
+    if (k-- === 0) return { clip: `${base}-${OPENERS[i]}`, opener: i };
+  }
+  return { clip: '', opener: -1 };
+}
 export const QUESTION_CLIP = 'how-much-change';
 
 /** The queue: clip names and their gaps, oldest first (fixed arrays; nothing allocates while it plays). */

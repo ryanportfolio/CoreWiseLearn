@@ -23,7 +23,7 @@ import {
   goalCustomer, K_DOLLAR, K_FIVE, MIN_BILL_PX, MIN_DIME_PX, nextPiece, NICKEL, paid, PENNY, planCustomer, QUARTER, recordCustomer, ROUND_STARS, roundSize, taughtCustomer, TIERS,
   valueOf, type CustomerPlan, type TierParams,
 } from './rules';
-import { amountClip, costsClip, itemClip, OPENING_GAP, customerSpeaking, payClip, prioritizeVoice, queueVoice, QUESTION_CLIP, recordVoice, sayName, stopVoice, TOTAL_GAP, updateVoice, voiceBusy } from './voice';
+import { amountClip, costsClip, itemClips, OPENING_GAP, pickItemClip, customerSpeaking, payClip, prioritizeVoice, queueVoice, QUESTION_CLIP, recordVoice, sayName, stopVoice, TOTAL_GAP, updateVoice, voiceBusy } from './voice';
 
 export { GAME_ID };
 const ART = 'market-stall/';
@@ -435,7 +435,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
   let bgCanvas: HTMLCanvasElement | undefined, bgX = 0, bgY = 0, bgScale = 1, Yc = 475;
 
   // ---- the current customer
-  let plan: CustomerPlan = goalCustomer(), who = 0, good = 0, good2 = 1, mergeDur = MERGE_SECONDS, moment = ENTER, momentT = 0, namesSaid = 0, asked = false;
+  let plan: CustomerPlan = goalCustomer(), who = 0, good = 0, good2 = 1, mergeDur = MERGE_SECONDS, moment = ENTER, momentT = 0, namesSaid = 0, asked = false, lastOpener = -1;
   const dishKind = new Int8Array(MAX_DISH), dishPx = new Float32Array(MAX_DISH), dishPy = new Float32Array(MAX_DISH), dishHop = new Float32Array(MAX_DISH).fill(9);
   /** Pieces in the dish (the payment) and landed so far. */
   let dishN = 0, dishLanded = 0, dropTo = 0;
@@ -1236,7 +1236,13 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
   function priceShown(): void { if (!goal()) queueVoice(costsClip(cents(plan.price)), OPENING_GAP); }
   function paymentShown(): void { if (!goal()) { queueVoice(payClip(cents(planned())), OPENING_GAP); queueVoice(QUESTION_CLIP, OPENING_GAP); } }
   /** The customer asks for its item as it sets it down (both items at step 9). */
-  function itemShown(): void { if (!goal()) queueVoice(two() ? itemClip(good, good2) : itemClip(good), OPENING_GAP); }
+  function itemShown(): void {
+    if (goal()) return;
+    // One of the item's wordings at random, never the same opener as the customer before.
+    const pick = pickItemClip(good, two() ? good2 : -1, lastOpener, random);
+    if (pick.opener >= 0) lastOpener = pick.opener;
+    queueVoice(pick.clip, OPENING_GAP);
+  }
   function counterChanged(): void { /* voiced in a later round */ }
   function trackDone(): void { /* voiced in a later round */ }
   /** Change counting starts: the marker appears at the tag end and (steps 1 to 3) the dots pop in left to right. */
@@ -1252,8 +1258,7 @@ export function createMarketStallScene(services: AppServices): MarketStallScene 
   const nameBit = (kind: number): number => 1 << (isBill(kind) ? 4 + billOf(kind) : kind);
   /** Every clip this customer can say or hear, for prioritizeVoice (once per customer, not per frame). */
   function customerClips(): string[] {
-    const out = [itemClip(good), costsClip(cents(plan.price)), payClip(cents(planned())), QUESTION_CLIP, amountClip(cents(plan.change))];
-    if (two()) out[0] = itemClip(good, good2);
+    const out = [...itemClips(good, two() ? good2 : -1), costsClip(cents(plan.price)), payClip(cents(planned())), QUESTION_CLIP, amountClip(cents(plan.change))];
     for (let i = 0; i < tillN; i++) out.push(nameClip(tillKind[i]!));
     return out;
   }

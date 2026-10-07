@@ -234,7 +234,7 @@ Every sentence and every amount is one whole clip with the voice falling at the 
 
 | Moment | Clip | Said |
 | --- | --- | --- |
-| The customer sets its item down (the tag swings in) | `item-<good>`; step 9, both items: `item-<good>-<good2>` | "I'd like the cherry pie, please."; "I'd like the round loaf and the pretzel, please." |
+| The customer sets its item down (the tag swings in) | one of three `item-<good>-<opener>` clips at random (step 9, both items: `item-<good>-<good2>-<opener>`), never the same opener as the customer before | "Can I have the cherry pie?", "I'll take the round loaf.", "Ooh, the cake looks yummy!", "One pretzel for me!", "The round loaf, please." |
 | The price is on the board's tag end (`priceShown`: with the item, or at step 9 when the tags meet) | `costs-<cents>` | "That costs seven cents.", "That costs one dollar and five cents.", "That costs thirteen dollars." |
 | The payment has poured and counting starts (`paymentShown`) | `pay-<cents>`, then `how-much-change` | "Here's ten cents.", "Here's two dollars."; then "How much change do I get?" |
 | A coin or bill kind is picked up for the first time for this customer | `penny`, `nickel`, `dime`, `quarter`, `bill-1`, `bill-5`, `bill-10`, `bill-20` | "Penny." ... "Twenty-dollar bill." |
