@@ -1,0 +1,17 @@
+{
+  "folder": "pencil-path",
+  "role": "narrator",
+  "lines": [
+    { "file": "start-1", "text": "Can you draw a slide for the marble?" },
+    { "file": "start-2", "text": "Help the marble roll into the cup!" },
+    { "file": "start-3", "text": "Draw a path to the cup!" },
+    { "file": "watch-1", "text": "Watch the pencil!" },
+    { "file": "watch-2", "text": "Look, like this!" },
+    { "file": "win-1", "text": "Into the cup!" },
+    { "file": "win-2", "text": "Hooray! It rolled all the way home!", "accept": ["hurray it rolled all the way home"] },
+    { "file": "win-3", "text": "What a super slide!" },
+    { "file": "win-4", "text": "Wheee! You did it!", "accept": ["whee you did it", "wee you did it", "wheee you did it"] },
+    { "file": "again-1", "text": "Ooh, nearly! Let's have another go.", "accept": ["oh nearly lets have another go", "ooh nearly let us have another go"] },
+    { "file": "again-2", "text": "Back it comes! Try a new line." }
+  ]
+}
