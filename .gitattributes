@@ -4,3 +4,6 @@
 # Workflow and issue-template YAML stays LF. A Windows checkout that rewrites it
 # to CRLF produces a whole-file diff for everyone with core.autocrlf off.
 *.yml text eol=lf
+
+# Preserve the exported game's bytes and recorded asset hashes across checkouts.
+public/games/chop-hop/** -text
