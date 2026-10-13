@@ -1,8 +1,8 @@
 {
   "style": "Flat chunky vector, thick dark outlines, flat saturated fills, single soft highlight, no text. Sprites are 512x512 RGBA (mascot poses 768x768) with the subject centred and fitted to 80 percent of the canvas; backgrounds are 1920x1080 opaque WebP.",
   "generatedWith": "OpenAI image_gen through Codex CLI (gpt-6-astra agent), downscaled with the project scratch script .tmp/art/png.mjs",
-  "count": 131,
-  "totalBytes": 4501884,
+  "count": 132,
+  "totalBytes": 4534518,
   "files": [
     {
       "file": "art/mascot/cheer.webp",
@@ -1313,6 +1313,16 @@
       "height": 512,
       "transparent": true,
       "bytes": 45032
+    },
+    {
+      "file": "art/pencil-path/tile.webp",
+      "group": "pencil-path",
+      "name": "tile",
+      "use": "Hub tile icon for Pencil Path: a marble on a pencil line drawn on a paper card, a pencil and a red paper cup",
+      "width": 512,
+      "height": 512,
+      "transparent": true,
+      "bytes": 32634
     }
   ],
   "prepared": {
@@ -1390,5 +1400,14 @@
     "tile": "tile.webp, 2026-10-05, same Codex CLI and image_gen as the sprites, first attempt, with frog-sit, lily-pad and bug-ladybird attached as style references. Prompt: the same happy frog on its round lily pad looking up and to the right at a small ladybird flying above its head, mouth open in a delighted smile, a few water ripple lines, compact silhouette filling about 80 percent, no text, background, frame, tongue or extra frogs; 1024x1024 transparent PNG. Prepared like the sprites (alpha under 12 cleared, cropped, fitted to 410 px on a 512x512 canvas, WebP quality 92, alpha quality 100). Raw file in D:/CoreWise/_artifacts/CoreWiseLearn/frog-pond-art/raw/tile-raw.png.",
     "update": "fountain.webp (replacing pot.webp), cw-rainbow, cw-popcorn, cw-backpack, a new cw-football (an American football) and a new cw-sunset (no face), 2026-10-05: same Codex CLI 0.159.0 and image_gen, first attempt each, two runs (fountain and sunset; rainbow, popcorn, football and backpack) with creatures/crab, cw-baseball and the old pot attached as style references. Prompts locked the same house style plus no faces on anything; the fountain asked for a chunky round stone basin of sky-blue water, a short pillar holding a small bowl, one water jet spraying up from it and falling to both sides, and a few bubbles above the jet; the sunset asked for a round badge of orange and pink sky bands, a plain half sun on the sea horizon and golden reflections. Prepared exactly like the other sprites (alpha under 12 cleared, cropped, fitted to 410 px on 512x512 with Lanczos 3, WebP quality 92, alpha quality 100). Raw files in D:/CoreWise/_artifacts/CoreWiseLearn/frog-pond-art/word-fountain/.",
     "moreWords": "cw-cupcake, cw-bulldog, cw-mailbox, cw-goldfish, cw-snowman, cw-snowball, cw-sailboat, cw-toothbrush, cw-sunflower, cw-jellyfish, cw-pinecone, cw-beehive, cw-firefly and cw-raincoat, 2026-10-05: same Codex CLI 0.159.0 and image_gen, four runs. The animals (bulldog, goldfish, jellyfish, firefly) had creatures/crab, cw-catfish and cw-ladybug attached as style references and were allowed the same simple natural face as those (dark eyes with a white shine dot, pink cheeks, a small smile); the snowman was allowed a snowman face (coal eyes, carrot nose, coal-dot smile); everything else had creatures/crab, cw-baseball and cw-backpack attached and no faces. First attempt each, except cw-pinecone: the first had a green needle sprig on top that read as a pineapple, so the second asked for no green at all. Prepared exactly like the other sprites (alpha under 12 cleared, cropped, fitted to 410 px on 512x512 with Lanczos 3, WebP quality 92, alpha quality 100). Raw files, prompts (mw1 to mw5) and logs in D:/CoreWise/_artifacts/CoreWiseLearn/frog-pond-art/word-fountain/."
+  },
+  "pencilPathArt": {
+    "generatedWith": "Codex CLI 0.159.0 (codex exec -m gpt-6-astra, reasoning effort medium) using its built-in image_gen tool; the backend picks the image model and the log does not name it",
+    "date": "2026-10-13",
+    "reference": "Attached dino-picnic/tile.webp and tiles/rocket-red.webp as style references.",
+    "prompt": "House style locked (flat chunky vector, thick even dark navy outline #2b2140, flat saturated fills, one soft highlight per part, fully transparent square canvas, one centred group filling about 80 percent). Subject: a small cream paper card with a curvy grey pencil line sloping from upper left to lower right, a blue glass marble with an orange swirl near its top, a small red paper cup with a white rim at its bottom end, and a yellow pencil with a pink eraser lying diagonally with its tip at the end of the line. No text, letters, numbers, logos, faces, background, frame or 3D rendering.",
+    "attempts": "One attempt.",
+    "source": "Raw 1024x1024 RGBA PNG and the Codex log retained outside public in D:/CoreWise/_artifacts/CoreWiseLearn/pencil-path",
+    "preparation": "Alpha under 12 cleared, cropped to the alpha bounds, longest side fitted to 410 px with Lanczos 3 and centred on a 512x512 transparent canvas, WebP quality 92 with alpha quality 100 (a scratch sharp script)."
   }
 }

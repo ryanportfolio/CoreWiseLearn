@@ -1,0 +1,11 @@
+{
+  "folder": "pencil-path",
+  "role": "narrator",
+  "lines": [
+    { "file": "start", "text": "Draw a path to the cup!" },
+    { "file": "watch-1", "text": "Watch the pencil!" },
+    { "file": "watch-2", "text": "Look, like this!" },
+    { "file": "again-1", "text": "Ooh, nearly! Let's have another go.", "accept": ["oh nearly lets have another go", "ooh nearly let us have another go"] },
+    { "file": "again-2", "text": "Back it comes! Try a new line." }
+  ]
+}

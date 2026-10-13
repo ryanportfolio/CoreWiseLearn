@@ -15,6 +15,7 @@ import { rideFare } from '../games/ride-fare';
 import { frogPond } from '../games/frog-pond';
 import { coinVault } from '../games/coin-vault';
 import { marketStall } from '../games/market-stall';
+import { pencilPath } from '../games/pencil-path';
 
 /** Everything a game may need from the hub, handed in when its scene is created. */
 export type GameServices = AppServices;
@@ -57,6 +58,7 @@ const games: GameDefinition[] = [
   frogPond,
   coinVault,
   marketStall,
+  pencilPath,
   // Add games here in hub order. See docs/adding-a-game.md.
 ];
 
