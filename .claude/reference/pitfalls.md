@@ -111,3 +111,7 @@ Coin Count Vault cached its baked value tags by size in a `Float32Array` and com
 ## 2026-10-05: `npm run dev -- --port N` in the PowerShell terminal starts on the default port
 
 Typed into the app's PowerShell terminal tab, `npm run dev -- --port 5180 --strictPort` started Vite on its default port: PowerShell treats `--` as its own end-of-parameters marker when it calls the `npm.ps1` shim, so the flags never reach Vite. Fix: start dev servers there with `npx vite --port <n> --strictPort` (`commands.md`). Git Bash passes `--` through, so the npm form still works from the Bash tool. Cost: one restart of the dev server.
+
+## 2026-10-13: service-worker readiness does not mean this tab is controlled
+
+On a fresh browser profile, `navigator.serviceWorker.ready` resolved after the PWA finished its first install, but `navigator.serviceWorker.controller` stayed null until the next navigation. Waiting for a controller on that first page timed out. For an offline browser check, await readiness, reload once online, confirm a controller, then disconnect and reload offline. This preserves the normal service-worker update flow in `src/main.ts`; do not change it just to make the check pass. Cost: one browser-check retry.
