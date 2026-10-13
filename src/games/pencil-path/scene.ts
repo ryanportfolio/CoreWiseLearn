@@ -80,7 +80,7 @@ export function createPencilPathScene(services: AppServices): PencilPathScene {
   let stars = 1, sceneT = 0, time = 0, phaseT = 0, starsPlayed = 0, zoneFlash = 0;
   let menuSelected = -1, inputAfter = 0, focusAt = 0, cornerFocus = -1, keyMode = false, homeHover = 0;
   let cornerRadius = 48, cornerY = 60, homeX = 60, soundX = 1306, controlsY = 600, controlsRadius = 60;
-  let meterX = 0, meterW = 0, scratchAt = 0, tickAt = 0, hitAt = 0, voiceAt = -99, restEntered = false;
+  let meterX = 0, meterW = 0, meterY = 60, pageTop = 132, scratchAt = 0, tickAt = 0, hitAt = 0, voiceAt = -99, restEntered = false;
   let workHead = 0, workCount = 0, updateMs = 0;
 
   const play = (name: SfxName, variant: SfxVariant, volume = 1, index = 0): void => {
@@ -102,14 +102,25 @@ export function createPencilPathScene(services: AppServices): PencilPathScene {
     cornerRadius = Math.max(48, Math.min(60 * u, W / 8, H / 6));
     homeX = cornerRadius + 12; soundX = W - cornerRadius - 12; cornerY = cornerRadius + 12;
     soundButton.x = soundX; soundButton.y = cornerY; soundButton.radius = cornerRadius;
-    goButton.radius = Math.max(48, cornerRadius * 1.05); goButton.x = W / 2; goButton.y = cornerY;
-    undoButton.radius = Math.max(48, cornerRadius * 0.9); undoButton.y = cornerY;
+    goButton.radius = Math.max(48, cornerRadius * 1.05);
+    undoButton.radius = Math.max(48, cornerRadius * 0.9);
+    // Go and Undo sit between the corner buttons; a window too narrow for that puts them on a row of their own
+    // below, so every control keeps its own 96 px target.
+    const undoLeft = W / 2 - goButton.radius - 22 - undoButton.radius * 2;
+    const ownRow = undoLeft < homeX + cornerRadius + 12 || W / 2 + goButton.radius > soundX - cornerRadius - 12;
+    const rowY = ownRow ? cornerY + cornerRadius + 14 + goButton.radius : cornerY;
+    goButton.y = undoButton.y = rowY;
+    // on its own row the pair is centred; between the corners Go is centred and Undo sits to its left
+    goButton.x = ownRow ? W / 2 + undoButton.radius + 11 : W / 2;
     undoButton.x = goButton.x - goButton.radius - undoButton.radius - 22;
     meterX = goButton.x + goButton.radius + 24;
-    meterW = Math.max(0, Math.min(300, soundX - cornerRadius - 24 - meterX));
+    meterW = Math.max(0, Math.min(300, (ownRow ? W - 12 : soundX - cornerRadius - 24) - meterX));
+    meterY = rowY;
+    const top = ownRow ? rowY + goButton.radius + 14 : cornerY + cornerRadius + 14;
     controlsRadius = Math.max(48, Math.min(62 * u, W / 5));
     controlsY = H - controlsRadius - 22;
-    painter.layout(W, H, cornerY + cornerRadius + 14, ratio);
+    pageTop = top;
+    painter.layout(W, H, top, ratio);
     painter.bake(level);
   }
 
@@ -358,7 +369,7 @@ export function createPencilPathScene(services: AppServices): PencilPathScene {
     chunkyCircle(ctx, homeX, cornerY, hr, '#a8d58f', OUTLINE, 4);
     drawSprite(ctx, sprites, BUTTON_HOME, homeX, cornerY, Math.round(cornerRadius * 1.3), 0, hs, hs);
     for (const b of buttons) b.render(ctx, sprites);
-    if (goButton.visible && meterW > 40) painter.meter(ctx, meterX, cornerY, meterW, inkLeft() / level.ink);
+    if (goButton.visible && meterW > 40) painter.meter(ctx, meterX, meterY, meterW, inkLeft() / level.ink);
     if (cornerFocus >= 0) focusRing(ctx, cornerFocus === 0 ? homeX : soundX, cornerY, cornerRadius);
   }
   function renderResult(ctx: CanvasRenderingContext2D): void {
@@ -379,7 +390,7 @@ export function createPencilPathScene(services: AppServices): PencilPathScene {
     for (const b of buttons) if (b.visible && b.contains(x, y)) return true;
     return false;
   }
-  const inPage = (y: number): boolean => y > cornerY + cornerRadius;
+  const inPage = (y: number): boolean => y > pageTop - 8;
   function hoverMenu(x: number, y: number): number {
     for (let i = 0; i < 2; i++) if (Math.hypot(x - controlX(i), y - controlsY) <= controlsRadius) return i;
     return -1;

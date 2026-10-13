@@ -198,7 +198,8 @@ export function createPainter(): Painter {
     get oy() { return oy; },
     layout(width, height, top, ratio) {
       W = width; H = height; dpr = ratio;
-      s = Math.min((W - 28) / LEVEL_W, (H - top - 14) / (LEVEL_H + 0.6));
+      // at least 2 px per cm even when a tiny window leaves no room, so every bake has a positive size and step
+      s = Math.max(2, Math.min((W - 28) / LEVEL_W, (H - top - 14) / (LEVEL_H + 0.6)));
       ox = (W - LEVEL_W * s) / 2;
       oy = top + (H - top - 14 - LEVEL_H * s) / 2;
       bakeMarble();
