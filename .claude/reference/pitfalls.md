@@ -115,3 +115,7 @@ Typed into the app's PowerShell terminal tab, `npm run dev -- --port 5180 --stri
 ## 2026-10-13: service-worker readiness does not mean this tab is controlled
 
 On a fresh browser profile, `navigator.serviceWorker.ready` resolved after the PWA finished its first install, but `navigator.serviceWorker.controller` stayed null until the next navigation. Waiting for a controller on that first page timed out. For an offline browser check, await readiness, reload once online, confirm a controller, then disconnect and reload offline. This preserves the normal service-worker update flow in `src/main.ts`; do not change it just to make the check pass. Cost: one browser-check retry.
+
+## 2026-10-13: Vercel curl forwards global options to curl
+
+Vercel CLI 56.4.1 forwarded `--scope` to native curl, which rejected it, despite listing that flag in the command's global help. Run the protected preview check from a scratch folder already linked to the intended project, with only `--deployment` and the curl flags on `vercel curl`. Keep `vercel link` and its downloaded `.env.local` in scratch space. Cost: one preview-fetch retry.
