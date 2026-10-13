@@ -24,7 +24,7 @@ import { defaultData, GAME_ID, PAGE_COUNT, sanitizePencilPathData, type PencilPa
 import { LEVELS } from './levels';
 import { createPainter, pointAlong } from './paint';
 import { inRect, inkLength, Sim, starsFor, tidyStroke, type Kind, type Level, type P2 } from './physics';
-import { AGAIN_CLIPS, PENCIL_VOICE, START_CLIPS, WATCH_CLIPS, WIN_CLIPS } from './voice';
+import { AGAIN_CLIPS, PENCIL_VOICE, START_CLIP, WATCH_CLIPS } from './voice';
 
 export { GAME_ID };
 const BUTTON_PLAY = 'buttons/play-arrow', BUTTON_HOME = 'buttons/home', BUTTON_UNDO = 'buttons/backspace';
@@ -80,15 +80,15 @@ export function createPencilPathScene(services: AppServices): PencilPathScene {
   let stars = 1, sceneT = 0, time = 0, phaseT = 0, starsPlayed = 0, zoneFlash = 0;
   let menuSelected = -1, inputAfter = 0, focusAt = 0, cornerFocus = -1, keyMode = false, homeHover = 0;
   let cornerRadius = 48, cornerY = 60, homeX = 60, soundX = 1306, controlsY = 600, controlsRadius = 60;
-  let meterX = 0, meterW = 0, meterY = 60, pageTop = 132, scratchAt = 0, tickAt = 0, hitAt = 0, voiceAt = -99, restEntered = false;
+  let meterX = 0, meterW = 0, meterY = 60, pageTop = 132, scratchAt = 0, tickAt = 0, hitAt = 0, voiceAt = -99, restEntered = false, invited = false;
   let workHead = 0, workCount = 0, updateMs = 0;
 
   const play = (name: SfxName, variant: SfxVariant, volume = 1, index = 0): void => {
     sfx.index = index; sfx.volume = volume; sfx.variant = variant; playSfx(audio, name, sfx);
   };
-  const say = (clips: readonly string[]): void => {
-    voice.play(PENCIL_VOICE, clips[Math.floor(services.random() * clips.length)]!);
+  const say = (clips: readonly string[]): boolean => {
     voiceAt = time;
+    return voice.play(PENCIL_VOICE, clips[Math.floor(services.random() * clips.length)]!);
   };
 
   const goButton: Button = createButton({ x: 0, y: 0, radius: 56, fill: '#ffd166', icon: BUTTON_PLAY, onPress: () => go() });
@@ -136,7 +136,8 @@ export function createPencilPathScene(services: AppServices): PencilPathScene {
     guard(PLAY_GUARD_MS);
     // A page not yet finished starts with the pencil showing a way, after the narrator's invitation.
     if (!(data.best[page]! > 0)) startDemo(false, 1.4);
-    say(START_CLIPS);
+    // The invitation is said once a visit, on page 1. Sound off or locked leaves it for the next time page 1 opens.
+    if (page === 0 && !invited) invited = say([START_CLIP]);
     if (audio.context) prepareSfx(audio, 'fanfare', FANFARE);
   }
   function startDemo(adopt: boolean, delay = 0): void {
@@ -245,7 +246,6 @@ export function createPencilPathScene(services: AppServices): PencilPathScene {
     phase = 'celebration'; phaseT = 0; starsPlayed = 0; cornerFocus = -1; restEntered = false;
     play('fanfare', FANFARE.variant!);
     confettiBurst(particles, painter.ox + level.cup.x * painter.s, painter.oy + (level.cup.y - level.cup.h) * painter.s, 60, 360);
-    say(WIN_CLIPS);
   }
   const celebrationLocked = (): boolean => phaseT < Math.max(1.5, STAR_START + (stars - 1) * STAR_GAP_SECONDS + STAR_HIT_SECONDS);
   function enterRest(): void {

@@ -14,13 +14,14 @@ The game was first built in the Games repo (github.com/ryanportfolio/Games, `gam
 
 ## Discovery without words
 
-- On any page not finished yet, the narrator invites ("Draw a path to the cup!") and the pencil draws a way as a dashed line, lifts off and glides back. The dashes stay faint on the page to trace over.
+- The first time page 1 opens in a visit, the narrator invites once ("Draw a path to the cup!"). No other page has an invitation.
+- On any page not finished yet, the pencil draws a way as a dashed line, lifts off and glides back. The dashes stay faint on the page to trace over.
 - A page left blank for ten seconds gets the same demonstration.
 - The marble rocks gently on its pin while it waits.
 
 ## Round flow
 
-A round is one page. Landing in the cup plays the fanfare and confetti; stars slam in at the top (three when the line used little pencil, two or one otherwise; every finished page earns at least one), with the narrator cheering. After the stars, a still rest screen shows Again (the play arrow, which opens the next page) and Home. `services.roundBoundary()` runs once on reaching the rest screen. The round and the reward star are written before the celebration shows.
+A round is one page. Landing in the cup plays the fanfare and confetti; stars slam in at the top (three when the line used little pencil, two or one otherwise; every finished page earns at least one), with no voice. After the stars, a still rest screen shows Again (the play arrow, which opens the next page) and Home. `services.roundBoundary()` runs once on reaching the rest screen. The round and the reward star are written before the celebration shows.
 
 Star thresholds per page come from the shortest winning drawing a search of thousands of random drawings found: three stars up to twice that length plus 6 cm, two stars up to three times plus 10 cm.
 
