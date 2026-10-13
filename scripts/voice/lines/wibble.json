@@ -59,6 +59,7 @@
     { "file": "sleepy-2", "text": "Shall we have a little rest?" },
 
     { "file": "game-bubble-pop", "text": "Bubble Bay!" },
+    { "file": "game-chop-hop", "text": "Chop Hop!" },
     { "file": "game-dino-picnic", "text": "Dino Picnic!" },
     { "file": "game-letter-train", "text": "Letter Train!" },
     { "file": "game-web-playground", "text": "Web Playground!" },

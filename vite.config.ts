@@ -42,7 +42,9 @@ export default defineConfig({
       },
       workbox: {
         // Precache every built asset so the hub works offline after the first load.
-        globPatterns: ['**/*.{js,css,html,png,svg,ico,webp,mp3,ogg,wav,json,woff2,ttf,txt,md}'],
+        globPatterns: ['**/*.{js,css,html,png,jpg,jpeg,svg,ico,webp,mp3,ogg,wav,json,woff2,ttf,txt,md,glb,wasm,basis}'],
+        // A game document must get its own HTML when opened from the installed app.
+        navigateFallbackDenylist: [/^\/games\//],
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
         navigateFallback: `${BASE}index.html`,
         cleanupOutdatedCaches: true,
