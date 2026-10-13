@@ -6,6 +6,7 @@
   var initialized = false, ready = false, paused = false, muted = true, save = null, app = null;
   var nativeTimeout = window.setTimeout.bind(window), nativeClear = window.clearTimeout.bind(window);
   var timers = new Map(), nextTimer = 1, runningScale = 0.8;
+  var loadingScreen;
   function post(type, extra) {
     if (embedded) window.parent.postMessage(Object.assign({ type: type }, extra || {}), origin);
   }
@@ -91,6 +92,7 @@
       // Audio and the other entities finish their initialization during this app start.
       nativeTimeout(function () {
         settings({ muted: muted, paused: paused });
+        if (window.__corewiseChopHopHud) window.__corewiseChopHopHud(app);
         ready = true;
         post('chop-hop:ready');
       }, 0);
@@ -112,17 +114,30 @@
     save = clone(data.save);
     settings({ muted: data.muted, paused: false });
     try {
+      await script('corewise-hud.js');
       await script('playcanvas-stable.min.js');
       await script('__settings__.js');
       await script('__modules__.js');
-      await script('__start__.js');
+      // Register the supplied intro before configuration and asset preloading can start.
+      pc.script.createLoadingScreen = function (callback) { loadingScreen = callback; };
       await script('__loading__.js');
+      await script('__start__.js');
     } catch (error) {
       post('chop-hop:error', { message: 'Chop Hop could not load.' });
       console.error('Chop Hop could not load.', error);
     }
   }
-  window.__corewiseChopHop = { flush: flush, installRuntime: installRuntime };
+  function showLoading(application) {
+    if (!loadingScreen) return;
+    var show = loadingScreen;
+    loadingScreen = null;
+    show(application);
+    var images = Array.prototype.slice.call(document.querySelectorAll('#preloaderContainer img'));
+    Promise.all(images.map(function (image) { return image.decode().catch(function () {}); })).then(function () {
+      post('chop-hop:loading');
+    });
+  }
+  window.__corewiseChopHop = { flush: flush, installRuntime: installRuntime, showLoading: showLoading };
   window.addEventListener('message', function (event) {
     if (event.source !== window.parent || event.origin !== origin || !event.data) return;
     if (event.data.type === 'corewise:init') boot(event.data);
@@ -132,15 +147,18 @@
     if (embedded && (event.key === 'Escape' || event.key === 'Tab')) {
       event.preventDefault();
       event.stopImmediatePropagation();
-      post(event.key === 'Escape' ? 'chop-hop:home' : 'chop-hop:controls');
+      if (event.key !== 'Escape' || !event.repeat) post(event.key === 'Escape' ? 'chop-hop:fullscreen' : 'chop-hop:controls');
     } else if (paused) {
       event.preventDefault();
       event.stopImmediatePropagation();
+    } else if (embedded && !event.repeat) {
+      post('chop-hop:gesture');
     }
   }, true);
   ['pointerdown', 'mousedown', 'touchstart', 'keyup'].forEach(function (name) {
     window.addEventListener(name, function (event) {
       if (paused) { event.preventDefault(); event.stopImmediatePropagation(); }
+      else if (embedded && (name === 'pointerdown' || name === 'touchstart')) post('chop-hop:gesture');
     }, { capture: true, passive: false });
   });
   window.addEventListener('pagehide', flush);

@@ -28,8 +28,8 @@
     },
     {
       "path": "__start__.js",
-      "bytes": 13128,
-      "sha256": "d0694b28d25d61e3ff0bd505fe957fbf866d8ab651605dd41f892a476f7a10ea"
+      "bytes": 13179,
+      "sha256": "3baf7fc3e7e9415e7965e5c458be5811a2f17eaa0cf5e085fb5bafed88a05fb1"
     },
     {
       "path": "__loading__.js",
@@ -1203,8 +1203,13 @@
     },
     {
       "path": "corewise-bridge.js",
-      "bytes": 6074,
-      "sha256": "bf8a2ef38a83593ff098e72115553c0df1f7653d5c8009a3edd9d1d470d7258a"
+      "bytes": 7051,
+      "sha256": "9b7529c5e2d65e1a248b5a87a7a9d5302f9094bd69e12be481c2279fa2f745c7"
+    },
+    {
+      "path": "corewise-hud.js",
+      "bytes": 3131,
+      "sha256": "979aef4be9a112b9c7acdac7376163d5734e648fd5e27a048bcd17ab1958ad6c"
     }
   ]
 }

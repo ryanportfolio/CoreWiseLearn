@@ -119,3 +119,11 @@ On a fresh browser profile, `navigator.serviceWorker.ready` resolved after the P
 ## 2026-10-13: Vercel curl forwards global options to curl
 
 Vercel CLI 56.4.1 forwarded `--scope` to native curl, which rejected it, despite listing that flag in the command's global help. Run the protected preview check from a scratch folder already linked to the intended project, with only `--deployment` and the curl flags on `vercel curl`. Keep `vercel link` and its downloaded `.env.local` in scratch space. Cost: one preview-fetch retry.
+
+## 2026-10-13: disabled PlayCanvas UI keeps old screen corners
+
+Chop Hop's disabled UI elements retained their previous `screenCorners`. Adjusting a hidden money counter from those corners on each frame made its position drift. In `public/games/chop-hop/corewise-hud.js`, measure and move only counters whose whole parent chain is enabled; calculate after layout in `prerender`. Verify each UI screen while enabled. Cost: one counter-layout probe retry.
+
+## 2026-10-13: an iframe cover can hide the game's loading intro
+
+The hub kept an opaque cover until `chop-hop:ready`, hiding the supplied animated intro throughout loading. Uncover on `chop-hop:loading` once its artwork is decoded. Register the game's loading callback before `app.configure` starts, because the PlayCanvas loading-screen API calls its callback immediately rather than waiting for preload. The exporter inserts that registration point in `__start__.js`. Cost: owner screenshot correction.

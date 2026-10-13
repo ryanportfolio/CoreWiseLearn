@@ -70,6 +70,9 @@ for (const [name, bytes] of files) {
     content = Buffer.from(content.toString().replace(/\?t=[a-f0-9]{32}(?=["'])/g, ''));
   }
   if (name === '__game-scripts.js') content = Buffer.from(content.toString() + '\nwindow.__corewiseChopHop.installRuntime();\n');
+  if (name === '__start__.js') content = Buffer.from(replaceOnce(content.toString(),
+    'app.configure(window.CONFIG_FILENAME, (err) => {',
+    'window.__corewiseChopHop.showLoading(app);\n        app.configure(window.CONFIG_FILENAME, (err) => {'));
   files.set(name, content);
 }
 // Owner model paths outside files/study are discovered from the actual exported text.
@@ -83,7 +86,8 @@ for (const bytes of files.values()) {
   }
 }
 // The bridge is maintained as ordinary source and survives repeat exports.
-if (!existsSync(join(target, 'corewise-bridge.js'))) throw new Error('Missing corewise-bridge.js');
+const maintained = ['corewise-bridge.js', 'corewise-hud.js'];
+for (const name of maintained) if (!existsSync(join(target, name))) throw new Error(`Missing ${name}`);
 // Reject links before any cleanup, including links in a parent directory. Never follow a junction.
 if (relative(root, target).replaceAll('\\', '/') !== 'public/games/chop-hop') throw new Error('Export target must stay inside this worktree');
 for (const name of ['public', 'public/games', 'public/games/chop-hop']) {
@@ -100,7 +104,7 @@ function verifyTree(folder) {
 }
 verifyTree(target);
 for (const item of readdirSync(target)) {
-  if (item !== 'corewise-bridge.js') rmSync(join(target, item), { recursive: true, force: false });
+  if (!maintained.includes(item)) rmSync(join(target, item), { recursive: true, force: false });
 }
 for (const [name, content] of files) {
   const out = join(target, name);
@@ -108,7 +112,9 @@ for (const [name, content] of files) {
   writeFileSync(out, content);
 }
 const manifest = [...files].map(([path, bytes]) => ({ path, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') }));
-const bridge = readFileSync(join(target, 'corewise-bridge.js'));
-manifest.push({ path: 'corewise-bridge.js', bytes: bridge.length, sha256: createHash('sha256').update(bridge).digest('hex') });
+for (const name of maintained) {
+  const bytes = readFileSync(join(target, name));
+  manifest.push({ path: name, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') });
+}
 writeFileSync(join(target, 'export-manifest.json'), JSON.stringify({ base, files: manifest }, null, 2) + '\n');
 console.log(JSON.stringify({ files: manifest.length, bytes: manifest.reduce((sum, item) => sum + item.bytes, 0), assets: Object.keys(config.assets).length, destination: target }, null, 2));

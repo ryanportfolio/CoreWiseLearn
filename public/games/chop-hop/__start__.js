@@ -288,6 +288,7 @@
     }
 
     function configure() {
+        window.__corewiseChopHop.showLoading(app);
         app.configure(window.CONFIG_FILENAME, (err) => {
             if (err) {
                 console.error(err);
