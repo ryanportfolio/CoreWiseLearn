@@ -4,8 +4,8 @@
  */
 
 import type { Scene } from './scene';
-import { registerEarnedLists, registerSaveValidator, type AppServices, type SaveBagValidator } from '../app/services';
-import { bubblePop } from '../games/bubble-pop';
+import { registerEarnedLists, registerSaveValidator, sanitizeBubbleData, type AppServices, type SaveBagValidator } from '../app/services';
+import { chopHop } from '../games/chop-hop';
 import { dinoPicnic } from '../games/dino-picnic';
 import { letterTrain } from '../games/letter-train';
 import { webPlayground } from '../games/web-playground';
@@ -47,7 +47,7 @@ export interface GameDefinition {
 }
 
 const games: GameDefinition[] = [
-  bubblePop,
+  chopHop,
   dinoPicnic,
   letterTrain,
   webPlayground,
@@ -70,6 +70,8 @@ export function findGame(id: string): GameDefinition | undefined {
 
 /** Register every listed game's save validator and earned lists. bootApp calls this before creating the save store. */
 export function registerSaveValidators(): void {
+  // Keep checking existing Bubble Bay saves after its tile has been replaced.
+  registerSaveValidator('bubble-pop', (bag, protect) => sanitizeBubbleData(bag, protect));
   for (const game of games) {
     if (game.validateSave) registerSaveValidator(game.id, game.validateSave);
     if (game.earnedLists) registerEarnedLists(game.id, game.earnedLists);
